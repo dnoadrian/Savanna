@@ -34,7 +34,7 @@ export class LobbyScene {
     const sc = this.sun.shadow.camera;
     sc.left = -8; sc.right = 8; sc.top = 8; sc.bottom = -8; sc.near = 1; sc.far = 40;
     this.scene.add(this.sun);
-    const rim = new THREE.DirectionalLight(0x8fb8ff, 0.8);
+    const rim = new THREE.DirectionalLight(0xb8d0ff, 1.5);
     rim.position.set(6, 4, 8);
     this.scene.add(rim);
     this.buildEnvironment();

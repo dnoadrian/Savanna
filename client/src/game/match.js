@@ -604,10 +604,11 @@ export class MatchClient {
 
   leaveToLobby() {
     const s = this.session;
-    if (this.state === 'alive' && !this.ended) s.leave();
+    // Mehrspieler: Server immer informieren (auch als Zuschauer), damit man sofort wieder in die Warteschlange kann
+    if (!s.isLocal) s.leave();
+    else if (this.state === 'alive' && !this.ended) s.leave();
     if (s.isLocal && s.phase !== 'ended') {
       // Solo: Runde im Hintergrund fertig simulieren, damit der Sieger die Krone bekommt
-      if (this.state === 'alive') s.leave();
       const mineNow = s.sim.stats(s.sim.byId.get(s.youId));
       this.app.ui.toast(t('finishingMatch'));
       s.finishInBackground((sim) => {

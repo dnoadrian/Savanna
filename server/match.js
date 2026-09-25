@@ -123,6 +123,7 @@ export class ServerMatch {
 
   // Spieler verlässt das Match (oder trennt die Verbindung): Figur scheidet aus
   leave(c) {
+    if (c.matchId !== this.id) return;
     this.sim.removePlayer(c.pid);
     if (c.matchId === this.id) c.matchId = null;
     const ev = this.sim.drainEvents();

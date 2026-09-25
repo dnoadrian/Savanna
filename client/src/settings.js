@@ -24,7 +24,7 @@ export const KEY_ACTIONS = Object.keys(DEFAULT_KEYS);
 
 export const DEFAULTS = {
   // Grafik
-  quality: 'high',
+  quality: 'auto',
   resolution: 100,
   shadows: 'high',
   viewDistance: 'far',
