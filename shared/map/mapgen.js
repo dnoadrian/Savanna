@@ -260,8 +260,8 @@ export function generateMap(seed = MAP_SEED, onProgress = null) {
           if (dd < p.r * 0.5 && p.id !== 'oasis' && p.id !== 'lookout' && p.id !== 'docks') poiDirt = true;
         }
         const canyonD = Math.hypot(x - CANYON.x, z - CANYON.z);
-        if (poiDirt || canyonD < CANYON.R || nd > 0.32) s = SURF.DIRT;
-        else if (ng > 0.12) s = SURF.DRYGRASS;
+        if (poiDirt || canyonD < CANYON.R || nd > 0.42) s = SURF.DIRT;
+        else if (ng > -0.05) s = SURF.DRYGRASS;
         else s = SURF.GRASS;
         if (Math.hypot(x - POND.x, z - POND.z) < 60 && s === SURF.DRYGRASS) s = SURF.GRASS;
       }
