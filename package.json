@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node server/index.js",
     "online": "node server/index.js --online",
+    "spielen": "node server/index.js --online --open",
     "build:pages": "node scripts/build-pages.js",
     "test": "node tests/run-tests.js"
   },

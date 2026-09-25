@@ -2,6 +2,7 @@
 // Party, Matchmaking und server-autoritative Matches über WebSocket.
 import http from 'http';
 import os from 'os';
+import { spawn } from 'child_process';
 import { WebSocketServer } from 'ws';
 import { serveStatic } from './static.js';
 import { SERVER_PORT } from '../shared/constants.js';
@@ -21,6 +22,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 const game = new GameServer(port);
 wss.on('connection', (ws, req) => game.onConnection(ws, req));
+wss.on('error', () => {}); // Fehler des HTTP-Servers werden unten behandelt
 
 function lanAddresses() {
   const out = [];
@@ -31,6 +33,19 @@ function lanAddresses() {
   }
   return out;
 }
+
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    console.log('');
+    console.log(`  Das Spiel läuft bereits (Port ${port} ist belegt) – ist noch ein anderes Fenster offen?`);
+    console.log(`  Einfach im Browser öffnen: http://localhost:${port}`);
+    console.log('');
+    if (process.argv.includes('--open')) openBrowser(`http://localhost:${port}`);
+    setTimeout(() => process.exit(1), 500);
+    return;
+  }
+  throw e;
+});
 
 server.listen(port, '0.0.0.0', () => {
   console.log('');
@@ -44,10 +59,34 @@ server.listen(port, '0.0.0.0', () => {
   console.log('  Beenden mit STRG+C.');
   console.log('');
   if (process.argv.includes('--online') || process.env.SAVANNA_ONLINE === '1') {
-    console.log('  Starte Online-Tunnel …');
+    console.log('  Starte Online-Tunnel … (der Link für Freunde erscheint gleich hier)');
     game.tunnel.start();
   }
+  if (process.argv.includes('--open')) openBrowser(`http://localhost:${port}`);
 });
+
+// Standardbrowser öffnen (für den Doppelklick-Start)
+function openBrowser(url) {
+  let cmd;
+  let args;
+  if (process.platform === 'win32') {
+    cmd = 'rundll32';
+    args = ['url.dll,FileProtocolHandler', url];
+  } else if (process.platform === 'darwin') {
+    cmd = 'open';
+    args = [url];
+  } else {
+    cmd = 'xdg-open';
+    args = [url];
+  }
+  try {
+    const p = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    p.on('error', () => {});
+    p.unref();
+  } catch {
+    /* kein Browser verfügbar */
+  }
+}
 
 function shutdown() {
   game.saveNow();

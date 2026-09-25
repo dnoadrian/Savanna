@@ -35,6 +35,10 @@ Nach Änderungen am Client `npm run build:pages` ausführen und `docs/` mit comm
 
 ## 🚀 Schnellstart (eigener Server mit allen Funktionen)
 
+**Windows, ganz einfach:** Projekt als ZIP herunterladen und entpacken, dann **`Starten.bat` doppelklicken**. Beim ersten Start richtet sie alles ein (`npm install`). Danach startet sie den Server mit Online-Link für Freunde und öffnet das Spiel im Browser. Das schwarze Fenster offen lassen, solange gespielt wird. Voraussetzung ist Node.js von [nodejs.org](https://nodejs.org), die Datei weist darauf hin, falls es fehlt.
+
+Oder per Befehl:
+
 Voraussetzung: [Node.js](https://nodejs.org) ab Version 18 (empfohlen 20 oder 22).
 
 ```bash
