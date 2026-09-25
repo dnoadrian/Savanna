@@ -4,8 +4,8 @@ import { t } from '../i18n.js';
 import { KEY_ACTIONS, keyLabel } from '../settings.js';
 import { QUALITY_PRESETS } from '../render/renderer.js';
 
-const TABS = ['account', 'graphics', 'hud', 'controls', 'mouse', 'audio', 'game'];
-const TAB_LABEL = { account: 'tabAccount', graphics: 'tabGraphics', hud: 'tabHud', controls: 'tabControls', mouse: 'tabMouse', audio: 'tabAudio', game: 'tabGame' };
+const TABS = ['account', 'graphics', 'hud', 'controls', 'mouse', 'audio'];
+const TAB_LABEL = { account: 'tabAccount', graphics: 'tabGraphics', hud: 'tabHud', controls: 'tabControls', mouse: 'tabMouse', audio: 'tabAudio' };
 const GFX_KEYS = ['resolution', 'shadows', 'viewDistance', 'grass', 'antialias', 'post'];
 
 export class SettingsPanel {
@@ -143,6 +143,7 @@ export class SettingsPanel {
       class: 'btn small ghost',
       onclick: () => { navigator.clipboard?.writeText(prof.id).catch(() => {}); this.ui.toast(t('copied')); },
     }, t('copy'))));
+    this.row(t('sLanguage'), this.seg('language', ['de', 'en'], (o) => (o === 'de' ? 'Deutsch' : 'English')));
     this.row(t('sReset'), h('button', {
       class: 'btn small danger',
       onclick: () => {
@@ -262,18 +263,7 @@ export class SettingsPanel {
     this.row(t('sVolSfx'), this.slider('volSfx', 0, 100, 1, pct));
     this.row(t('sVolMusic'), this.slider('volMusic', 0, 100, 1, pct));
     this.row(t('sVolUi'), this.slider('volUi', 0, 100, 1, pct));
-    this.row(t('sVolAmbient'), this.slider('volAmbient', 0, 100, 1, pct));
     this.row(t('sLobbyMusic'), this.toggle('lobbyMusic'));
-  }
-
-  tab_game() {
-    this.section(t('tabGame'));
-    this.row(t('sBotDifficulty'), this.seg('botDifficulty', ['easy', 'normal', 'hard', 'pro'], (o) => t('bd_' + o)));
-    this.row(t('sStorm'), this.toggle('storm'));
-    this.row(t('sAmmo'), this.seg('infiniteAmmo', [true, false], (o) => (o ? t('ammo_inf') : t('ammo_180'))));
-    this.row(t('sLanguage'), this.seg('language', ['de', 'en'], (o) => (o === 'de' ? 'Deutsch' : 'English')));
-    this.row(t('sThirdPerson'), this.toggle('thirdPerson'));
-    this.row(t('sPlayerCount'), h('b', {}, t('sPlayerCountFixed')));
   }
 }
 

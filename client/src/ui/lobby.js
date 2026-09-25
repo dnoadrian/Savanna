@@ -1,5 +1,6 @@
 // Lobby-Oberfläche: Kopfzeile (Name, Level, XP, Siege, Kronen, Kills), Spind, Party + Chat,
-// Modus-Auswahl, SPIELEN-Button mit Matchmaking-Status, Hamburger-Menü.
+// Modus-Auswahl (Offline = immer mit Bots, Online = mit Freunden, mit oder ohne Bots),
+// SPIELEN-Button mit Matchmaking-Status, Hamburger-Menü.
 import { h, esc } from './dom.js';
 import { ICON, icon } from './icons.js';
 import { t } from '../i18n.js';
@@ -147,7 +148,10 @@ export class LobbyScreen {
     const humans = this.mode === 'solo' ? 1 : Math.max(1, party ? party.members.length : 1);
     const q = app.queue;
     const hh = q ? q.humans : humans;
-    this.countEl.textContent = t('playersCount', { h: hh, hw: hh === 1 ? t('human') : t('humans'), b: MATCH_SIZE - hh });
+    const hw = hh === 1 ? t('human') : t('humans');
+    if (this.mode === 'solo' || (q && !q.noBots)) this.countEl.textContent = t('playersCount', { h: hh, hw, b: MATCH_SIZE - hh });
+    else if (q) this.countEl.textContent = t('queueInfoNoBots', { h: hh, hw });
+    else this.countEl.textContent = t('playersCountOnline', { h: hh, hw });
     // Bereit / Leader
     const myId = prof.id;
     const leader = party ? party.leader === myId : true;
@@ -169,7 +173,10 @@ export class LobbyScreen {
     // Warteschlange
     if (q) {
       this.queueEl.classList.remove('hidden');
-      this.queueEl.innerHTML = `<div class="q-title">${t('queueWaiting', { s: Math.max(0, Math.ceil(q.secs)) })}</div><div class="q-info">${t('queueInfo', { h: q.humans, hw: q.humans === 1 ? t('human') : t('humans'), b: MATCH_SIZE - q.humans })}</div>`;
+      const qhw = q.humans === 1 ? t('human') : t('humans');
+      const title = q.noBots && q.secs <= 0 ? t('queueNeedPlayers') : t('queueWaiting', { s: Math.max(0, Math.ceil(q.secs)) });
+      const info = q.noBots ? t('queueInfoNoBots', { h: q.humans, hw: qhw }) : t('queueInfo', { h: q.humans, hw: qhw, b: MATCH_SIZE - q.humans });
+      this.queueEl.innerHTML = `<div class="q-title">${esc(title)}</div><div class="q-info">${esc(info)}</div>`;
       const cb = h('button', { class: 'btn small ghost', onclick: () => { this.app.audio.uiClick(); this.app.cancelQueue(); } }, t('queueCancel'));
       if (!party || leader) this.queueEl.appendChild(cb);
     } else this.queueEl.classList.add('hidden');
@@ -213,7 +220,22 @@ export class LobbyScreen {
     const app = this.app;
     app.audio.uiConfirm();
     if (this.mode === 'solo') app.playSolo();
-    else app.playParty();
+    else if (!app.net.connected) app.playOnline(true);
+    else this.askBots();
+  }
+
+  // Online: vor dem Start fragen, ob freie Plätze mit Bots aufgefüllt werden
+  askBots() {
+    const app = this.app;
+    const pick = (bots) => {
+      app.audio.uiConfirm();
+      this.ui.closeModal();
+      app.playOnline(bots);
+    };
+    const card = (bots, title, desc) => h('button', { class: 'mode-card bots-card', onclick: () => pick(bots), onmouseenter: () => app.audio.uiHover() },
+      h('div', { class: 'mc-title' }, title), h('div', { class: 'mc-desc' }, desc));
+    const body = h('div', { class: 'bots-choice' }, card(true, t('withBots'), t('withBotsDesc')), card(false, t('withoutBots'), t('withoutBotsDesc')));
+    this.ui.openModal(t('botsQuestion'), body, { cls: 'small' });
   }
 
   // ---------------- Chat ----------------

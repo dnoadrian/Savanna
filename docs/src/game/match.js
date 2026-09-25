@@ -7,7 +7,7 @@ import { StormWall } from '../render/storm.js';
 import { Sky } from '../render/sky.js';
 import { Lights, VIEW_DISTANCES } from '../render/renderer.js';
 import { LocalPlayer, surfaceSound } from './controller.js';
-import { F, MAX_HP, MATCH_SIZE } from '../../shared/constants.js';
+import { F, MAX_HP } from '../../shared/constants.js';
 import { MAT } from '../../shared/physics/collision.js';
 import { dirFromAngles, rayPlayer } from '../../shared/sim/combat.js';
 import { t } from '../i18n.js';
@@ -23,10 +23,10 @@ export class MatchClient {
     this.world = world;
     this.mode = mode; // 'solo' | 'party'
     this.t = t;
-    this.infiniteAmmo = session.infiniteAmmo ?? app.settings.get('infiniteAmmo');
+    this.infiniteAmmo = session.infiniteAmmo ?? true;
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(FOG_COLOR.clone(), 150, 600);
-    this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.08, 700);
+    this.scene.fog = new THREE.Fog(FOG_COLOR.clone(), 120, 360);
+    this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.08, 480);
     this.camera.rotation.order = 'YXZ';
     this.sky = new Sky();
     this.scene.add(this.sky.group);
@@ -77,18 +77,18 @@ export class MatchClient {
     this.applySettings();
     this.unsubSettings = app.settings.onChange(() => this.applySettings());
     app.audio.stopLobbyMusic();
-    app.audio.startAmbient();
   }
 
   applySettings() {
-    const s = this.app.settings;
-    const vd = VIEW_DISTANCES[s.get('viewDistance')] || 620;
+    // effektive Grafikwerte (bei „Auto“ die automatisch gewählte Stufe)
+    const g = this.app.effectiveGraphics();
+    const vd = VIEW_DISTANCES[g.viewDistance] || VIEW_DISTANCES.far;
     this.camera.far = vd + 120;
     this.camera.updateProjectionMatrix();
-    this.scene.fog.near = vd * 0.3;
+    this.scene.fog.near = vd * 0.4;
     this.scene.fog.far = vd;
     this.world.setViewDistance(vd);
-    this.lights.setQuality(s.get('shadows'));
+    this.lights.setQuality(g.shadows);
   }
 
   onResize() {
@@ -213,23 +213,18 @@ export class MatchClient {
     this.storm.update(stormOn ? zone : null, dt, this.world.viewDist);
     const cp = this.camera.position;
     let inStorm = false;
-    let stormLevel = 0;
     if (stormOn) {
-      const dz = Math.hypot(cp.x - zone.x, cp.z - zone.z) - zone.r;
-      inStorm = dz > 0;
-      stormLevel = inStorm ? 0.7 : Math.max(0, 1 - Math.abs(dz) / 60) * 0.35;
+      inStorm = Math.hypot(cp.x - zone.x, cp.z - zone.z) > zone.r;
       // Ansagen
-      if (phase === 'playing' && !zone.shrinking && zone.timeLeft < 30 && zone.timeLeft > 28 && this.stormWarned !== zone.phase) {
+      if (phase === 'playing' && !zone.shrinking && zone.timeLeft < 10 && zone.timeLeft > 8 && this.stormWarned !== zone.phase) {
         this.stormWarned = zone.phase;
         this.hud.message(t('stormWarn'), 'storm');
       }
       if (phase === 'playing' && zone.shrinking && this.shrinkAnnounced !== zone.phase) {
         this.shrinkAnnounced = zone.phase;
         this.hud.bigMessage(t('stormNow'), t('stormPhase', { n: zone.phase }), 'storm');
-        app.audio.stormWarning();
       }
     }
-    app.audio.stormLevel(stormLevel);
     const stormK = inStorm ? 1 : 0;
     this.stormK = (this.stormK || 0) + (stormK - (this.stormK || 0)) * Math.min(1, dt * 3);
     this.scene.fog.color.copy(FOG_COLOR).lerp(STORM_FOG, this.stormK * 0.7);
@@ -241,15 +236,12 @@ export class MatchClient {
     this.world.update(this.camera, dt, now, app.settings.get('grass'));
     this.sky.update(this.camera, dt);
     this.lights.update(this.state === 'alive' ? { x: pl.body.x, y: pl.body.y, z: pl.body.z } : cp);
-    this.effects.update(dt);
+    this.effects.update(dt, this.camera.position);
 
-    // Audio-Hörer + Meer
+    // Audio-Hörer
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
     app.audio.setListener(cp, fwd, up);
-    const ci = Math.round((cp.x + 720) / 4), cj = Math.round((cp.z + 720) / 4);
-    const cd = this.map.coastD[Math.max(0, Math.min(360, cj)) * 361 + Math.max(0, Math.min(360, ci))] || 0;
-    app.audio.setSeaLevel(Math.max(0, Math.min(1, (cd - 0.8) / 0.18)));
 
     // HUD
     const alive = states.filter((q) => q.alive).length;
@@ -262,7 +254,7 @@ export class MatchClient {
       else if (w.reloading) { progress = w.reloadT / w.reloadDur; progressType = 'reload'; }
     }
     this.hud.update(dt, {
-      hp: this.state === 'alive' ? self.hp : 0, medkits: self.medkits, mag: w.mag, reserve: w.reserve, alive, kills: self.kills,
+      hp: this.state === 'alive' ? self.hp : 0, medkits: self.medkits, mag: w.mag, reserve: w.reserve, alive, total: states.length, kills: self.kills,
       zone, stormOn, phase, inStorm: inStorm && this.state === 'alive', fps: this.fps, ping: s.isLocal ? null : s.ping,
       spread: this.state === 'alive' ? w.spread(fl, speed) : 0, overEnemy: pl.overEnemy, healing: pl.healT >= 0,
       progress, progressType, px: this.state === 'alive' ? pl.body.x : cp.x, pz: this.state === 'alive' ? pl.body.z : cp.z,
@@ -389,7 +381,7 @@ export class MatchClient {
         const cp = this.camera.position;
         const dist = muzzle.distanceTo(cp);
         if (dist < this.world.viewDist) {
-          this.effects.tracer(muzzle, end);
+          this.effects.tracer(muzzle, end, true);
           this.effects.muzzleFlash(muzzle, dir);
           if (e.m === MAT.PLAYER) this.effects.blood(end);
           else if (e.m !== undefined && end.distanceTo(cp) < 120) this.effects.impact(end, e.n ? new THREE.Vector3(e.n[0], e.n[1], e.n[2]) : null, e.m);
@@ -496,6 +488,7 @@ export class MatchClient {
     this.app.ui.showDeath({
       text,
       placement: this.placement,
+      total: this.session.players.length,
       stats: this.session.self(),
       onSpectate: () => this.startSpectate(),
       onLobby: () => this.leaveToLobby(),
@@ -633,8 +626,6 @@ export class MatchClient {
     this.session.dispose();
     this.scene.remove(this.world.group);
     for (const c of this.chars.values()) c.dispose();
-    this.app.audio.stormLevel(0);
-    this.app.audio.stopAmbient();
     this.hud.hide();
     this.hud.reset();
     this.app.renderer.setTint(1, 1, 1);

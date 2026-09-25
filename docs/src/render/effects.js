@@ -152,8 +152,10 @@ export class Effects {
     p.r = _c.r; p.g = _c.g; p.b = _c.b;
   }
 
-  tracer(from, to) {
+  // remote: Schuss eines anderen Spielers (Spur wird kurz vor der eigenen Kamera ausgeblendet)
+  tracer(from, to, remote = false) {
     const t = this.tracers[this.tNext];
+    t.remote = remote;
     this.tNext = (this.tNext + 1) % MAX_TRACERS;
     t.from = from.clone();
     t.dir = to.clone().sub(from);
@@ -252,7 +254,7 @@ export class Effects {
     for (let i = 0; i < amount; i++) this.spawn(pos.x, pos.y, pos.z, (Math.random() - 0.5) * 2, 2 + Math.random() * 2, (Math.random() - 0.5) * 2, i % 2 ? 0xe8f8ff : 0x9fe0f0, 0.5, 1.1, 12);
   }
 
-  update(dt) {
+  update(dt, camPos = null) {
     // Partikel
     let n = 0;
     const pm = this.pMesh;
@@ -314,6 +316,10 @@ export class Effects {
       const tail = Math.max(0, t.pos - t.len);
       const len = Math.max(0.01, head - tail);
       _v.copy(t.from).addScaledVector(t.dir, head);
+      if (t.remote && camPos && _v.distanceToSquared(camPos) < 6.25) {
+        this.tMesh.setMatrixAt(i, _m.makeScale(0, 0, 0));
+        continue;
+      }
       _q.setFromUnitVectors(NEG_Z, t.dir);
       _m.compose(_v, _q, _s.set(1, 1, len));
       this.tMesh.setMatrixAt(i, _m);

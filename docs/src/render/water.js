@@ -4,7 +4,6 @@ import * as THREE from 'three';
 const vert = /* glsl */ `
 uniform float uTime;
 uniform float uLevel;
-uniform float uAmp;
 varying vec3 vWorld;
 varying float vWave;
 void main() {
@@ -12,7 +11,6 @@ void main() {
   float w = sin(wp.x * 0.045 + uTime * 0.9) * 0.22
           + sin(wp.z * 0.06 - uTime * 1.2) * 0.18
           + sin((wp.x + wp.z) * 0.11 + uTime * 1.7) * 0.08;
-  w *= uAmp;
   wp.y = uLevel + w;
   vWave = w;
   vWorld = wp.xyz;
@@ -77,11 +75,10 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-export function createWater(heightTex, half, level = 0, size = 5200, segments = 260) {
+export function createWater(heightTex, half, level = 0, size = 1500, segments = 150) {
   const uniforms = {
     uTime: { value: 0 },
     uLevel: { value: level },
-    uAmp: { value: 1 },
     uHeight: { value: heightTex },
     uHalf: { value: half },
     uSunDir: { value: new THREE.Vector3(0.5, 0.8, 0.3) },
@@ -109,12 +106,3 @@ export function createWater(heightTex, half, level = 0, size = 5200, segments = 
   return { mesh, uniforms };
 }
 
-// kleine Wasserfläche (Oasen-Teich) mit gleichem Shader
-export function createPond(heightTex, half, pond) {
-  const w = createWater(heightTex, half, pond.level, pond.r * 2.3, 24);
-  w.mesh.position.set(pond.x, 0, pond.z);
-  w.uniforms.uShallow.value.set(0x5fd8c0);
-  w.uniforms.uDeep.value.set(0x2a8fb0);
-  w.uniforms.uAmp.value = 0.15;
-  return w;
-}

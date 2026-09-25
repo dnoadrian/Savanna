@@ -536,10 +536,10 @@ export class BotBrain {
   pickRoamDest() {
     const sim = this.sim, b = this.p.body;
     const z = sim.zone.state;
-    const safe = sim.zone.enabled && z.next ? z.next : { x: 0, z: 0, r: 520 };
+    const safe = sim.zone.enabled && z.next ? z.next : { x: 0, z: 0, r: 50 };
     let x, zz;
     if (this.rng.chance(0.55)) {
-      const pois = sim.world.pois.filter((p) => Math.hypot(p.x - safe.x, p.z - safe.z) < safe.r * 0.9 + 20);
+      const pois = sim.world.pois.filter((p) => Math.hypot(p.x - safe.x, p.z - safe.z) < safe.r * 0.9 + 10);
       if (pois.length) {
         const p = this.rng.pick(pois);
         x = p.x + this.rng.range(-p.r * 0.5, p.r * 0.5);
@@ -548,7 +548,7 @@ export class BotBrain {
     }
     if (x === undefined) {
       const a = this.rng.next() * Math.PI * 2;
-      const r = this.rng.range(40, 160);
+      const r = this.rng.range(10, 35);
       x = b.x + Math.cos(a) * r;
       zz = b.z + Math.sin(a) * r;
       if (Math.hypot(x - safe.x, zz - safe.z) > safe.r * 0.9) {

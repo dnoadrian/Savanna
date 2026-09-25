@@ -37,7 +37,7 @@ export const QUALITY_PRESETS = {
   high: { resolution: 100, shadows: 'high', viewDistance: 'far', grass: 'medium', antialias: true, post: true },
   epic: { resolution: 100, shadows: 'high', viewDistance: 'epic', grass: 'high', antialias: true, post: true },
 };
-export const VIEW_DISTANCES = { near: 280, medium: 430, far: 620, epic: 900 };
+export const VIEW_DISTANCES = { near: 220, medium: 300, far: 400, epic: 520 };
 
 export class Renderer {
   constructor(container) {
@@ -169,16 +169,17 @@ export class Renderer {
   }
 }
 
-// Sonne + Himmelslicht mit Schatten, die dem Spieler folgen
+// Sonne + Himmelslicht mit Schatten, die dem Spieler folgen (kleine Insel: enger, scharfer Schattenbereich)
 export class Lights {
   constructor(scene) {
     this.sunDir = new THREE.Vector3(0.5, 0.62, 0.35).normalize();
-    this.hemi = new THREE.HemisphereLight(0xcfe9ff, 0xc9a26b, 1.35);
+    this.hemi = new THREE.HemisphereLight(0xd6ecff, 0xc29a62, 1.3);
     scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xfff0d8, 2.3);
+    this.sun = new THREE.DirectionalLight(0xfff0d8, 2.45);
     this.sun.castShadow = true;
-    this.sun.shadow.bias = -0.0006;
-    this.sun.shadow.normalBias = 0.0;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.02;
+    this.sun.shadow.radius = 2.5;
     scene.add(this.sun);
     scene.add(this.sun.target);
     this.quality = null;
@@ -189,14 +190,14 @@ export class Lights {
     if (q === this.quality) return;
     this.quality = q;
     const size = q === 'high' ? 2048 : 1024;
-    this.extent = q === 'high' ? 85 : 60;
+    this.extent = q === 'high' ? 50 : 36;
     const cam = this.sun.shadow.camera;
     cam.left = -this.extent;
     cam.right = this.extent;
     cam.top = this.extent;
     cam.bottom = -this.extent;
     cam.near = 1;
-    cam.far = 500;
+    cam.far = 260;
     cam.updateProjectionMatrix();
     this.sun.shadow.mapSize.set(size, size);
     if (this.sun.shadow.map) {
@@ -212,7 +213,7 @@ export class Lights {
     const fx = Math.round(focus.x / texel) * texel;
     const fz = Math.round(focus.z / texel) * texel;
     this.sun.target.position.set(fx, focus.y, fz);
-    this.sun.position.set(fx + this.sunDir.x * 200, focus.y + this.sunDir.y * 200, fz + this.sunDir.z * 200);
+    this.sun.position.set(fx + this.sunDir.x * 120, focus.y + this.sunDir.y * 120, fz + this.sunDir.z * 120);
     this.sun.target.updateMatrixWorld();
   }
 }

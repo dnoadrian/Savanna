@@ -384,12 +384,12 @@ export class UI {
     if (!fromLock) this.app.lockGame();
   }
 
-  showDeath({ text, placement, stats, onSpectate, onLobby }) {
+  showDeath({ text, placement, total, stats, onSpectate, onLobby }) {
     const app = this.app;
     const el = h('div', { class: 'game-overlay death' },
       h('div', { class: 'death-box' },
         h('div', { class: 'death-title' }, text),
-        h('div', { class: 'death-place' }, t('placement', { n: placement || '?' })),
+        h('div', { class: 'death-place' }, t('placement', { n: placement || '?', total })),
         h('div', { class: 'death-stats' },
           h('div', {}, h('b', {}, String(stats.kills)), h('small', {}, t('killsLabel'))),
           h('div', {}, h('b', {}, String(stats.damage)), h('small', {}, t('damage'))),
@@ -430,7 +430,7 @@ export class UI {
     app.match && app.match.hud.setSpectate(null);
   }
 
-  showResults({ mine, xp, winner, youId, onDone }) {
+  showResults({ mine, total, xp, winner, youId, onDone }) {
     this.clearScreens();
     const app = this.app;
     const st = app.profile.data.stats;
@@ -440,7 +440,7 @@ export class UI {
     const el = h('div', { class: 'screen results-screen' },
       h('div', { class: 'results-card' },
         h('h1', {}, won ? t('victory') : t('results')),
-        h('div', { class: 'res-place ' + (won ? 'win' : '') }, '#' + (mine.placement || '?'), h('small', {}, ' / 12')),
+        h('div', { class: 'res-place ' + (won ? 'win' : '') }, '#' + (mine.placement || '?'), h('small', {}, ' / ' + total)),
         winner ? h('div', { class: 'res-winner' }, h('span', { class: 'icon', html: ICON.crown }), ' ', t('crownHolder'), ': ', winner.name + (winner.isBot ? ' [BOT]' : '')) : null,
         h('div', { class: 'victory-stats' },
           h('div', {}, h('b', {}, String(mine.kills)), h('small', {}, t('killsLabel'))),

@@ -1,15 +1,17 @@
 // Aufbau der statischen Welt: Terrain, Wasser, Strukturen + Deko als zusammengeführte
-// Chunk-Meshes mit zwei LOD-Stufen, animierte Gruppen (Windräder) und instanziertes Gras.
+// Chunk-Meshes mit zwei LOD-Stufen, animierte Gruppen (Windräder), instanziertes Gras
+// und ferne Deko-Inseln am Horizont.
 import * as THREE from 'three';
 import { GeoBuilder, worldMaterial, makeMatrix } from './geom.js';
 import { propModel, LOD_SKIP } from './models.js';
-import { PROP_TYPES } from '../../shared/map/props.js';
+import { PROP_TYPES, PT } from '../../shared/map/props.js';
 import { buildTerrain, heightTexture } from './terrainMesh.js';
-import { createWater, createPond } from './water.js';
+import { createWater } from './water.js';
 import { Grass } from './grass.js';
 import { C } from '../../shared/map/builder.js';
+import { RNG } from '../../shared/rng.js';
 
-const CHUNK = 90;
+const CHUNK = 32;
 const EMISSIVE_COLORS = new Set([C.FIRE, C.FIRE2]);
 
 const nextFrame = () => new Promise((r) => setTimeout(r, 0));
@@ -21,8 +23,8 @@ export class WorldView {
     this.group.name = 'world';
     this.chunks = [];
     this.anim = [];
-    this.lodHi = 170;
-    this.viewDist = 600;
+    this.lodHi = 80;
+    this.viewDist = 400;
   }
 
   async build(onProgress = () => {}) {
@@ -35,11 +37,7 @@ export class WorldView {
     this.heightTex = heightTexture(map);
     this.water = createWater(this.heightTex, map.terrain.half, 0);
     this.group.add(this.water.mesh);
-    this.ponds = map.ponds.map((p) => {
-      const w = createPond(this.heightTex, map.terrain.half, p);
-      this.group.add(w.mesh);
-      return w;
-    });
+    this.group.add(buildScenery(map.seed));
     onProgress(0.2);
     await nextFrame();
 
@@ -102,7 +100,7 @@ export class WorldView {
       const cx = -half + (b.i + 0.5) * CHUNK, cz = -half + (b.j + 0.5) * CHUNK;
       this.chunks.push({ hi: mHi, lo: mLo, cx, cz, level: 0 });
       done++;
-      if (done % 12 === 0) {
+      if (done % 6 === 0) {
         onProgress(0.2 + 0.65 * (done / total));
         await nextFrame();
       }
@@ -162,28 +160,54 @@ export class WorldView {
       t.visible = dx * dx + dz * dz < (farD + 100) * (farD + 100);
     }
     for (const a of this.anim) {
-      const d = Math.hypot(a.x - cx, a.z - cz);
-      if (d > 350) continue;
       if (a.axis === 'z') a.spin.rotation.z += dt * a.speed;
       else a.spin.rotation.x += dt * a.speed;
     }
     this.water.uniforms.uTime.value = time;
-    for (const p of this.ponds) p.uniforms.uTime.value = time;
     if (this.grass) this.grass.update(camera, grassDensity, time);
   }
 
   setFog(color, near, far, storm = 0) {
-    for (const w of [this.water, ...this.ponds]) {
-      w.uniforms.uFogColor.value.copy(color);
-      w.uniforms.uFogNear.value = near;
-      w.uniforms.uFogFar.value = far;
-      w.uniforms.uStorm.value = storm;
-    }
+    const u = this.water.uniforms;
+    u.uFogColor.value.copy(color);
+    u.uFogNear.value = near;
+    u.uFogFar.value = far;
+    u.uStorm.value = storm;
   }
 
   setSun(dir) {
-    for (const w of [this.water, ...this.ponds]) w.uniforms.uSunDir.value.copy(dir);
+    this.water.uniforms.uSunDir.value.copy(dir);
   }
+}
+
+// Ferne Deko-Inseln (nur Optik, nicht erreichbar): Sandbank, Grasrücken und Palmen
+function buildScenery(seed) {
+  const rng = new RNG(seed ^ 0x51ce);
+  const g = new GeoBuilder();
+  const m4 = new THREE.Matrix4();
+  const count = 7;
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + rng.range(-0.3, 0.3);
+    const r = rng.range(190, 290);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const size = rng.range(14, 28);
+    const ry = rng.next() * Math.PI;
+    g.ico(x, -1.4, z, size, 0xf0d9a0, { sx: 1.3, sy: 0.14, sz: 1.0, ry, detail: 1, jitter: 0.1, jseed: i * 7 });
+    const sy = rng.range(0.22, 0.55);
+    g.ico(x, 0.2, z, size * 0.72, i % 3 === 0 ? 0xa37c62 : 0xb9bf4c, { sx: 1.15, sy, sz: 0.85, ry, detail: 1, jitter: 0.16, jseed: i * 7 + 1 });
+    const top = 0.2 + size * 0.72 * sy * 0.75;
+    const palms = rng.int(1, 4);
+    for (let k = 0; k < palms; k++) {
+      const px = x + rng.range(-size * 0.35, size * 0.35), pz = z + rng.range(-size * 0.3, size * 0.3);
+      const sc = rng.range(2.0, 2.8);
+      makeMatrix(px, top - 0.6, pz, 0, rng.next() * 6.28, 0, sc, sc, sc, m4);
+      g.appendModel(propModel(PT.palm_s, k % 3, 1), m4);
+    }
+  }
+  const mesh = new THREE.Mesh(g.toGeometry(), worldMaterial());
+  mesh.matrixAutoUpdate = false;
+  mesh.name = 'scenery';
+  return mesh;
 }
 
 export function addPart(g, p, e = 0) {

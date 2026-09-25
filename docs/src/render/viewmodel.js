@@ -24,7 +24,7 @@ export class Viewmodel {
     this.camera.add(this.rig);
     this.sway = new THREE.Group();
     this.rig.add(this.sway);
-    this.gun = createRifleMesh('gold', 1, true, true);
+    this.gun = createRifleMesh('gold', 1, true);
     this.gun.scale.setScalar(GUN_SCALE);
     this.sway.add(this.gun);
     this.mag = new THREE.Mesh(buildMagazine('gold').toGeometry(), worldMaterial());
@@ -150,7 +150,7 @@ export class Viewmodel {
     this.equipT = Math.max(0, this.equipT - dt * 2.5);
     if (s.fov) {
       // Viewmodel-FOV folgt leicht dem Zoom
-      const f = 56 - this.adsK * 8;
+      const f = 56 - this.adsK * 4;
       if (Math.abs(this.camera.fov - f) > 0.01) {
         this.camera.fov = f;
         this.camera.updateProjectionMatrix();
@@ -169,7 +169,7 @@ export class Viewmodel {
 
     const ads = this.adsK;
     const hip = { x: 0.2, y: -0.215, z: -0.5 };
-    const adsP = { x: 0, y: -SIGHT_Y * GUN_SCALE, z: -0.34 };
+    const adsP = { x: 0, y: -SIGHT_Y * GUN_SCALE, z: -0.46 };
     const spr = { x: 0.15, y: -0.26, z: -0.44 };
     let px = lerp(hip.x, adsP.x, ads), py = lerp(hip.y, adsP.y, ads), pz = lerp(hip.z, adsP.z, ads);
     let rx = 0, ry = lerp(0.04, 0, ads), rz = 0;

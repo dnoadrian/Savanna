@@ -323,7 +323,7 @@ export class Character {
     }
     // Waffe
     if (this.gun) this.torso.remove(this.gun);
-    this.gun = createRifleMesh(skin, 0, false);
+    this.gun = createRifleMesh(skin, 0);
     this.gun.scale.setScalar(1.15);
     this.gun.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     this.torso.add(this.gun);

@@ -4,33 +4,42 @@ import * as THREE from 'three';
 import { hash2 } from '../../shared/rng.js';
 import { SURF } from '../../shared/map/terrain.js';
 
-const MAX = 20000;
+const MAX = 32000;
 const TILE = 12;
-const CACHE_MAX = 500;
+const CACHE_MAX = 400;
 
+// kleine Insel: das Gras kann dicht stehen
 export const GRASS_LEVELS = {
   off: { r: 0, cell: 2 },
-  low: { r: 38, cell: 1.6 },
-  medium: { r: 55, cell: 1.3 },
-  high: { r: 72, cell: 1.12 },
+  low: { r: 30, cell: 1.2 },
+  medium: { r: 42, cell: 0.95 },
+  high: { r: 56, cell: 0.8 },
 };
 
+// Büschel aus einseitigen Halmen; Normalen zeigen nach oben (gleichmäßig hell von beiden Seiten),
+// Vertexfarbe von dunkler Basis zur hellen Spitze.
 function tuftGeometry() {
   const pos = [];
-  const blades = 5;
+  const col = [];
+  const blades = 7;
   for (let i = 0; i < blades; i++) {
-    const a = (i / blades) * Math.PI + (i % 2) * 0.3;
-    const w = 0.09;
-    const h = 0.45 + (i % 3) * 0.12;
-    const lean = 0.12 * (i % 2 ? 1 : -1);
-    const cx = Math.cos(a) * w, cz = Math.sin(a) * w;
-    const tx = Math.cos(a + 1.3) * lean, tz = Math.sin(a + 1.3) * lean;
-    pos.push(-cx, 0, -cz, cx, 0, cz, tx, h, tz);
-    pos.push(cx, 0, cz, -cx, 0, -cz, tx, h, tz);
+    const a = (i / blades) * Math.PI * 2 + (i % 2) * 0.4;
+    const r = 0.05 + (i % 3) * 0.03;
+    const ox = Math.cos(a) * r, oz = Math.sin(a) * r;
+    const w = 0.06;
+    const h = 0.3 + ((i * 5) % 7) * 0.035;
+    const lean = 0.14 + (i % 3) * 0.04;
+    const px = -Math.sin(a) * w, pz = Math.cos(a) * w;
+    const tx = ox + Math.cos(a) * lean, tz = oz + Math.sin(a) * lean;
+    pos.push(ox - px, 0, oz - pz, ox + px, 0, oz + pz, tx, h, tz);
+    col.push(0.55, 0.55, 0.5, 0.55, 0.55, 0.5, 1.15, 1.15, 1.08);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.computeVertexNormals();
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const nrm = new Float32Array(pos.length);
+  for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1;
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
   return g;
 }
 
@@ -38,7 +47,7 @@ export class Grass {
   constructor(map) {
     this.map = map;
     this.time = { value: 0 };
-    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, vertexColors: true });
     mat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = this.time;
       sh.vertexShader = sh.vertexShader
@@ -46,8 +55,9 @@ export class Grass {
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           vec3 ip = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
           float sway = sin(uTime * 1.8 + ip.x * 0.21 + ip.z * 0.17) * 0.5 + sin(uTime * 3.1 + ip.x * 0.7) * 0.2;
-          transformed.x += sway * 0.14 * position.y * 2.0;
-          transformed.z += sway * 0.08 * position.y * 2.0;`);
+          float gust = sin(uTime * 0.6 + ip.x * 0.05 - ip.z * 0.03) * 0.5 + 0.5;
+          transformed.x += sway * (0.1 + gust * 0.12) * position.y * 2.0;
+          transformed.z += sway * (0.06 + gust * 0.06) * position.y * 2.0;`);
     };
     mat.customProgramCacheKey = () => 'grassMat';
     this.mesh = new THREE.InstancedMesh(tuftGeometry(), mat, MAX);
@@ -99,11 +109,11 @@ export class Grass {
         const x = (i + hash2(i, j, 3)) * cell;
         const z = (j + hash2(i, j, 5)) * cell;
         const s = terrain.surfaceAt(x, z);
-        if (s !== SURF.GRASS && s !== SURF.DRYGRASS && !(s === SURF.DIRT && h1 < 0.25) && !(s === SURF.RIVER && h1 < 0.1)) continue;
+        if (s !== SURF.GRASS && s !== SURF.DRYGRASS && !(s === SURF.DIRT && h1 < 0.25)) continue;
         const y = terrain.heightAt(x, z);
         if (y < 0.4 || terrain.waterLevelAt(x, z) > y - 0.05) continue;
         if (col.groundAt(x, z, 0.05, y + 4) > y + 0.05) continue;
-        const scale = 0.8 + hash2(i, j, 9) * 0.9;
+        const scale = 0.7 + hash2(i, j, 9) * 0.6;
         const c = this.cols[Math.floor(hash2(i, j, 21) * 4)];
         const b = 0.85 + hash2(i, j, 23) * 0.3;
         const green = s === SURF.GRASS;

@@ -1,5 +1,6 @@
-// Prozedurale Sound-Engine (Web Audio API): Busse für Master/Effekte/Musik/UI/Ambiente,
+// Prozedurale Sound-Engine (Web Audio API): Busse für Master/Effekte/Musik/UI,
 // 3D-Positionierung (HRTF), Hall, Entfernungs-Tiefpass und alle Spiel-, UI- und Musiksounds.
+// Bewusst ohne Hintergrundrauschen (kein Wind/Meer/Sturm-Ambiente).
 
 const A4 = 440;
 const noteHz = (n) => A4 * Math.pow(2, (n - 69) / 12);
@@ -10,7 +11,6 @@ export class AudioEngine {
     this.ctx = null;
     this.ready = false;
     this.musicOn = false;
-    this.ambientOn = false;
     this.lastStep = 0;
     settings.onChange((k) => {
       if (k.startsWith('vol')) this.applyVolumes();
@@ -36,7 +36,7 @@ export class AudioEngine {
     this.master.connect(this.comp);
     this.comp.connect(ctx.destination);
     this.bus = {};
-    for (const b of ['sfx', 'music', 'ui', 'ambient']) {
+    for (const b of ['sfx', 'music', 'ui']) {
       const g = ctx.createGain();
       g.connect(this.master);
       this.bus[b] = g;
@@ -53,17 +53,9 @@ export class AudioEngine {
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    this.brown = ctx.createBuffer(1, len, ctx.sampleRate);
-    const bd = this.brown.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < len; i++) {
-      last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
-      bd[i] = last * 3.5;
-    }
     this.applyVolumes();
     this.ready = true;
     if (this.wantLobbyMusic) this.startLobbyMusic();
-    if (this.wantAmbient) this.startAmbient();
   }
 
   applyVolumes() {
@@ -75,7 +67,6 @@ export class AudioEngine {
     this.bus.sfx.gain.setTargetAtTime(v('volSfx'), t, 0.05);
     this.bus.music.gain.setTargetAtTime(v('volMusic') * 0.8, t, 0.05);
     this.bus.ui.gain.setTargetAtTime(v('volUi') * 0.7, t, 0.05);
-    this.bus.ambient.gain.setTargetAtTime(v('volAmbient') * 0.6, t, 0.05);
   }
 
   makeImpulse(dur, decay) {
@@ -138,10 +129,10 @@ export class AudioEngine {
     return head;
   }
 
-  noiseHit(dest, t, { dur = 0.1, type = 'bandpass', freq = 1000, freqEnd = null, q = 1, gain = 0.5, attack = 0.002, brown = false } = {}) {
+  noiseHit(dest, t, { dur = 0.1, type = 'bandpass', freq = 1000, freqEnd = null, q = 1, gain = 0.5, attack = 0.002 } = {}) {
     const ctx = this.ctx;
     const src = ctx.createBufferSource();
-    src.buffer = brown ? this.brown : this.noise;
+    src.buffer = this.noise;
     src.loop = dur > 1.5;
     const f = ctx.createBiquadFilter();
     f.type = type;
@@ -411,63 +402,6 @@ export class AudioEngine {
     this.noiseHit(d, t + 0.55, { dur: 0.5, type: 'bandpass', freq: 750, q: 1.2, gain: 0.14, attack: 0.1 });
   }
 
-  // ---------- Sturm ----------
-  ensureStorm() {
-    if (this.storm || !this.ready) return;
-    const ctx = this.ctx;
-    const g = ctx.createGain();
-    g.gain.value = 0;
-    g.connect(this.bus.ambient);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 320;
-    lp.connect(g);
-    const o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 55;
-    const o2 = ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 55.8;
-    const o3 = ctx.createOscillator(); o3.type = 'sine'; o3.frequency.value = 41;
-    const og = ctx.createGain(); og.gain.value = 0.25;
-    o1.connect(og); o2.connect(og); o3.connect(og); og.connect(lp);
-    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.3;
-    const lfoG = ctx.createGain(); lfoG.gain.value = 120;
-    lfo.connect(lfoG); lfoG.connect(lp.frequency);
-    const n = ctx.createBufferSource(); n.buffer = this.brown; n.loop = true;
-    const ng = ctx.createGain(); ng.gain.value = 0.6;
-    n.connect(ng); ng.connect(lp);
-    for (const o of [o1, o2, o3, lfo, n]) o.start();
-    this.storm = { g, nodes: [o1, o2, o3, lfo, n] };
-  }
-
-  stormLevel(level) {
-    if (!this.ready) return;
-    this.ensureStorm();
-    this.storm.g.gain.setTargetAtTime(level * 1.1, this.now, 0.3);
-  }
-
-  stopStorm() {
-    if (!this.storm) return;
-    for (const n of this.storm.nodes) try { n.stop(); } catch { /* schon gestoppt */ }
-    this.storm.g.disconnect();
-    this.storm = null;
-  }
-
-  stormWarning() {
-    if (!this.ready) return;
-    const d = this.out('sfx', null, { reverb: 0.4, gain: 0.8 });
-    const t = this.now;
-    for (const [f, dt] of [[233, 0], [196, 0.5], [233, 1.0]]) {
-      const ctx = this.ctx;
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t + dt);
-      g.gain.exponentialRampToValueAtTime(0.25, t + dt + 0.05);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.45);
-      o.connect(lp); lp.connect(g); g.connect(d);
-      o.start(t + dt); o.stop(t + dt + 0.5);
-    }
-    this.noiseHit(d, t, { dur: 1.6, type: 'bandpass', freq: 200, freqEnd: 1200, q: 1, gain: 0.2, attack: 1.2 });
-  }
-
   // ---------- Countdown / Sieg / Niederlage ----------
   beep(final = false) {
     if (!this.ready) return;
@@ -643,65 +577,5 @@ export class AudioEngine {
     const g = this.musicGain;
     g.gain.setTargetAtTime(0, this.now, 0.4);
     setTimeout(() => g.disconnect(), 2000);
-  }
-
-  // ---------- Ambiente: Wind, Vögel, Grillen, Meer ----------
-  startAmbient() {
-    this.wantAmbient = true;
-    if (!this.ready || this.ambientOn) return;
-    this.ambientOn = true;
-    const ctx = this.ctx;
-    const mk = (buf, type, freq, q, gain) => {
-      const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true;
-      const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
-      const g = ctx.createGain(); g.gain.value = gain;
-      s.connect(f); f.connect(g); g.connect(this.bus.ambient);
-      s.start();
-      return { s, f, g };
-    };
-    this.wind = mk(this.noise, 'bandpass', 420, 0.7, 0.12);
-    this.sea = mk(this.brown, 'lowpass', 700, 0.5, 0);
-    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.07;
-    const lg = ctx.createGain(); lg.gain.value = 180;
-    lfo.connect(lg); lg.connect(this.wind.f.frequency); lfo.start();
-    this.windLfo = lfo;
-    this.ambTimer = setInterval(() => this.ambientTick(), 400);
-    this.seaLevel = 0;
-  }
-
-  ambientTick() {
-    if (!this.ambientOn) return;
-    const t = this.now;
-    // Meeresrauschen in Wellen
-    const wave = 0.5 + 0.5 * Math.sin(t * 0.9);
-    this.sea.g.gain.setTargetAtTime(this.seaLevel * (0.25 + wave * 0.45), t, 0.4);
-    const d = this.out('ambient', null, { gain: 0.5 });
-    if (Math.random() < 0.12) {
-      // Vogelzwitschern
-      const base = 2400 + Math.random() * 2400;
-      const n = 2 + Math.floor(Math.random() * 4);
-      for (let i = 0; i < n; i++) this.tone(d, t + i * 0.12, { type: 'sine', freq: base * (1 + Math.random() * 0.2), freqEnd: base * (1.3 + Math.random() * 0.4), dur: 0.08, gain: 0.05 });
-    }
-    if (Math.random() < 0.18) {
-      // Grillen
-      for (let i = 0; i < 6; i++) this.tone(d, t + i * 0.035, { type: 'sine', freq: 4600, dur: 0.02, gain: 0.018 });
-    }
-  }
-
-  setSeaLevel(v) {
-    this.seaLevel = v;
-  }
-
-  stopAmbient() {
-    this.wantAmbient = false;
-    if (!this.ambientOn) return;
-    this.ambientOn = false;
-    clearInterval(this.ambTimer);
-    for (const n of [this.wind, this.sea]) {
-      n.g.gain.setTargetAtTime(0, this.now, 0.3);
-      const s = n.s;
-      setTimeout(() => { try { s.stop(); } catch { /* ok */ } }, 1500);
-    }
-    try { this.windLfo.stop(); } catch { /* ok */ }
   }
 }

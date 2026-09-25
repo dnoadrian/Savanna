@@ -15,7 +15,8 @@ export class ServerMatch {
     const rng = new RNG(this.seed ^ 0xabc);
     const humans = clients.slice(0, MATCH_SIZE).map((c) => ({ ...gs.publicProfile(c.pid), isBot: false }));
     const champ = gs.store.data.champion;
-    const players = Simulation.fillWithBots(humans, rng, champ ? { ...champ, crownStyle: 'gold' } : null);
+    // mit Bots: auf 12 auffüllen; ohne Bots: nur die Menschen
+    const players = opts.bots === false ? humans : Simulation.fillWithBots(humans, rng, champ ? { ...champ, crownStyle: 'gold' } : null);
     this.sim = new Simulation(gs.world, {
       seed: this.seed,
       players,
@@ -38,7 +39,7 @@ export class ServerMatch {
       gs.send(c, { t: 'matchStart', matchId: this.id, seed: this.seed, storm: opts.storm !== false, infiniteAmmo: opts.infiniteAmmo !== false, players: this.players, spawns, you: c.pid });
     }
     this.timer = setInterval(() => this.update(), 1000 / SIM_HZ);
-    console.log(`Match ${this.id} gestartet: ${humans.length} Menschen + ${MATCH_SIZE - humans.length} Bots = ${this.sim.players.length}`);
+    console.log(`Match ${this.id} gestartet: ${humans.length} Menschen + ${this.sim.players.length - humans.length} Bots = ${this.sim.players.length}`);
   }
 
   humanCount() {

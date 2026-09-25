@@ -222,16 +222,6 @@ export class Builder {
     return this;
   }
 
-  // massive Treppe entlang lokaler +Z (vom Boden hoch), Stufen als Blöcke
-  stairs(lx, lz, width, rise, run, steps, c = C.WOOD, ry = 0) {
-    const b = this.sub(lx, lz, ry);
-    for (let i = 0; i < steps; i++) {
-      const top = rise * (i + 1);
-      b.box(0, 0, -i * run - run / 2, width, top, run, c, { m: MAT.WOOD });
-    }
-    return b;
-  }
-
   railing(x1, z1, x2, z2, y, h = 1.0, c = C.WOOD_DARK) {
     const dx = x2 - x1, dz = z2 - z1;
     const len = Math.hypot(dx, dz);
@@ -257,89 +247,6 @@ export class Builder {
     this.blocker(lx, ly, lz, 1.5, 1.45, 1.4, { ry, m: MAT.PLANT });
     this.parts[this.parts.length - 1].m = MAT.PLANT;
     return this;
-  }
-
-  jeep(lx, lz, ry = 0, c = C.JEEP) {
-    const b = this.sub(lx, lz, ry);
-    b.box(0, 0.55, 0, 2.0, 0.8, 4.2, c, { col: false });
-    b.box(0, 1.35, 0.9, 1.9, 0.08, 0.1, C.METAL_DARK, { col: false, rx: -0.2 });
-    b.box(0, 1.35, 0.95, 1.8, 0.55, 0.06, C.GLASS, { col: false });
-    b.box(0, 1.35, -0.4, 1.9, 0.9, 0.08, C.METAL_DARK, { col: false });
-    b.box(0.9, 1.35, -1.2, 0.08, 1.0, 0.08, C.METAL_DARK, { col: false });
-    b.box(-0.9, 1.35, -1.2, 0.08, 1.0, 0.08, C.METAL_DARK, { col: false });
-    b.box(0, 2.3, -0.6, 2.0, 0.08, 1.6, C.CLOTH_TAN, { col: false });
-    b.box(0, 1.35, 1.3, 2.0, 0.25, 1.6, c, { col: false });
-    for (const sx of [-1, 1]) for (const sz of [-1.35, 1.35]) {
-      b.cyl(sx * 1.0, 0.45, sz, 0.45, 0.4, C.TIRE, { rz: Math.PI / 2, seg: 10, col: false, center: true });
-    }
-    b.cyl(0, 0.9, -2.2, 0.42, 0.3, C.TIRE, { rx: Math.PI / 2, seg: 10, col: false });
-    b.box(0.6, 1.0, 2.12, 0.3, 0.2, 0.05, C.FIRE2, { col: false });
-    b.box(-0.6, 1.0, 2.12, 0.3, 0.2, 0.05, C.FIRE2, { col: false });
-    b.blocker(0, 0, 0, 2.0, 1.4, 4.2, { m: MAT.METAL });
-    this.parts[this.parts.length - 1].m = MAT.METAL;
-    return b;
-  }
-
-  palm(lx, lz, h = 7, lean = 0.25, ry = 0) {
-    const b = this.sub(lx, lz, ry);
-    const segs = 5;
-    let x = 0, y = 0;
-    for (let i = 0; i < segs; i++) {
-      const sh = h / segs;
-      const r = 0.28 - i * 0.03;
-      b.cyl(x, y, 0, r, sh + 0.05, C.PALM_TRUNK, { rt: r - 0.03, rz: -lean * (0.3 + i * 0.2), seg: 6, col: false });
-      x += Math.sin(lean * (0.3 + i * 0.2)) * sh;
-      y += Math.cos(lean * (0.3 + i * 0.2)) * sh;
-    }
-    b.cyl(0, 0, 0, 0.3, Math.min(3, h), C.PALM_TRUNK, { col: true, m: MAT.PLANT, seg: 6 });
-    b.parts[b.parts.length - 1].inv = true;
-    for (let k = 0; k < 7; k++) {
-      const a = (k / 7) * Math.PI * 2;
-      b.sub(x, 0, a, y).box(1.4, -0.1, 0, 3.0, 0.08, 0.9, k % 2 ? C.PALM : C.LEAF, { rz: -0.35, col: false });
-    }
-    b.sph(x, y + 0.1, 0, 0.35, C.WOOD_DARK, { col: false });
-    return b;
-  }
-
-  campfire(lx, lz) {
-    const b = this.sub(lx, lz);
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      b.sph(Math.cos(a) * 1.0, 0.15, Math.sin(a) * 1.0, 0.28, C.STONE, { sy: 0.7 });
-    }
-    b.cyl(0, 0.05, 0, 0.12, 1.4, C.WOOD_DARK, { rz: Math.PI / 2, col: false });
-    b.cyl(0, 0.05, 0, 0.12, 1.4, C.WOOD_DARK, { rz: Math.PI / 2, ry: Math.PI / 2, col: false });
-    b.cyl(0, 0.1, 0, 0.45, 0.9, C.FIRE, { rt: 0, seg: 6, col: false });
-    b.cyl(0, 0.1, 0, 0.25, 1.2, C.FIRE2, { rt: 0, seg: 5, col: false });
-    return b;
-  }
-
-  // begehbares Safari-Zelt (Stoffwände, Tür vorne)
-  tent(lx, lz, w, d, c = C.CLOTH_TAN, ry = 0) {
-    const b = this.sub(lx, lz, ry);
-    const h = 2.2;
-    b.box(0, 0, 0, w, 0.12, d, C.WOOD_DARK, { m: MAT.WOOD });
-    b.wall(-w / 2, d / 2, w / 2, d / 2, h, 0.08, c, [{ at: w / 2, w: 1.6, y0: 0, y1: 2.1 }], { m: MAT.CLOTH, frame: false });
-    b.wall(w / 2, -d / 2, -w / 2, -d / 2, h, 0.08, c, [], { m: MAT.CLOTH });
-    b.wall(-w / 2, -d / 2, -w / 2, d / 2, h, 0.08, c, [{ at: d / 2, w: 1.0, y0: 1.0, y1: 1.7 }], { m: MAT.CLOTH, frame: false });
-    b.wall(w / 2, d / 2, w / 2, -d / 2, h, 0.08, c, [{ at: d / 2, w: 1.0, y0: 1.0, y1: 1.7 }], { m: MAT.CLOTH, frame: false });
-    b.prism(0, h, 0, w + 0.6, 1.5, d + 0.8, c === C.CLOTH_GREEN ? 0x5a7a40 : 0xd4b988, { ry: 0, col: false });
-    b.blocker(0, h, 0, w, 0.5, d, { m: MAT.CLOTH });
-    b.box(0, h + 1.4, d / 2 + 0.45, 0.1, 0.1, 0.1, C.WOOD_DARK, { col: false });
-    b.box(-w / 2 - 0.4, 0, d / 2 + 0.6, 0.08, 1.2, 0.08, C.WOOD_DARK, { col: false, rz: 0.3 });
-    b.box(w / 2 + 0.4, 0, d / 2 + 0.6, 0.08, 1.2, 0.08, C.WOOD_DARK, { col: false, rz: -0.3 });
-    return b;
-  }
-
-  // offenes Sonnendach auf 4 Pfosten
-  canopy(lx, lz, w, d, c = C.CLOTH_RED, ry = 0) {
-    const b = this.sub(lx, lz, ry);
-    const h = 2.6;
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-      b.cyl(sx * (w / 2 - 0.1), 0, sz * (d / 2 - 0.1), 0.08, h, C.WOOD_DARK, { seg: 5 });
-    }
-    b.prism(0, h, 0, w + 0.4, 0.9, d + 0.4, c, { col: false });
-    return b;
   }
 
   windmill(lx, lz, grpKey, ry = 0, height = 11) {
@@ -382,50 +289,6 @@ export class Builder {
     b.cyl(0, h + 0.2, 0, 1.8, 3.0, c, { seg: 12, m: MAT.WOOD });
     for (let y = 0.4; y < 3; y += 0.9) b.cyl(0, h + 0.2 + y, 0, 1.84, 0.1, C.METAL_DARK, { seg: 12, col: false });
     b.cyl(0, h + 3.2, 0, 2.0, 1.2, C.ROOF_TIN, { rt: 0.1, seg: 12, col: false });
-    return b;
-  }
-
-  boat(lx, lz, ry = 0, c = C.WALL_BLUE, ly = 0) {
-    const b = this.sub(lx, lz, ry, ly);
-    b.box(0, 0.15, 0, 1.8, 0.7, 4.6, c, { m: MAT.WOOD });
-    b.box(0, 0.25, 2.55, 1.2, 0.6, 0.8, c, { col: false, ry: 0 });
-    b.box(0, 0.35, 2.9, 0.6, 0.5, 0.5, c, { col: false });
-    b.box(0, 0.0, 0, 1.2, 0.2, 4.0, C.WOOD_DARK, { col: false });
-    b.box(0, 0.85, 0, 1.9, 0.08, 4.7, C.WHITE, { col: false });
-    b.box(0, 0.6, 0.3, 1.6, 0.1, 0.4, C.WOOD_LIGHT, { col: false });
-    b.box(0, 0.6, -1.2, 1.6, 0.1, 0.4, C.WOOD_LIGHT, { col: false });
-    return b;
-  }
-
-  signpost(lx, lz, angles, ly = 0) {
-    const b = this.sub(lx, lz, 0, ly);
-    b.cyl(0, 0, 0, 0.09, 2.6, C.WOOD_DARK, { seg: 5, col: false });
-    angles.forEach((a, i) => {
-      const s = b.sub(0, 0, a);
-      s.box(0.7, 2.1 - i * 0.45, 0, 1.3, 0.32, 0.06, i % 2 ? C.WOOD_LIGHT : C.WOOD, { col: false });
-      s.box(1.42, 2.1 - i * 0.45 + 0.05, 0, 0.22, 0.22, 0.06, i % 2 ? C.WOOD_LIGHT : C.WOOD, { col: false, rz: Math.PI / 4 });
-    });
-    return b;
-  }
-
-  minecart(lx, lz, ry = 0, ly = 0, ore = C.GOLD) {
-    const b = this.sub(lx, lz, ry, ly);
-    b.box(0, 0.35, 0, 1.2, 0.8, 1.7, C.RUST, { m: MAT.METAL });
-    b.box(0, 1.1, 0, 1.3, 0.08, 1.8, C.METAL_DARK, { col: false });
-    b.sph(0, 1.15, 0, 0.5, ore, { sy: 0.5, col: false, detail: 0 });
-    for (const sx of [-0.55, 0.55]) for (const sz of [-0.55, 0.55]) {
-      b.cyl(sx, 0.22, sz, 0.22, 0.12, C.METAL_DARK, { rz: Math.PI / 2, col: false, center: true });
-    }
-    return b;
-  }
-
-  // Schienenstück entlang lokaler Z
-  rails(lx, lz, len, ry = 0, ly = 0, sleeperC = C.WOOD_DARK) {
-    const b = this.sub(lx, lz, ry, ly);
-    const n = Math.floor(len / 0.9);
-    for (let i = 0; i < n; i++) b.box(0, 0.0, -len / 2 + i * 0.9 + 0.45, 2.2, 0.12, 0.3, sleeperC, { col: false });
-    b.box(-0.72, 0.12, 0, 0.1, 0.14, len, C.METAL_DARK, { col: false });
-    b.box(0.72, 0.12, 0, 0.1, 0.14, len, C.METAL_DARK, { col: false });
     return b;
   }
 }

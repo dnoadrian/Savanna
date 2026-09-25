@@ -5,24 +5,21 @@ import { SEA_LEVEL } from '../constants.js';
 export const SURF = {
   GRASS: 0,
   DIRT: 1,
-  SAND: 2,
   ROCK: 3,
   BEACH: 4,
   PATH: 5,
   SEAFLOOR: 6,
-  RIVER: 7,
   DRYGRASS: 8,
 };
 
 export class Terrain {
-  constructor(heights, surface, n, cell, half, ponds) {
+  constructor(heights, surface, n, cell, half) {
     this.h = heights; // Float32Array (n+1)*(n+1)
     this.surf = surface; // Uint8Array (n+1)*(n+1)
     this.n = n;
     this.cell = cell;
     this.half = half;
     this.stride = n + 1;
-    this.ponds = ponds || [];
     let maxH = -Infinity;
     for (let i = 0; i < heights.length; i++) if (heights[i] > maxH) maxH = heights[i];
     this.maxHeight = maxH;
@@ -102,22 +99,9 @@ export class Terrain {
     return this.surf[j * this.stride + i];
   }
 
-  waterLevelAt(x, z) {
-    for (let k = 0; k < this.ponds.length; k++) {
-      const p = this.ponds[k];
-      const dx = x - p.x;
-      const dz = z - p.z;
-      if (dx * dx + dz * dz < p.r * p.r) return p.level;
-    }
+  // Wasserspiegel an (x,z): nur das Meer (keine Teiche auf der kleinen Insel)
+  waterLevelAt() {
     return SEA_LEVEL;
-  }
-
-  isPond(x, z) {
-    for (const p of this.ponds) {
-      const dx = x - p.x, dz = z - p.z;
-      if (dx * dx + dz * dz < p.r * p.r) return true;
-    }
-    return false;
   }
 
   // Raycast gegen das Höhenfeld. Liefert Distanz oder -1.

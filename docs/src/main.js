@@ -139,11 +139,7 @@ class App {
   applyGraphics() {
     const g = this.effectiveGraphics();
     this.renderer.apply(g);
-    if (this.match) {
-      this.match.applySettings();
-      this.match.lights.setQuality(g.shadows);
-      this.match.world.setViewDistance(({ near: 280, medium: 430, far: 620, epic: 900 })[g.viewDistance]);
-    }
+    if (this.match) this.match.applySettings();
     this.graphics = g;
   }
 
@@ -336,21 +332,20 @@ class App {
     const champ = prof.soloChampion;
     const players = Simulation.fillWithBots([me], rng, champ ? { ...champ, isBot: true, crownStyle: 'gold' } : null);
     if (players.length !== MATCH_SIZE) throw new Error('Spielerzahl muss 12 sein');
-    const sim = new Simulation(
-      { terrain: data.map.terrain, collision: data.map.collision, nav, pois: data.map.pois },
-      { seed, players, storm: this.settings.get('storm'), botDifficulty: this.settings.get('botDifficulty'), infiniteAmmo: this.settings.get('infiniteAmmo') },
-    );
+    // Offline immer mit Bots, Sturm an, Bots „Normal“, unendlich Reservemunition
+    const sim = new Simulation({ terrain: data.map.terrain, collision: data.map.collision, nav, pois: data.map.pois }, { seed, players });
     const session = new LocalSession(sim, me.id);
     this.beginMatch(session, 'solo');
   }
 
-  playParty() {
+  // Online über den Server; bots: freie Plätze bis 12 mit Bots auffüllen
+  playOnline(bots) {
     if (!this.net.connected) {
       if (this.net.staticSite) this.ui.openHost();
       else this.ui.toast(t('partyNeedsServer'), 'error');
       return;
     }
-    this.net.send({ t: 'queue', opts: { storm: this.settings.get('storm'), botDifficulty: this.settings.get('botDifficulty'), infiniteAmmo: this.settings.get('infiniteAmmo') } });
+    this.net.send({ t: 'queue', opts: { bots: !!bots } });
     this.prepareMap().catch(() => {});
   }
 
@@ -421,7 +416,7 @@ class App {
     this.lobbyScene.mode = 'lobby';
     this.renderer.setScenes(this.lobbyScene.scene, this.lobbyScene.camera);
     this.refreshLobbyMembers();
-    this.ui.showResults({ mine, xp, winner: r.winner, youId: r.youId, onDone: () => this.enterLobby() });
+    this.ui.showResults({ mine, total: r.players.length, xp, winner: r.winner, youId: r.youId, onDone: () => this.enterLobby() });
   }
 
   // Vorzeitig zurück in die Lobby

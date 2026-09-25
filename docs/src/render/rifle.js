@@ -1,9 +1,10 @@
 // Eigenes Low-Poly-Sturmgewehr (inspiriert vom kantigen SCAR-Stil, keine Original-Assets).
+// Kein Zielfernrohr/Rotpunkt: offene Visierung (Kimme hinten, Korn vorne).
 // Lokales System: Lauf zeigt nach -Z, Ursprung am Pistolengriff, Visierlinie bei y = SIGHT_Y.
 import * as THREE from 'three';
 import { GeoBuilder, worldMaterial } from './geom.js';
 
-export const SIGHT_Y = 0.137;
+export const SIGHT_Y = 0.13;
 export const MUZZLE = new THREE.Vector3(0, 0.036, -0.7);
 export const EJECT = new THREE.Vector3(0.045, 0.055, -0.06);
 
@@ -41,14 +42,17 @@ export function buildRifle(skin = 'gold', detail = 1, noMag = false) {
     g.box(0.027, 0.036, -0.66, 0.006, 0.012, 0.05, Cc);
     g.box(-0.027, 0.036, -0.66, 0.006, 0.012, 0.05, Cc);
   }
-  // Gasblock / Korn
+  // Gasblock + Korn (Oberkante des Korns = Visierlinie)
   g.box(0, 0.075, -0.53, 0.03, 0.03, 0.03, B);
-  // Rotpunktvisier (offener Rahmen, Punkt auf Visierlinie)
-  g.box(0, 0.108, -0.05, 0.044, 0.014, 0.08, B);
-  g.box(-0.025, 0.137, -0.05, 0.008, 0.05, 0.07, B);
-  g.box(0.025, 0.137, -0.05, 0.008, 0.05, 0.07, B);
-  g.box(0, 0.165, -0.05, 0.058, 0.008, 0.074, B);
-  if (detail) g.box(0.032, 0.137, -0.04, 0.01, 0.02, 0.02, Cc);
+  g.box(0, 0.1, -0.53, 0.014, 0.02, 0.014, B);
+  g.box(0, 0.12, -0.53, 0.005, 0.02, 0.005, B);
+  g.box(0.013, 0.117, -0.53, 0.004, 0.026, 0.012, B);
+  g.box(-0.013, 0.117, -0.53, 0.004, 0.026, 0.012, B);
+  if (detail) g.box(0, 0.128, -0.53, 0.0055, 0.004, 0.0055, Cc);
+  // Kimme hinten (zwei Ohren mit Kerbe, Oberkante = Visierlinie)
+  g.box(0, 0.108, 0.02, 0.04, 0.012, 0.035, B);
+  g.box(0.0115, 0.122, 0.02, 0.009, 0.016, 0.018, B);
+  g.box(-0.0115, 0.122, 0.02, 0.009, 0.016, 0.018, B);
   // Magazin (leicht gebogen)
   if (!noMag) addMag(g, A, B, 0, 0, 0);
   // Pistolengriff + Abzugsbügel
@@ -85,24 +89,11 @@ export function buildMagazine(skin = 'gold') {
   return g;
 }
 
-let dotMat = null;
-export function createRifleMesh(skin, detail = 1, withDot = true, noMag = false) {
+export function createRifleMesh(skin, detail = 1, noMag = false) {
   const g = buildRifle(skin, detail, noMag);
   const mesh = new THREE.Mesh(g.toGeometry(), worldMaterial());
   const grp = new THREE.Group();
   grp.add(mesh);
-  if (withDot) {
-    dotMat = dotMat || new THREE.MeshBasicMaterial({ color: 0xff2020, toneMapped: false });
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.0028, 6, 4), dotMat);
-    dot.position.set(0, SIGHT_Y, -0.06);
-    grp.add(dot);
-    const glass = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.042, 0.042),
-      new THREE.MeshBasicMaterial({ color: 0x9fe3ff, transparent: true, opacity: 0.12, depthWrite: false }),
-    );
-    glass.position.set(0, SIGHT_Y, -0.02);
-    grp.add(glass);
-  }
   grp.userData.mesh = mesh;
   return grp;
 }

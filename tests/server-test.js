@@ -3,6 +3,7 @@ import assert from 'assert';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
+import { QUEUE_WAIT } from '../shared/constants.js';
 
 export async function runServerTest() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'savanna-test-'));
@@ -111,10 +112,52 @@ export async function runServerTest() {
   assert.equal(end.results.length, 12);
   assert.equal(end.results.find((r) => r.id === 'aaaa-1').placement, 1);
   assert.equal(gs.status('aaaa-1'), 'lobby');
+
+  // Runde 2: online ohne Bots – nur die beiden Menschen
+  const ageQueue = () => {
+    for (const tk of gs.queue) tk.created -= (QUEUE_WAIT + 1) * 1000;
+    gs.tickQueue();
+  };
+  B.msg({ t: 'partyReady', ready: true });
+  const starts = A.all('matchStart').length;
+  A.msg({ t: 'queue', opts: { bots: false } });
+  const q2 = A.last('queue');
+  assert.equal(q2.state, 'waiting');
+  assert.equal(q2.noBots, true);
+  assert.equal(q2.bots, 0);
+  ageQueue();
+  assert.equal(A.all('matchStart').length, starts + 1, 'Match ohne Bots nicht gestartet');
+  const ms2 = A.last('matchStart');
+  assert.equal(ms2.players.length, 2);
+  assert.equal(ms2.players.filter((p) => p.isBot).length, 0);
+  const match2 = gs.matches.get(ms2.matchId);
+  A.msg({ t: 'loaded', mid: ms2.matchId });
+  B.msg({ t: 'loaded', mid: ms2.matchId });
+  const t2 = Date.now();
+  while (match2.sim.phase === 'countdown' && Date.now() - t2 < 8000) await wait(50);
+  B.msg({ t: 'leaveMatch' });
+  const t3 = Date.now();
+  while (A.last('matchEnd') === end && Date.now() - t3 < 4000) await wait(100);
+  const end2 = A.last('matchEnd');
+  assert.notEqual(end2, end, 'kein matchEnd ohne Bots');
+  assert.equal(end2.winner, 'aaaa-1');
+  assert.equal(end2.results.length, 2);
+
+  // Allein ohne Bots: wartet auf Mitspieler statt zu starten
+  const C = connect();
+  C.msg({ t: 'hello', id: 'cccc-3', name: 'Charlie' });
+  C.msg({ t: 'queue', opts: { bots: false } });
+  ageQueue();
+  assert.ok(!C.last('matchStart'), 'Einzelspieler ohne Bots darf nicht starten');
+  assert.equal(C.last('queue').state, 'waiting');
+  assert.equal(C.last('queue').secs, 0);
+  C.msg({ t: 'queueCancel' });
+  assert.equal(C.last('queue').state, 'idle');
+
   // Persistenz
   gs.saveNow();
   const db = JSON.parse(fs.readFileSync(path.join(dir, 'db.json'), 'utf8'));
-  assert.equal(Object.keys(db.players).length, 2);
+  assert.equal(Object.keys(db.players).length, 3);
   assert.equal(db.players['aaaa-1'].friends[0], 'bbbb-2');
   assert.equal(Object.keys(db.parties).length, 1);
   fs.rmSync(dir, { recursive: true, force: true });

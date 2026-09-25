@@ -1,9 +1,9 @@
-// Navigationsgitter (2 m) mit A*-Wegfindung für Bots.
+// Navigationsgitter (1 m) mit A*-Wegfindung für Bots.
 import { MAX_WALK_SLOPE } from '../constants.js';
 import { CollisionWorld } from '../physics/collision.js';
 
-const HALF = 600;
-const CELL = 2;
+const HALF = 64;
+const CELL = 1;
 const N = (HALF * 2) / CELL;
 const SQ2 = Math.SQRT2;
 

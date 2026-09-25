@@ -15,7 +15,7 @@ export const MAT = {
 };
 export const MAT_NAMES = ['terrain', 'wood', 'metal', 'stone', 'cloth', 'plant', 'water', 'bone', 'player'];
 
-const CELL = 8;
+const CELL = 4;
 const GN = Math.ceil((WORLD_HALF * 2) / CELL);
 
 export class CollisionWorld {

@@ -1,4 +1,5 @@
 // Terrain-Chunks mit Flat-Shading und Vertexfarben (Frustum-Culling pro Chunk).
+// Am Fuß von Wänden, Felsen und Stämmen wird der Boden leicht abgedunkelt (Kontaktschatten).
 import * as THREE from 'three';
 import { SURF } from '../../shared/map/terrain.js';
 import { hash2 } from '../../shared/rng.js';
@@ -9,25 +10,58 @@ const SURF_COLORS = {
   [SURF.GRASS]: 0xb9bf4c,
   [SURF.DRYGRASS]: 0xe2b84e,
   [SURF.DIRT]: 0xc7683d,
-  [SURF.SAND]: 0xe8cf92,
   [SURF.ROCK]: 0xa37c62,
   [SURF.BEACH]: 0xf3dfa6,
   [SURF.PATH]: 0xe0bf82,
   [SURF.SEAFLOOR]: 0xd9c48e,
-  [SURF.RIVER]: 0xcdb58a,
 };
 
 export function surfaceColor(s) {
   return SURF_COLORS[s] ?? 0xff00ff;
 }
 
-export function buildTerrain(map, chunkCells = 36) {
+// Abdunklung je Vertex nahe am Boden stehender Collider (1 = keine)
+function contactShade(map) {
+  const t = map.terrain;
+  const S = t.n + 1, cell = t.cell, half = t.half;
+  const ao = new Float32Array(S * S).fill(1);
+  const R = 1.6;
+  for (const c of map.collision.cols) {
+    const i0 = Math.max(0, Math.floor((c.minX - R + half) / cell)), i1 = Math.min(t.n, Math.ceil((c.maxX + R + half) / cell));
+    const j0 = Math.max(0, Math.floor((c.minZ - R + half) / cell)), j1 = Math.min(t.n, Math.ceil((c.maxZ + R + half) / cell));
+    for (let j = j0; j <= j1; j++) {
+      const z = -half + j * cell;
+      for (let i = i0; i <= i1; i++) {
+        const x = -half + i * cell;
+        const idx = j * S + i;
+        const g = t.h[idx];
+        if (c.minY > g + 0.6 || c.maxY < g + 0.4) continue;
+        let d;
+        if (c.kind === 1) d = Math.hypot(x - c.x, z - c.z) - c.r;
+        else {
+          const px = x - c.x, pz = z - c.z;
+          const lx = Math.abs(px * c.cos - pz * c.sin) - c.hx;
+          const lz = Math.abs(px * c.sin + pz * c.cos) - c.hz;
+          d = Math.hypot(Math.max(0, lx), Math.max(0, lz));
+        }
+        if (d >= R) continue;
+        const k = 0.66 + 0.34 * (Math.max(0, d) / R) ** 0.7;
+        if (k < ao[idx]) ao[idx] = k;
+      }
+    }
+  }
+  return ao;
+}
+
+export function buildTerrain(map, chunkCells = 48) {
   const t = map.terrain;
   const N = t.n, S = N + 1, cell = t.cell, half = t.half;
   const noise = new Noise2D(map.seed + 99);
+  const ao = contactShade(map);
   // Vertexfarben vorberechnen (linear)
   const vc = new Float32Array(S * S * 3);
   const col = new THREE.Color();
+  const tint = new THREE.Color();
   for (let j = 0; j < S; j++) {
     for (let i = 0; i < S; i++) {
       const idx = j * S + i;
@@ -35,14 +69,16 @@ export function buildTerrain(map, chunkCells = 36) {
       const x = -half + i * cell, z = -half + j * cell;
       col.set(SURF_COLORS[s] ?? 0xff00ff);
       const h = t.h[idx];
-      let br = 1 + noise.fbm(x / 40, z / 40, 2) * 0.09;
+      let br = 1 + noise.fbm(x / 14, z / 14, 2) * 0.08 + noise.noise(x / 3.5, z / 3.5) * 0.025;
       if (s === SURF.SEAFLOOR) br *= Math.max(0.45, 1 + h * 0.06);
+      if (s === SURF.BEACH && h < 0.7) br *= 0.84 + Math.max(0, h) * 0.2; // nasser Sand an der Wasserlinie
       if (s === SURF.GRASS || s === SURF.DRYGRASS) {
         // leichte Farbverläufe zwischen Gold und Grün
-        const m = noise.noise(x / 70 + 5, z / 70) * 0.5 + 0.5;
-        col.lerp(new THREE.Color(s === SURF.GRASS ? 0xd8c050 : 0xcaa640), m * 0.35);
+        const m = noise.noise(x / 25 + 5, z / 25) * 0.5 + 0.5;
+        col.lerp(tint.set(s === SURF.GRASS ? 0xd8c050 : 0xcaa640), m * 0.35);
       }
-      if (s === SURF.ROCK) br *= 0.95 + Math.min(0.15, h / 200);
+      if (s === SURF.ROCK) br *= 0.95 + Math.min(0.15, h / 40);
+      br *= ao[idx];
       vc[idx * 3] = col.r * br;
       vc[idx * 3 + 1] = col.g * br;
       vc[idx * 3 + 2] = col.b * br;
@@ -88,7 +124,7 @@ export function buildTerrain(map, chunkCells = 36) {
       g.computeBoundingBox();
       const m = new THREE.Mesh(g, mat);
       m.receiveShadow = true;
-      m.castShadow = maxH > 6;
+      m.castShadow = maxH > 4;
       m.matrixAutoUpdate = false;
       m.updateMatrix();
       m.userData.center = new THREE.Vector3((-half + (i0 + i1) / 2 * cell), 0, (-half + (j0 + j1) / 2 * cell));

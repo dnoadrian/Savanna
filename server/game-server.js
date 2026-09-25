@@ -6,7 +6,7 @@ import { TunnelManager } from './tunnel.js';
 import { validateName, suggestAlternatives } from '../shared/names.js';
 import { generateMap } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
-import { MAP_SEED, MATCH_SIZE, PARTY_MAX, QUEUE_WAIT, INVITE_TTL, SERVER_PORT, BOT_DIFFICULTIES } from '../shared/constants.js';
+import { MAP_SEED, MATCH_SIZE, MIN_HUMANS_NO_BOTS, PARTY_MAX, QUEUE_WAIT, INVITE_TTL, SERVER_PORT, BOT_DIFFICULTIES } from '../shared/constants.js';
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const PROXY_HEADERS = ['x-forwarded-for', 'cf-connecting-ip', 'x-real-ip', 'forwarded', 'cf-ray'];
@@ -609,6 +609,7 @@ export class GameServer {
       members,
       created: Date.now(),
       opts: {
+        bots: opts.bots !== false,
         storm: opts.storm !== false,
         botDifficulty: BOT_DIFFICULTIES.includes(opts.botDifficulty) ? opts.botDifficulty : 'normal',
         infiniteAmmo: opts.infiniteAmmo !== false,
@@ -647,27 +648,36 @@ export class GameServer {
       return ok;
     });
     if (!this.queue.length) return;
+    // getrennte Warteschlangen: mit Bots / ohne Bots
+    for (const bots of [true, false]) {
+      const q = this.queue.filter((tk) => tk.opts.bots === bots);
+      if (q.length) this.tickQueueGroup(q, bots);
+    }
+  }
+
+  tickQueueGroup(queue, bots) {
     // Parties nie trennen: FIFO auffüllen bis max. 12 Menschen
     const pick = [];
     let humans = 0;
-    for (const tk of this.queue) {
+    for (const tk of queue) {
       if (humans + tk.members.length <= MATCH_SIZE) {
         pick.push(tk);
         humans += tk.members.length;
       }
     }
-    const oldest = this.queue[0];
-    const waited = (Date.now() - oldest.created) / 1000;
-    if (humans >= MATCH_SIZE || waited >= QUEUE_WAIT) {
+    const waited = (Date.now() - queue[0].created) / 1000;
+    // ohne Bots erst ab 2 Menschen starten
+    const enough = bots || humans >= MIN_HUMANS_NO_BOTS;
+    if (humans >= MATCH_SIZE || (waited >= QUEUE_WAIT && enough)) {
       this.queue = this.queue.filter((tk) => !pick.includes(tk));
       this.startMatch(pick);
       return;
     }
     // Status an alle Wartenden
-    for (const tk of this.queue) {
-      const inPick = pick.includes(tk);
-      const secs = Math.max(0, QUEUE_WAIT - waited);
-      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs, humans: inPick ? humans : tk.members.length, bots: MATCH_SIZE - (inPick ? humans : tk.members.length) });
+    const secs = Math.max(0, QUEUE_WAIT - waited);
+    for (const tk of queue) {
+      const n = pick.includes(tk) ? humans : tk.members.length;
+      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs, humans: n, bots: bots ? MATCH_SIZE - n : 0, noBots: !bots });
     }
   }
 

@@ -2,7 +2,7 @@
 // Solo: läuft im Browser. Lokaler Mehrspieler: läuft server-autoritativ.
 import {
   MATCH_SIZE, COUNTDOWN, MAX_HP, MEDKIT_START, MEDKIT_MAX, MEDKIT_HEAL, MEDKIT_TIME, WEAPON, F,
-  SPAWN_MIN_DIST, MAX_REWIND, EYE_STAND, EYE_CROUCH,
+  SPAWN_MIN_DIST, MAX_REWIND, EYE_STAND, EYE_CROUCH, ISLAND_RADIUS,
 } from '../constants.js';
 import { RNG } from '../rng.js';
 import { createBody, stepMovement, bodyFlags } from './movement.js';
@@ -42,8 +42,9 @@ export class Simulation {
     this.winnerId = null;
     this.players = [];
     this.byId = new Map();
-    if (cfg.players.length !== MATCH_SIZE) throw new Error('Match braucht genau ' + MATCH_SIZE + ' Spieler');
-    const spawns = this.pickSpawns(MATCH_SIZE);
+    // mit Bots immer 12 Spieler; online ohne Bots nur die Menschen
+    if (cfg.players.length < 1 || cfg.players.length > MATCH_SIZE) throw new Error('Match braucht 1 bis ' + MATCH_SIZE + ' Spieler');
+    const spawns = this.pickSpawns(cfg.players.length);
     cfg.players.forEach((pc, i) => this.addPlayer(pc, spawns[i]));
   }
 
@@ -56,8 +57,8 @@ export class Simulation {
     while (out.length < n && tries < 20000) {
       tries++;
       if (tries % 3000 === 0) minDist *= 0.85;
-      const x = this.rng.range(-470, 470);
-      const z = this.rng.range(-470, 470);
+      const x = this.rng.range(-ISLAND_RADIUS + 8, ISLAND_RADIUS - 8);
+      const z = this.rng.range(-ISLAND_RADIUS + 8, ISLAND_RADIUS - 8);
       const h = t.heightAt(x, z);
       if (h < 2.2 || t.waterLevelAt(x, z) > h - 0.1) continue;
       const n2 = t.normalAt(x, z);
@@ -426,12 +427,8 @@ export class Simulation {
     const p = this.byId.get(id);
     if (!p || !p.alive || this.phase !== 'playing') return false;
     if (p.fireTokens < 1) return false;
-    // Server-Magazin: Nachladen ggf. vorzeitig beenden (Netzwerk-Jitter)
+    // Server-Magazin: Nachladen ggf. vorzeitig beenden (Netzwerk-Jitter). Nachgeladen wird nur auf Tastendruck.
     if (p.weapon.reloading && p.weapon.reloadDur - p.weapon.reloadT < 0.4) p.weapon.finishReload();
-    if (p.weapon.mag <= 0 && !p.weapon.reloading) {
-      p.weapon.startReload();
-      return false;
-    }
     if (!p.weapon.fire(true)) return false;
     p.fireTokens -= 1;
     if (p.healT >= 0) this.cancelHeal(p);

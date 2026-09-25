@@ -67,15 +67,16 @@ test('Schadensabfall ab 50 m linear auf 70 % bei 100 m', () => {
   assert.equal(computeDamage('b', 100), Math.round(19 * 0.7));
 });
 
-test('Sturmgewehr: 30 Schuss, 5,5 Schuss/s, Nachladen 1,9 s / 2,4 s', () => {
+test('Sturmgewehr: 30 Schuss, 9 Schuss/s, Nachladen 1,9 s / 2,4 s', () => {
   const w = new WeaponState(true);
   assert.equal(w.mag, 30);
+  assert.equal(WEAPON.fireRate, 9);
   let shots = 0;
   for (let t = 0; t < 1.0 - 1e-9; t += 1 / 240) {
     w.update(1 / 240);
     if (w.canFire() && w.fire()) shots++;
   }
-  assert.ok(shots >= 5 && shots <= 6, 'Schüsse in 1 s: ' + shots);
+  assert.ok(shots >= 9 && shots <= 10, 'Schüsse in 1 s: ' + shots);
   assert.ok(w.startReload());
   assert.equal(w.reloadDur, WEAPON.reloadTactical);
   const w2 = new WeaponState(false);
@@ -87,7 +88,7 @@ test('Sturmgewehr: 30 Schuss, 5,5 Schuss/s, Nachladen 1,9 s / 2,4 s', () => {
   assert.equal(w2.reserve, 150);
 });
 
-test('Jedes Match hat genau 12 Spieler (1..12 Menschen)', () => {
+test('Mit Bots immer genau 12 Spieler (1..12 Menschen)', () => {
   const rng = new RNG(5);
   for (let h = 1; h <= 14; h++) {
     const humans = Array.from({ length: h }, (_, i) => ({ id: 'h' + i, name: 'Mensch' + i }));
@@ -99,7 +100,7 @@ test('Jedes Match hat genau 12 Spieler (1..12 Menschen)', () => {
 });
 
 let map;
-test('Insel ist deterministisch (Server = Client)', () => {
+test('Kleine Insel mit nur einem Ort, deterministisch (Server = Client)', () => {
   map = generateMap();
   const m2 = generateMap();
   const hash = (m) => {
@@ -108,11 +109,43 @@ test('Insel ist deterministisch (Server = Client)', () => {
     return [m.collision.cols.length, h, m.props.length, m.parts.length];
   };
   assert.deepEqual(hash(map), hash(m2));
-  assert.ok(map.pois.length >= 8);
-  const names = map.pois.map((p) => p.name);
-  for (const n of ['Dusty Mine', 'Cactus Canyon', 'Oasis', 'Safari Camp', 'Old Ranch', 'Railway Station', 'Bone Valley', 'Lookout Rock', 'Fishing Docks']) assert.ok(names.includes(n), n);
-  // von Wasser umgeben
-  for (const [x, z] of [[-700, 0], [700, 0], [0, -700], [0, 700], [690, 690]]) assert.ok(map.terrain.heightAt(x, z) < -2);
+  assert.deepEqual(map.pois.map((p) => p.name), ['Old Ranch']);
+  // Insel ca. 120 m breit, rundherum Wasser
+  assert.ok(map.terrain.heightAt(0, 0) > 2);
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+    assert.ok(map.terrain.heightAt(Math.cos(a) * 45, Math.sin(a) * 45) > 1, 'Land bei 45 m');
+    assert.ok(map.terrain.heightAt(Math.cos(a) * 75, Math.sin(a) * 75) < -1, 'Wasser bei 75 m');
+  }
+});
+
+test('Online ohne Bots: nur Menschen im Match', () => {
+  const humans = [{ id: 'a', name: 'Anna' }, { id: 'b', name: 'Ben' }, { id: 'c', name: 'Cem' }];
+  const sim = new Simulation({ terrain: map.terrain, collision: map.collision, nav: null, pois: map.pois }, { seed: 5, players: humans });
+  assert.equal(sim.players.length, 3);
+  assert.equal(sim.players.filter((p) => p.isBot).length, 0);
+  const [a, b] = sim.players;
+  assert.ok(Math.hypot(a.body.x - b.body.x, a.body.z - b.body.z) > 5, 'Spawns zu nah');
+  while (sim.phase === 'countdown') sim.step(SIM_DT);
+  sim.applyDamage(sim.byId.get('b'), 999, 'a', 'b', null);
+  sim.applyDamage(sim.byId.get('c'), 999, 'a', 'b', null);
+  assert.equal(sim.phase, 'ended');
+  assert.equal(sim.winnerId, 'a');
+});
+
+test('Kein automatisches Nachladen: leeres Magazin bleibt leer', () => {
+  const sim = new Simulation({ terrain: map.terrain, collision: map.collision, nav: null, pois: map.pois }, { seed: 6, players: [{ id: 'a', name: 'Anna' }, { id: 'b', name: 'Ben' }] });
+  while (sim.phase === 'countdown') sim.step(SIM_DT);
+  const a = sim.byId.get('a');
+  a.weapon.mag = 0;
+  const shot = { ox: a.body.x, oy: a.body.y + 1.6, oz: a.body.z, dx: 0, dy: 0, dz: -1 };
+  assert.equal(sim.humanFire('a', shot), false);
+  for (let i = 0; i < 90; i++) sim.step(SIM_DT);
+  assert.equal(a.weapon.reloading, false);
+  assert.equal(a.weapon.mag, 0);
+  sim.humanReload('a');
+  assert.equal(a.weapon.reloading, true);
+  for (let i = 0; i < 90; i++) sim.step(SIM_DT);
+  assert.equal(a.weapon.mag, 30);
 });
 
 test('Medkit heilt +75, nicht über 200; Kill gibt +1 Medkit', () => {
@@ -165,7 +198,7 @@ test('Webseiten-Version (docs/) ist aktuell', () => {
   try {
     await runServerTest();
     passed++;
-    console.log(`  ✔ Server: Namen, Freunde, Einladung, Party, Warteschlange, Match mit 2 Menschen + 10 Bots, Ende (${Date.now() - t0} ms)`);
+    console.log(`  ✔ Server: Namen, Freunde, Einladung, Party, Warteschlange, Match mit 2 Menschen + 10 Bots, Online ohne Bots, Ende (${Date.now() - t0} ms)`);
   } catch (e) {
     console.error(`  ✘ Server-Integrationstest\n    ${e.stack}`);
     process.exitCode = 1;

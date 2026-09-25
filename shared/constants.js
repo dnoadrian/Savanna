@@ -1,8 +1,9 @@
 // Zentrale Spielkonstanten – Server und Client verwenden exakt dieselben Werte.
 
-export const MATCH_SIZE = 12; // fest: jedes Match hat genau 12 Spieler
+export const MATCH_SIZE = 12; // mit Bots: immer genau 12 Spieler
+export const MIN_HUMANS_NO_BOTS = 2; // Online ohne Bots: mindestens 2 Menschen
 export const PARTY_MAX = 4;
-export const MAP_SEED = 424242; // Insel ist immer gleich (POIs handplatziert, Deko per Seed)
+export const MAP_SEED = 424242; // Insel ist immer gleich (Ranch handplatziert, Deko per Seed)
 export const SERVER_PORT = 4242;
 
 export const SIM_HZ = 30;
@@ -16,13 +17,14 @@ export const COUNTDOWN = 3.6; // 3-2-1-GO
 export const QUEUE_WAIT = 10; // Sekunden Wartezeit auf weitere Menschen
 export const INVITE_TTL = 60;
 
-// Welt
-export const WORLD_HALF = 720; // Terrain reicht von -720..720
-export const GRID_CELL = 4; // Terrain-Auflösung in Metern
+// Welt: kleine Insel (~120 m) mit einem einzigen Ort (Old Ranch)
+export const ISLAND_RADIUS = 60; // Küstenlinie ungefähr hier
+export const WORLD_HALF = 96; // Terrain reicht von -96..96
+export const GRID_CELL = 1; // Terrain-Auflösung in Metern
 export const SEA_LEVEL = 0;
 export const DEEP_WATER = 1.25; // ab dieser Tiefe (Füße unter Wasser) treibt es zurück
-export const BOUNDARY_RADIUS = 700;
-export const SPAWN_MIN_DIST = 60;
+export const BOUNDARY_RADIUS = 88;
+export const SPAWN_MIN_DIST = 16;
 
 // Spieler
 export const MAX_HP = 200;
@@ -53,7 +55,7 @@ export const WEAPON = {
   id: 'ar',
   magSize: 30,
   reserve: 180,
-  fireRate: 5.5,
+  fireRate: 9,
   damageBody: 19,
   damageHead: 26,
   damageLimb: 16,
@@ -67,14 +69,14 @@ export const WEAPON = {
   spreadBase: 1.1,
   spreadMove: 2.2,
   spreadAir: 4.5,
-  spreadPerShot: 0.4,
-  spreadMaxBloom: 3.2,
+  spreadPerShot: 0.22,
+  spreadMaxBloom: 2.4,
   spreadRecover: 7,
   crouchMult: 0.6,
-  adsMult: 0.28,
+  adsMult: 0.35,
   // Rückstoß in Grad
-  recoilUp: 0.85,
-  recoilSide: 0.4,
+  recoilUp: 0.5,
+  recoilSide: 0.28,
 };
 
 // Medkits
@@ -83,20 +85,20 @@ export const MEDKIT_MAX = 5;
 export const MEDKIT_HEAL = 75;
 export const MEDKIT_TIME = 1.0;
 
-// Sturm – 5 Phasen, Start nach 60 s
+// Sturm – 5 Phasen, Start nach 35 s (kleine Insel: schnelle Runden)
 export const STORM_PHASES = [
-  { wait: 60, shrink: 45, radius: 440, dps: 1 },
-  { wait: 40, shrink: 35, radius: 270, dps: 1 },
-  { wait: 35, shrink: 30, radius: 150, dps: 2 },
-  { wait: 30, shrink: 25, radius: 70, dps: 5 },
-  { wait: 25, shrink: 25, radius: 0, dps: 10 },
+  { wait: 35, shrink: 20, radius: 58, dps: 1 },
+  { wait: 25, shrink: 15, radius: 38, dps: 1 },
+  { wait: 20, shrink: 15, radius: 22, dps: 2 },
+  { wait: 15, shrink: 12, radius: 10, dps: 5 },
+  { wait: 15, shrink: 12, radius: 0, dps: 10 },
 ];
-export const STORM_START_RADIUS = 760;
+export const STORM_START_RADIUS = 92;
 
 // Sichtbarkeit/Wahrnehmung der Bots
 export const BOT_FOV = 120;
-export const BOT_VIEW_DIST = 150;
-export const BOT_HEAR_DIST = 100;
+export const BOT_VIEW_DIST = 140;
+export const BOT_HEAR_DIST = 90;
 
 // Spielerflags für Animation/Netzwerk (Bitmaske)
 export const F = {

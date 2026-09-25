@@ -1,5 +1,5 @@
 // Lokaler Spieler: Eingabe → gemeinsame Bewegungsphysik, Kamera (Ego/Schulter), Waffe
-// (Vollautomatik, Rückstoß, Streuung, Nachladen), Medkit, Slide, Schritte, Atmen.
+// (Vollautomatik, Rückstoß, Streuung, Nachladen nur per Taste), Medkit, Slide, Schritte, Atmen.
 import * as THREE from 'three';
 import { createBody, stepMovement, bodyFlags, eyeHeight } from '../../shared/sim/movement.js';
 import { WeaponState } from '../../shared/sim/weapon.js';
@@ -58,10 +58,9 @@ export class LocalPlayer {
     this.bobPhase = 0;
     this.roll = 0;
     this.fovCur = 90;
-    this.thirdPerson = !!this.settings.get('thirdPerson');
+    this.thirdPerson = false;
     this.sendAcc = 0;
     this.dryFired = false;
-    this.autoReloadT = -1;
     this.lastLook = { dx: 0, dy: 0 };
     this.overEnemy = false;
     this.flags = 0;
@@ -130,7 +129,8 @@ export class LocalPlayer {
     const adsSens = this.adsK > 0.5 ? s.get('adsSens') : 1;
     let sensMul = 1;
     const camPos = this.camera.position;
-    const aa = this.aim.update(playing ? s.get('aimAssist') : 'off', camPos, this.yaw, this.pitch, states, g.session.youId, dt, now, this.ads && !this.wasAds);
+    const engaged = this.ads || (input.isDown('fire') && this.weapon.mag > 0);
+    const aa = this.aim.update(playing ? s.get('aimAssist') : 'off', camPos, this.yaw, this.pitch, states, g.session.youId, dt, now, this.ads && !this.wasAds, engaged);
     sensMul = aa.sensMul;
     this.wasAds = this.ads;
     const fovScale = this.fovCur / 90;
@@ -237,15 +237,8 @@ export class LocalPlayer {
       w.cancelReload();
       g.session.cancelReload();
     }
-    if ((input.pressed('reload')) && w.canReload() && selfInfo.alive && !b.sprinting && this.healT < 0) this.startReload();
-    if (w.mag === 0 && !w.reloading && selfInfo.alive) {
-      if (this.autoReloadT < 0) this.autoReloadT = 0.25;
-      this.autoReloadT -= dt;
-      if (this.autoReloadT <= 0 && !b.sprinting && this.healT < 0) {
-        this.autoReloadT = -1;
-        this.startReload();
-      }
-    } else this.autoReloadT = -1;
+    // Nachladen nur manuell (kein automatisches Nachladen bei leerem Magazin)
+    if (input.pressed('reload') && w.canReload() && selfInfo.alive && !b.sprinting && this.healT < 0) this.startReload();
     if (input.pressed('slot1') && this.healT >= 0) this.cancelHeal();
     if (input.pressed('heal') || input.pressed('slot2')) this.startHeal();
 
@@ -389,7 +382,8 @@ export class LocalPlayer {
     this.roll += (rollT - this.roll) * Math.min(1, dt * 8);
     // FOV
     const baseFov = s.get('fov');
-    const fovT = baseFov * (this.adsK > 0.02 ? 1 - 0.25 * this.adsK : 1) * (b.sprinting ? 1.05 : 1) * (b.stance === 'slide' ? 1.07 : 1);
+    // Kimme und Korn statt Zielfernrohr: nur leichter Zoom beim Zielen
+    const fovT = baseFov * (this.adsK > 0.02 ? 1 - 0.12 * this.adsK : 1) * (b.sprinting ? 1.05 : 1) * (b.stance === 'slide' ? 1.07 : 1);
     this.fovCur += (fovT - this.fovCur) * Math.min(1, dt * 12);
     // Einstellung = horizontales FOV bei 16:9 (Hor+): vertikales FOV daraus ableiten
     const vfov = (2 * Math.atan(Math.tan((this.fovCur * DEG) / 2) * (9 / 16))) / DEG;

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { surfaceColor } from './terrainMesh.js';
 import { PROP_TYPES } from '../../shared/map/props.js';
 
-export const MAP_EXTENT = 640; // Karte zeigt -640..640
+export const MAP_EXTENT = 72; // Karte zeigt -72..72 (ganze Insel)
 
 export function renderMapImage(map, size = 1024) {
   const c = document.createElement('canvas');
@@ -31,9 +31,9 @@ export function renderMapImage(map, size = 1024) {
       } else {
         col.set(surfaceColor(t.surfaceAt(x, z)));
         col.convertLinearToSRGB();
-        const hx = t.heightAt(x + 3, z) - t.heightAt(x - 3, z);
-        const hz = t.heightAt(x, z + 3) - t.heightAt(x, z - 3);
-        const shade = Math.max(0.6, Math.min(1.3, 1 + (hx * sun.x + hz * sun.z) * 0.08 + h * 0.004));
+        const hx = t.heightAt(x + 1, z) - t.heightAt(x - 1, z);
+        const hz = t.heightAt(x, z + 1) - t.heightAt(x, z - 1);
+        const shade = Math.max(0.6, Math.min(1.3, 1 + (hx * sun.x + hz * sun.z) * 0.35 + h * 0.02));
         r = col.r * 255 * shade;
         gg = col.g * 255 * shade;
         b = col.b * 255 * shade;
@@ -47,41 +47,31 @@ export function renderMapImage(map, size = 1024) {
   }
   g.putImageData(img, 0, 0);
   const toPx = (x) => ((x + MAP_EXTENT) / (MAP_EXTENT * 2)) * size;
-  // Bäume als Punkte
-  g.fillStyle = 'rgba(60,110,40,0.75)';
+  const shade = new THREE.Color();
+  // Bäume und Felsen in echter Größe
+  const CANOPY = { acacia: 3.2, baobab: 3.8, palm_s: 2.2, rock_l: 2.2, rock_m: 1.0 };
   for (const p of map.props) {
     const n = PROP_TYPES[p.t];
-    if (n === 'acacia' || n === 'baobab' || n === 'palm_s') {
-      g.beginPath();
-      g.arc(toPx(p.x), toPx(p.z), n === 'baobab' ? 2.2 : 1.6, 0, Math.PI * 2);
-      g.fill();
-    }
+    const r = CANOPY[n];
+    if (!r) continue;
+    g.fillStyle = n.startsWith('rock') ? 'rgba(120,100,90,0.8)' : 'rgba(60,110,40,0.7)';
+    g.beginPath();
+    g.arc(toPx(p.x), toPx(p.z), (r * p.s) / scale, 0, Math.PI * 2);
+    g.fill();
   }
-  // Gebäude/Strukturen
+  // Gebäude/Strukturen (Dächer zuletzt, sie verdecken Boden und Wände)
   for (const p of map.parts) {
-    if (!p.col || p.inv) continue;
-    if (p.s !== 'box' && p.s !== 'cyl') continue;
-    const w = (p.s === 'box' ? p.w : p.r * 2) / scale;
-    const d = (p.s === 'box' ? p.d : p.r * 2) / scale;
+    if (p.inv || (!p.col && p.s !== 'prism')) continue;
+    if (p.s !== 'box' && p.s !== 'cyl' && p.s !== 'prism') continue;
+    const w = (p.s === 'cyl' ? p.r * 2 : p.w) / scale;
+    const d = (p.s === 'cyl' ? p.r * 2 : p.d) / scale;
     if (w * d < 0.5) continue;
     g.save();
     g.translate(toPx(p.x), toPx(p.z));
     g.rotate(-(p.ry || 0));
-    const c3 = new THREE.Color(p.c || 0x777777);
-    g.fillStyle = `rgb(${Math.round(c3.r * 200)},${Math.round(c3.g * 200)},${Math.round(c3.b * 200)})`;
+    g.fillStyle = shade.set(p.c || 0x777777).multiplyScalar(0.8).getStyle();
     g.fillRect(-w / 2, -d / 2, Math.max(1, w), Math.max(1, d));
     g.restore();
   }
-  // Bahnlinie
-  g.strokeStyle = 'rgba(70,60,55,0.8)';
-  g.lineWidth = 2;
-  g.setLineDash([4, 3]);
-  if (map.rail.segs.length) {
-    g.beginPath();
-    g.moveTo(toPx(map.rail.segs[0][0]), toPx(map.rail.z));
-    g.lineTo(toPx(map.rail.segs[map.rail.segs.length - 1][0] + 12), toPx(map.rail.z));
-    g.stroke();
-  }
-  g.setLineDash([]);
   return c;
 }

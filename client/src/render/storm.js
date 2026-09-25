@@ -28,9 +28,9 @@ void main() {
   vec3 c1 = vec3(0.45, 0.18, 0.78);
   vec3 c2 = vec3(0.78, 0.45, 1.0);
   vec3 col = mix(c1, c2, n);
-  float stripes = smoothstep(0.55, 0.9, sin(y * 0.35 + n * 5.0 - uTime * 2.0) * 0.5 + 0.5);
+  float stripes = smoothstep(0.55, 0.9, sin(y * 0.6 + n * 5.0 - uTime * 2.0) * 0.5 + 0.5);
   col += vec3(0.25, 0.15, 0.35) * stripes;
-  float fadeTop = 1.0 - smoothstep(60.0, 190.0, y);
+  float fadeTop = 1.0 - smoothstep(18.0, 60.0, y);
   float dist = length(cameraPosition.xz - vWorld.xz);
   float fadeFar = 1.0 - smoothstep(uFar * 0.3, uFar * 0.9, dist) * 0.93;
   float alpha = (0.38 + n * 0.25 + stripes * 0.15) * fadeTop * fadeFar;
@@ -41,8 +41,8 @@ void main() {
 export class StormWall {
   constructor() {
     this.uniforms = { uTime: { value: 0 }, uFar: { value: 600 } };
-    const geo = new THREE.CylinderGeometry(1, 1, 220, 128, 1, true);
-    geo.translate(0, 90, 0);
+    const geo = new THREE.CylinderGeometry(1, 1, 90, 96, 1, true);
+    geo.translate(0, 35, 0);
     this.mesh = new THREE.Mesh(
       geo,
       new THREE.ShaderMaterial({ uniforms: this.uniforms, vertexShader: vert, fragmentShader: frag, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false }),
@@ -60,7 +60,7 @@ export class StormWall {
       return;
     }
     this.mesh.visible = true;
-    this.mesh.position.set(zone.x, -20, zone.z);
+    this.mesh.position.set(zone.x, -10, zone.z);
     const r = Math.max(0.5, zone.r);
     this.mesh.scale.set(r, 1, r);
   }

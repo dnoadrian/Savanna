@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { h, clear, esc, fmtTime } from './dom.js';
 import { ICON, icon } from './icons.js';
 import { t } from '../i18n.js';
-import { MAX_HP, MEDKIT_MAX, WEAPON, MATCH_SIZE } from '../../shared/constants.js';
+import { MAX_HP, MEDKIT_MAX, WEAPON } from '../../shared/constants.js';
 import { MAP_EXTENT } from '../render/mapImage.js';
 
 const _v = new THREE.Vector3();
@@ -61,7 +61,9 @@ export class HUD {
     this.cross = h('div', { class: 'crosshair' });
     this.hitmarkerEl = h('div', { class: 'hitmarker' });
     this.ammoNear = h('div', { class: 'ammo-near' });
-    this.ring = h('div', { class: 'progress-ring hidden', html: `<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" class="bg"/><circle cx="50" cy="50" r="42" class="fg"/></svg><div class="ring-label"></div>` });
+    // kleiner Kreis um das Fadenkreuz, der sich beim Nachladen/Heilen langsam schließt (ohne Text)
+    this.ring = h('div', { class: 'progress-ring hidden', html: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" class="bg"/><circle cx="50" cy="50" r="42" class="fg"/></svg>' });
+    this.ringFg = this.ring.querySelector('.fg');
     this.msgEl = h('div', { class: 'hud-msg' });
     this.bigMsgEl = h('div', { class: 'hud-bigmsg' });
     this.countEl = h('div', { class: 'hud-count' });
@@ -132,15 +134,17 @@ export class HUD {
       this._ammo = ammoTxt;
       this.slot1Ammo.textContent = ammoTxt;
       this.bigAmmo.innerHTML = `<span class="mag ${d.mag <= 5 ? 'low' : ''}">${d.mag}</span><span class="res">/ ${reserve}</span>`;
+      this.bigAmmo.classList.toggle('empty', d.mag === 0);
       this.ammoNear.textContent = ammoTxt;
       this.ammoNear.classList.toggle('low', d.mag <= 5);
+      this.ammoNear.classList.toggle('empty', d.mag === 0);
     }
     this.slot2Count.textContent = `${d.medkits}/${MEDKIT_MAX}`;
     this.slot2.classList.toggle('empty', d.medkits <= 0);
     this.slot1.classList.toggle('active', !d.healing);
     this.slot2.classList.toggle('active', !!d.healing);
     // Zähler
-    this.aliveEl.textContent = `${d.alive}/${MATCH_SIZE}`;
+    this.aliveEl.textContent = `${d.alive}/${d.total}`;
     this.killsEl.textContent = d.kills;
     // Sturm
     const z = d.zone;
@@ -166,10 +170,8 @@ export class HUD {
     // Fortschrittsring
     if (d.progress !== null && d.progress !== undefined) {
       this.ring.classList.remove('hidden');
-      const fg = this.ring.querySelector('.fg');
-      fg.style.strokeDashoffset = String(264 * (1 - Math.min(1, d.progress)));
+      this.ringFg.style.strokeDashoffset = String(264 * (1 - Math.min(1, d.progress)));
       this.ring.classList.toggle('heal', d.progressType === 'heal');
-      this.ring.querySelector('.ring-label').textContent = d.progressType === 'heal' ? t('healing') : t('reloading');
     } else this.ring.classList.add('hidden');
     // Vollbild-Hinweis
     this.fsHint.classList.toggle('hidden', !!document.fullscreenElement || d.phase === 'ended');
@@ -343,7 +345,7 @@ export class HUD {
     this.scoreEl.classList.toggle('hidden', !show);
     if (!show) return;
     const sorted = rows.slice().sort((a, b) => (b.alive - a.alive) || (b.kills - a.kills) || (a.placement - b.placement));
-    this.scoreEl.innerHTML = `<div class="sb-inner"><div class="sb-title">${t('scoreboard')} · ${rows.filter((r) => r.alive).length}/${MATCH_SIZE} ${t('alive')}</div>
+    this.scoreEl.innerHTML = `<div class="sb-inner"><div class="sb-title">${t('scoreboard')} · ${rows.filter((r) => r.alive).length}/${rows.length} ${t('alive')}</div>
       <table><thead><tr><th>#</th><th>${t('player')}</th><th>${t('killsLabel')}</th><th>${t('damage')}</th><th>${t('status')}</th><th>${t('ping')}</th></tr></thead><tbody>
       ${sorted.map((r, i) => `<tr class="${r.me ? 'me' : ''} ${r.alive ? '' : 'dead'}"><td>${i + 1}</td><td>${r.crown ? `<span class="sb-crown">${ICON.crown}<b>${r.streak}</b></span>` : ''}${esc(r.name)} ${r.isBot ? '<span class="bot-tag">[BOT]</span>' : ''}</td><td>${r.kills}</td><td>${r.damage ?? '–'}</td><td>${r.alive ? `<span class="alive-dot"></span>${t('alive')}` : `${t('dead')} #${r.placement}`}</td><td>${r.isBot ? 'BOT' : (r.ping ? Math.round(r.ping) + ' ms' : '–')}</td></tr>`).join('')}
       </tbody></table></div>`;
@@ -355,7 +357,7 @@ export class HUD {
     const g = c.getContext('2d');
     const W = c.width;
     const R = W / 2;
-    const range = 150; // Meter vom Zentrum zum Rand
+    const range = 45; // Meter vom Zentrum zum Rand
     const pxPerM = R / range;
     g.clearRect(0, 0, W, W);
     g.save();

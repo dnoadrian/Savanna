@@ -266,6 +266,9 @@ code.pid { background: rgba(0, 0, 0, 0.35); padding: 6px 10px; border-radius: 8p
 .stat-tile small { color: var(--muted); }
 .credits p { line-height: 1.45; font-size: 16px; white-space: pre-line; }
 .confirm-text { font-size: 19px; line-height: 1.4; }
+.bots-choice { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.bots-card { width: 220px; border-color: rgba(255, 255, 255, 0.25); }
+.bots-card:hover { border-color: var(--yellow); }
 
 /* ---------- Seitenpanel Freunde ---------- */
 .side-panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(420px, 96vw); background: linear-gradient(180deg, #22398f, #131f55); border-left: 3px solid rgba(255, 255, 255, 0.2); padding: 18px; transform: translateX(105%); transition: transform 0.25s cubic-bezier(.2, .9, .3, 1); pointer-events: auto; display: flex; flex-direction: column; z-index: 15; box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4); }
@@ -439,13 +442,14 @@ code.pid { background: rgba(0, 0, 0, 0.35); padding: 6px 10px; border-radius: 8p
 @keyframes hmPop { from { transform: scale(1.5); } }
 .ammo-near { position: absolute; left: 34px; top: 22px; font-size: 15px; white-space: nowrap; opacity: 0.85; text-shadow: 0 1px 2px #000; }
 .ammo-near.low { color: #ff6b6b; }
-.progress-ring { position: absolute; width: 90px; height: 90px; left: -45px; top: 40px; }
+.ammo-near.empty, .big-ammo.empty .mag { animation: emptyPulse 0.8s ease-in-out infinite; }
+@keyframes emptyPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.progress-ring { position: absolute; width: 46px; height: 46px; left: -23px; top: -23px; pointer-events: none; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
 .progress-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.progress-ring circle { fill: none; stroke-width: 9; }
-.progress-ring .bg { stroke: rgba(0, 0, 0, 0.45); }
+.progress-ring circle { fill: none; stroke-width: 6; }
+.progress-ring .bg { stroke: rgba(255, 255, 255, 0.18); }
 .progress-ring .fg { stroke: #fff; stroke-dasharray: 264; stroke-dashoffset: 264; stroke-linecap: round; }
 .progress-ring.heal .fg { stroke: var(--hp); }
-.ring-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; text-shadow: 0 1px 2px #000; }
 .hud-msg { position: absolute; left: 50%; top: 64%; transform: translateX(-50%); font-size: 24px; background: rgba(0, 0, 0, 0.5); padding: 6px 16px; border-radius: 10px; opacity: 0; transition: opacity 0.2s; }
 .hud-msg.show { opacity: 1; }
 .hud-msg.warn { color: #ffd23f; }

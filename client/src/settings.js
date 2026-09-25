@@ -54,20 +54,15 @@ export const DEFAULTS = {
   invertY: false,
   sprintMode: 'hold',
   crouchMode: 'hold',
-  aimAssist: 'medium',
+  aimAssist: 'strong',
   // Audio
   volMaster: 80,
   volSfx: 90,
   volMusic: 55,
   volUi: 80,
-  volAmbient: 70,
   lobbyMusic: true,
-  // Spiel
-  botDifficulty: 'normal',
-  storm: true,
-  infiniteAmmo: true,
+  // Konto
   language: 'de',
-  thirdPerson: false,
 };
 
 const STORAGE_KEY = 'savanna.settings.v1';
