@@ -1,5 +1,9 @@
 # SAVANNA ROYALE 👑🌵
 
+## ▶️ [JETZT SPIELEN – hier klicken](https://dnoadrian.github.io/Savanna/docs/)
+
+> Direkt im Browser, ohne Installation: **https://dnoadrian.github.io/Savanna/docs/**
+
 Ein bunter Low-Poly-Battle-Royale-Egoshooter für den Browser. **12 Spieler** landen auf einer Savanneninsel. Wer als Letzter übrig bleibt, gewinnt die **Victory Royale** und trägt in der nächsten Runde die goldene Krone.
 
 - **Client:** Three.js (lokal über npm, kein CDN), reines JavaScript mit ES-Modulen, Web Audio API
