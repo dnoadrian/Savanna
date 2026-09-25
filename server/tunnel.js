@@ -14,6 +14,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BIN_DIR = path.join(__dirname, 'bin');
 const URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
 
+// Adresse der Webseiten-Version (GitHub Pages) aus package.json "homepage"
+let pagesCache;
+function pagesUrl() {
+  if (pagesCache !== undefined) return pagesCache;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    pagesCache = typeof pkg.homepage === 'string' && /^https:\/\//.test(pkg.homepage) ? pkg.homepage.replace(/\/?$/, '/') : null;
+  } catch {
+    pagesCache = null;
+  }
+  return pagesCache;
+}
+
 function assetName() {
   const p = process.platform;
   const a = process.arch;
@@ -111,7 +124,7 @@ export class TunnelManager extends EventEmitter {
   }
 
   status() {
-    return { state: this.state, url: this.url, error: this.error, progress: this.progress, port: this.port, publicIp: this.publicIp, lan: lanAddresses() };
+    return { state: this.state, url: this.url, error: this.error, progress: this.progress, port: this.port, publicIp: this.publicIp, lan: lanAddresses(), pagesUrl: pagesUrl() };
   }
 
   set(state, extra = {}) {

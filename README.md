@@ -8,7 +8,28 @@ Ein bunter Low-Poly-Battle-Royale-Egoshooter für den Browser. **12 Spieler** la
 
 ---
 
-## 🚀 Schnellstart
+## 🌐 Sofort im Browser spielen (ohne Installation)
+
+**👉 https://dnoadrian.github.io/Savanna/**
+
+Seite öffnen, Namen wählen, **SPIELEN**. Die Webseite läuft komplett im Browser: **Solo gegen 11 Bots** funktioniert sofort.
+
+Für **Freunde / Party** braucht es einen laufenden Spielserver, denn GitHub Pages liefert nur Dateien aus. Dafür gibt es zwei Wege:
+1. **Einer hostet:** `npm install` und `npm run online` (siehe unten). Das Hosting-Panel zeigt dann einen *„Link über die Webseite“* wie
+   `https://dnoadrian.github.io/Savanna/?server=https://xyz.trycloudflare.com`. Wer diesen Link öffnet, spielt über die Webseite auf dem Server des Hosts. Auf der Webseite kann man den Server auch über **≡ → „Server / Online spielen“** eintragen.
+2. **Dauerhaft online (optional):** den Server kostenlos bei Render starten:
+   [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dnoadrian/Savanna)
+   Das nutzt `render.yaml` und braucht ein kostenloses Render-Konto. Danach ist die Render-Adresse eine komplette Spiel-Webseite mit Freunden, Party und Mehrspieler. Hinweise: Der Gratis-Server schläft nach 15 Minuten ohne Besucher ein (erster Aufruf dauert dann ca. 1 Minute) und vergisst gespeicherte Freundeslisten bei Neustarts. Soll die GitHub-Seite automatisch mit diesem Server verbinden, trägt man die Adresse in `package.json` unter `"savanna": { "server": "https://…onrender.com" }` ein und führt `npm run build:pages` aus.
+
+**Veröffentlichung auf GitHub Pages:** Die fertige Webseite liegt im Ordner `docs/` (erzeugt mit `npm run build:pages`). Im Repository unter *Settings → Pages* funktionieren alle Varianten:
+- *Deploy from a branch* → Branch `claude/savanna-royale-game-tuxwbn` → Ordner **`/docs`** (oder `/ (root)`, dort leitet `index.html` auf `docs/` weiter)
+- *GitHub Actions*: Der Workflow `.github/workflows/pages.yml` baut und veröffentlicht bei jedem Push automatisch.
+
+Nach Änderungen am Client `npm run build:pages` ausführen und `docs/` mit committen. `npm test` prüft, ob `docs/` aktuell ist.
+
+---
+
+## 🚀 Schnellstart (eigener Server mit allen Funktionen)
 
 Voraussetzung: [Node.js](https://nodejs.org) ab Version 18 (empfohlen 20 oder 22).
 
@@ -207,7 +228,12 @@ Rotierende Minimap mit POIs, Sturmkreisen und Position (darunter FPS und Ping), 
 │       ├── ui/           HUD, Erststart, Lobby, Einstellungen, Freunde, Hosting, Dialoge
 │       ├── audio/        prozedurale Sound- und Musik-Engine
 │       └── net/          WebSocket-Client, Solo- und Netzwerk-Session
-├── tests/                npm test (Regeln, Determinismus, komplettes Bot-Match)
+├── tests/                npm test (Regeln, Determinismus, Bot-Match, Server, Webseite aktuell)
+├── scripts/build-pages.js baut die statische Webseiten-Version nach docs/
+├── docs/                 fertige Webseite für GitHub Pages (Solo im Browser, optional Server)
+├── index.html            Weiterleitung auf docs/ (falls Pages aus dem Hauptverzeichnis liefert)
+├── .github/workflows/    automatische Veröffentlichung auf GitHub Pages
+├── render.yaml           optional: kompletter Server bei Render
 ├── Dockerfile            eigener Server / VPS
 └── package.json
 ```

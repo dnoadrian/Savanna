@@ -1,0 +1,13 @@
+# Optional: kompletter Spielserver (inkl. Freunde, Party, Mehrspieler) als Webseite bei Render.
+# README → "Deploy to Render" oder im Render-Dashboard "New → Blueprint" mit diesem Repository.
+services:
+  - type: web
+    name: savanna-royale
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

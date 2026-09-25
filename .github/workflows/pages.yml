@@ -1,0 +1,54 @@
+# Veröffentlicht die Webseiten-Version auf GitHub Pages, wenn in den Repository-Einstellungen
+# "Pages → Source: GitHub Actions" gewählt ist. Bei "Deploy from a branch" wird der
+# mitgelieferte Ordner docs/ (bzw. die Weiterleitung im Hauptverzeichnis) direkt ausgeliefert.
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main, master, claude/savanna-royale-game-tuxwbn]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      workflow_mode: ${{ steps.mode.outputs.workflow }}
+    steps:
+      - id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TYPE=$(gh api "repos/${{ github.repository }}/pages" --jq .build_type 2>/dev/null || echo "none")
+          echo "Pages-Quelle: $TYPE"
+          if [ "$TYPE" = "workflow" ]; then echo "workflow=true" >> "$GITHUB_OUTPUT"; else echo "workflow=false" >> "$GITHUB_OUTPUT"; fi
+
+  deploy:
+    needs: check
+    if: needs.check.outputs.workflow_mode == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:pages
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v4

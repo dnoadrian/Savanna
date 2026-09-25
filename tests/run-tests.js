@@ -1,5 +1,10 @@
 // Automatische Tests (npm test): Spielregeln, Namen, 12-Spieler-Garantie, Determinismus, Bot-Match.
 import assert from 'assert';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { execFileSync } from 'child_process';
+import { fileURLToPath } from 'url';
 import { validateName, suggestAlternatives, randomName } from '../shared/names.js';
 import { MAX_HP, WEAPON, MEDKIT_HEAL, MEDKIT_START, MEDKIT_MAX, MATCH_SIZE, SIM_DT } from '../shared/constants.js';
 import { computeDamage, falloff } from '../shared/sim/combat.js';
@@ -10,6 +15,7 @@ import { generateMap } from '../shared/map/mapgen.js';
 import { runHeadlessMatch } from './sim-headless.js';
 import { runServerTest } from './server-test.js';
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let passed = 0;
 function test(name, fn) {
   const t0 = Date.now();
@@ -137,6 +143,20 @@ test('Komplettes Bot-Match: genau ein Sieger, Plätze 1..12', () => {
   assert.ok(r.stats.heals > 0, 'Bots heilen nie');
   assert.ok(r.stuckMax < 8, 'Bots stecken fest');
   console.log(`    Sieger: ${r.winner.name} nach ${r.sim.matchTime.toFixed(0)} s, Heilungen: ${r.stats.heals}, Slides: ${r.stats.slides}`);
+});
+
+test('Webseiten-Version (docs/) ist aktuell', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'savanna-pages-'));
+  const out = path.join(tmp, 'site');
+  execFileSync(process.execPath, ['scripts/build-pages.js', out], { cwd: ROOT, stdio: 'ignore' });
+  const list = (d, base = d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? list(path.join(d, e.name), base) : [path.relative(base, path.join(d, e.name))])).sort();
+  const a = list(out);
+  const b = list(path.join(ROOT, 'docs'));
+  assert.deepEqual(b, a, 'docs/ enthält andere Dateien – bitte "npm run build:pages" ausführen');
+  for (const f of a) {
+    assert.ok(fs.readFileSync(path.join(out, f)).equals(fs.readFileSync(path.join(ROOT, 'docs', f))), `docs/${f} ist veraltet – bitte "npm run build:pages" ausführen`);
+  }
+  fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 // asynchroner Server-Integrationstest
