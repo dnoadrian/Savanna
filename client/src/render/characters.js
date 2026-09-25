@@ -19,6 +19,10 @@ const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _a1 = new THREE.Vector3();
+const _a2 = new THREE.Vector3();
+const _a3 = new THREE.Vector3();
+const _a4 = new THREE.Vector3();
 
 function mk(g, shadow = true) {
   const m = new THREE.Mesh(g.toGeometry(), charMat());
@@ -469,21 +473,20 @@ export class Character {
   solveArm(arm, target, side) {
     const a = 0.29, b = 0.3;
     const S = arm.shoulder;
-    const dir = _v3.subVectors(target, S);
+    const dir = _a1.subVectors(target, S);
     let d = dir.length();
     d = Math.max(0.08, Math.min(a + b - 0.005, d));
     dir.normalize();
     const cosA = (a * a + d * d - b * b) / (2 * a * d);
     const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
-    const pole = new THREE.Vector3(side * 0.8, -1, 0.35);
-    pole.sub(dir.clone().multiplyScalar(pole.dot(dir))).normalize();
-    const elbow = new THREE.Vector3().copy(S).addScaledVector(dir, a * cosA).addScaledVector(pole, a * sinA);
+    const pole = _a2.set(side * 0.8, -1, 0.35);
+    pole.addScaledVector(dir, -pole.dot(dir)).normalize();
+    const elbow = _a3.copy(S).addScaledVector(dir, a * cosA).addScaledVector(pole, a * sinA);
     arm.upper.position.copy(S);
-    const ud = elbow.clone().sub(S).normalize();
-    arm.upper.quaternion.setFromUnitVectors(V_UP, ud);
+    arm.upper.quaternion.setFromUnitVectors(V_UP, _a4.subVectors(elbow, S).normalize());
     arm.lower.position.copy(elbow);
-    const ld = new THREE.Vector3().copy(S).addScaledVector(dir, d).sub(elbow).normalize();
-    arm.lower.quaternion.setFromUnitVectors(V_UP, ld);
+    _a4.copy(S).addScaledVector(dir, d).sub(elbow).normalize();
+    arm.lower.quaternion.setFromUnitVectors(V_UP, _a4);
   }
 
   die(dirAngle) {

@@ -32,7 +32,7 @@ void main() {
   col += vec3(0.25, 0.15, 0.35) * stripes;
   float fadeTop = 1.0 - smoothstep(60.0, 190.0, y);
   float dist = length(cameraPosition.xz - vWorld.xz);
-  float fadeFar = 1.0 - smoothstep(uFar * 0.35, uFar, dist) * 0.85;
+  float fadeFar = 1.0 - smoothstep(uFar * 0.3, uFar * 0.9, dist) * 0.93;
   float alpha = (0.38 + n * 0.25 + stripes * 0.15) * fadeTop * fadeFar;
   gl_FragColor = vec4(col, alpha);
   #include <colorspace_fragment>

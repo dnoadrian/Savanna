@@ -1,9 +1,13 @@
 // Instanzierte Grasbüschel rund um die Kamera (Dichte einstellbar), mit Wind im Vertex-Shader.
+// Das Gras wird in 12-m-Kacheln vorberechnet und gecacht, damit beim Laufen keine Ruckler entstehen.
 import * as THREE from 'three';
 import { hash2 } from '/shared/rng.js';
 import { SURF } from '/shared/map/terrain.js';
 
 const MAX = 20000;
+const TILE = 12;
+const CACHE_MAX = 500;
+
 export const GRASS_LEVELS = {
   off: { r: 0, cell: 2 },
   low: { r: 38, cell: 1.6 },
@@ -55,9 +59,7 @@ export class Grass {
     this.lastX = 1e9;
     this.lastZ = 1e9;
     this.level = null;
-    this.m = new THREE.Matrix4();
-    this.q = new THREE.Quaternion();
-    this.c = new THREE.Color();
+    this.tiles = new Map();
     this.cols = [new THREE.Color(0xd9b048), new THREE.Color(0xe6c35a), new THREE.Color(0xb9b848), new THREE.Color(0xc9a23e)];
   }
 
@@ -65,56 +67,96 @@ export class Grass {
     this.time.value = time;
     const lv = GRASS_LEVELS[levelName] || GRASS_LEVELS.medium;
     const cx = camera.position.x, cz = camera.position.z;
-    if (levelName !== this.level || Math.hypot(cx - this.lastX, cz - this.lastZ) > 7) {
+    if (levelName !== this.level) {
+      this.tiles.clear();
       this.level = levelName;
+      this.lastX = 1e9;
+    }
+    if (Math.hypot(cx - this.lastX, cz - this.lastZ) > 5) {
       this.lastX = cx;
       this.lastZ = cz;
       this.rebuild(cx, cz, lv);
     }
   }
 
-  rebuild(cx, cz, lv) {
-    const t = this.map.terrain;
+  // Kachel berechnen: Float32Array mit [x,y,z, rot, sx, sy, r,g,b] je Büschel
+  tile(ti, tj, lv) {
+    const key = ti * 10007 + tj;
+    let t = this.tiles.get(key);
+    if (t) {
+      t.used = performance.now();
+      return t;
+    }
+    const terrain = this.map.terrain;
     const col = this.map.collision;
-    if (lv.r === 0) { this.mesh.count = 0; return; }
     const cell = lv.cell;
-    const r = lv.r;
-    const i0 = Math.floor((cx - r) / cell), i1 = Math.floor((cx + r) / cell);
-    const j0 = Math.floor((cz - r) / cell), j1 = Math.floor((cz + r) / cell);
-    let n = 0;
-    const m = this.m, q = this.q;
-    const pos = new THREE.Vector3(), sc = new THREE.Vector3();
-    const axis = new THREE.Vector3(0, 1, 0);
-    const arr = this.mesh.instanceMatrix.array;
-    const carr = this.mesh.instanceColor.array;
-    for (let j = j0; j <= j1 && n < MAX; j++) {
-      for (let i = i0; i <= i1 && n < MAX; i++) {
+    const out = [];
+    const i0 = Math.floor((ti * TILE) / cell), i1 = Math.floor(((ti + 1) * TILE) / cell) - 1;
+    const j0 = Math.floor((tj * TILE) / cell), j1 = Math.floor(((tj + 1) * TILE) / cell) - 1;
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
         const h1 = hash2(i, j, 17);
         const x = (i + hash2(i, j, 3)) * cell;
         const z = (j + hash2(i, j, 5)) * cell;
-        const dx = x - cx, dz = z - cz;
-        const d2 = dx * dx + dz * dz;
-        if (d2 > r * r) continue;
-        // am Rand ausdünnen
-        if (d2 > r * r * 0.6 && h1 > 1 - (d2 / (r * r) - 0.6) * 2.5) continue;
-        const s = t.surfaceAt(x, z);
+        const s = terrain.surfaceAt(x, z);
         if (s !== SURF.GRASS && s !== SURF.DRYGRASS && !(s === SURF.DIRT && h1 < 0.25) && !(s === SURF.RIVER && h1 < 0.1)) continue;
-        const y = t.heightAt(x, z);
-        if (y < 0.4 || t.waterLevelAt(x, z) > y - 0.05) continue;
+        const y = terrain.heightAt(x, z);
+        if (y < 0.4 || terrain.waterLevelAt(x, z) > y - 0.05) continue;
         if (col.groundAt(x, z, 0.05, y + 4) > y + 0.05) continue;
         const scale = 0.8 + hash2(i, j, 9) * 0.9;
-        q.setFromAxisAngle(axis, hash2(i, j, 11) * 6.28);
-        pos.set(x, y - 0.03, z);
-        sc.set(scale, scale * (0.8 + hash2(i, j, 13) * 0.6), scale);
-        m.compose(pos, q, sc);
-        m.toArray(arr, n * 16);
         const c = this.cols[Math.floor(hash2(i, j, 21) * 4)];
         const b = 0.85 + hash2(i, j, 23) * 0.3;
-        const green = s === SURF.GRASS ? 1 : 0;
-        carr[n * 3] = c.r * b * (green ? 0.92 : 1);
-        carr[n * 3 + 1] = c.g * b;
-        carr[n * 3 + 2] = c.b * b * (green ? 0.9 : 1);
-        n++;
+        const green = s === SURF.GRASS;
+        out.push(x, y - 0.03, z, hash2(i, j, 11) * 6.28, scale, scale * (0.8 + hash2(i, j, 13) * 0.6), c.r * b * (green ? 0.92 : 1), c.g * b, c.b * b * (green ? 0.9 : 1), h1);
+      }
+    }
+    t = { data: new Float32Array(out), used: performance.now() };
+    this.tiles.set(key, t);
+    if (this.tiles.size > CACHE_MAX) {
+      // älteste Kacheln verwerfen
+      const arr = [...this.tiles.entries()].sort((a, b) => a[1].used - b[1].used);
+      for (let k = 0; k < arr.length - CACHE_MAX + 50; k++) this.tiles.delete(arr[k][0]);
+    }
+    return t;
+  }
+
+  rebuild(cx, cz, lv) {
+    if (lv.r === 0) {
+      this.mesh.count = 0;
+      return;
+    }
+    const r = lv.r;
+    const r2 = r * r;
+    const arr = this.mesh.instanceMatrix.array;
+    const carr = this.mesh.instanceColor.array;
+    const ti0 = Math.floor((cx - r) / TILE), ti1 = Math.floor((cx + r) / TILE);
+    const tj0 = Math.floor((cz - r) / TILE), tj1 = Math.floor((cz + r) / TILE);
+    let n = 0;
+    for (let tj = tj0; tj <= tj1 && n < MAX; tj++) {
+      for (let ti = ti0; ti <= ti1 && n < MAX; ti++) {
+        // Kachel komplett außerhalb?
+        const nx = Math.max(ti * TILE, Math.min(cx, (ti + 1) * TILE));
+        const nz = Math.max(tj * TILE, Math.min(cz, (tj + 1) * TILE));
+        if ((nx - cx) ** 2 + (nz - cz) ** 2 > r2) continue;
+        const d = this.tile(ti, tj, lv).data;
+        for (let k = 0; k < d.length && n < MAX; k += 10) {
+          const dx = d[k] - cx, dz = d[k + 2] - cz;
+          const dd = dx * dx + dz * dz;
+          if (dd > r2) continue;
+          // am Rand ausdünnen
+          if (dd > r2 * 0.6 && d[k + 9] > 1 - (dd / r2 - 0.6) * 2.5) continue;
+          const rot = d[k + 3], sx = d[k + 4], sy = d[k + 5];
+          const c = Math.cos(rot), s = Math.sin(rot);
+          const o = n * 16;
+          arr[o] = c * sx; arr[o + 1] = 0; arr[o + 2] = -s * sx; arr[o + 3] = 0;
+          arr[o + 4] = 0; arr[o + 5] = sy; arr[o + 6] = 0; arr[o + 7] = 0;
+          arr[o + 8] = s * sx; arr[o + 9] = 0; arr[o + 10] = c * sx; arr[o + 11] = 0;
+          arr[o + 12] = d[k]; arr[o + 13] = d[k + 1]; arr[o + 14] = d[k + 2]; arr[o + 15] = 1;
+          carr[n * 3] = d[k + 6];
+          carr[n * 3 + 1] = d[k + 7];
+          carr[n * 3 + 2] = d[k + 8];
+          n++;
+        }
       }
     }
     this.mesh.count = n;

@@ -23,7 +23,7 @@ export class MatchClient {
     this.world = world;
     this.mode = mode; // 'solo' | 'party'
     this.t = t;
-    this.infiniteAmmo = app.settings.get('infiniteAmmo');
+    this.infiniteAmmo = session.infiniteAmmo ?? app.settings.get('infiniteAmmo');
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(FOG_COLOR.clone(), 150, 600);
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.08, 700);

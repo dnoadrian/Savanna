@@ -35,7 +35,7 @@ export class ServerMatch {
     for (const p of this.sim.players) spawns[p.id] = [r2(p.body.x), r2(p.body.y), r2(p.body.z), r2(p.body.yaw)];
     for (const c of this.clients.values()) {
       c.matchId = this.id;
-      gs.send(c, { t: 'matchStart', matchId: this.id, seed: this.seed, storm: opts.storm !== false, players: this.players, spawns, you: c.pid });
+      gs.send(c, { t: 'matchStart', matchId: this.id, seed: this.seed, storm: opts.storm !== false, infiniteAmmo: opts.infiniteAmmo !== false, players: this.players, spawns, you: c.pid });
     }
     this.timer = setInterval(() => this.update(), 1000 / SIM_HZ);
     console.log(`Match ${this.id} gestartet: ${humans.length} Menschen + ${MATCH_SIZE - humans.length} Bots = ${this.sim.players.length}`);

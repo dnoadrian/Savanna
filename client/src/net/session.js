@@ -25,6 +25,7 @@ export class LocalSession {
     this.prev = new Map();
     this.ping = 0;
     this.zoneObj = sim.zone;
+    this.infiniteAmmo = sim.opts.infiniteAmmo;
     this.stateList = sim.players.map((p) => ({ id: p.id, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, flags: 0, hp: MAX_HP, alive: true, vx: 0, vz: 0 }));
     this.capturePrev();
   }
@@ -149,6 +150,7 @@ export class NetSession {
     const me = start.spawns[this.youId];
     this.spawn = { x: me[0], y: me[1], z: me[2], yaw: me[3] };
     this.zoneObj = new Zone(start.seed, terrain, start.storm !== false);
+    this.infiniteAmmo = start.infiniteAmmo !== false;
     this.snaps = [];
     this.events = [];
     this.offset = null;

@@ -15,6 +15,8 @@ const _v = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _c = new THREE.Color();
 const Z = new THREE.Vector3(0, 0, 1);
+const NEG_Z = new THREE.Vector3(0, 0, -1);
+const _e = new THREE.Euler();
 
 const MAT_COLORS = {
   [MAT.TERRAIN]: [0xd9b56a, 0xc28a55],
@@ -269,7 +271,7 @@ export class Effects {
       p.rx += dt * 5;
       const k = p.life / p.max;
       const sz = p.size * (p.grav < 0 ? (1.5 - k) * k * 2.2 : Math.min(1, k * 2));
-      _q.setFromEuler(new THREE.Euler(p.rx, p.ry, 0));
+      _q.setFromEuler(_e.set(p.rx, p.ry, 0));
       _m.compose(_v.set(p.x, p.y, p.z), _q, _s.set(sz, sz, sz));
       pm.setMatrixAt(n, _m);
       pm.instanceColor.setXYZ(n, p.r, p.g, p.b);
@@ -312,7 +314,7 @@ export class Effects {
       const tail = Math.max(0, t.pos - t.len);
       const len = Math.max(0.01, head - tail);
       _v.copy(t.from).addScaledVector(t.dir, head);
-      _q.setFromUnitVectors(new THREE.Vector3(0, 0, -1), t.dir);
+      _q.setFromUnitVectors(NEG_Z, t.dir);
       _m.compose(_v, _q, _s.set(1, 1, len));
       this.tMesh.setMatrixAt(i, _m);
     }

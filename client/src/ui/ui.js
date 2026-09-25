@@ -402,6 +402,7 @@ export class UI {
 
   showVictory({ stats, time, onContinue }) {
     const app = this.app;
+    if (app.match) app.match.hud.bigMsgEl.classList.remove('show');
     const el = h('div', { class: 'game-overlay victory' },
       h('div', { class: 'victory-banner' },
         h('div', { class: 'vb-crown', html: ICON.crown }),

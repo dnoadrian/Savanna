@@ -256,8 +256,14 @@ export class LocalPlayer {
           this.audio.dryFire();
           this.dryFired = true;
         }
-      } else if (w.canFire()) {
-        if (w.fire()) this.shoot(states);
+      } else {
+        // bei niedriger Framerate mehrere Schüsse pro Frame, damit die Feuerrate stimmt
+        let n = 0;
+        while (w.canFire() && n < 3) {
+          if (!w.fire()) break;
+          this.shoot(states);
+          n++;
+        }
       }
     }
     if (!input.isDown('fire')) this.dryFired = false;
