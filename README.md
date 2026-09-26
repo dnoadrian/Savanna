@@ -67,7 +67,7 @@ Alle Tasten lassen sich in *Einstellungen → Steuerung* neu belegen.
 
 - Seltenheiten: **Grau, Grün, Blau, Lila, Gold** (Farbe am Modell, Lichtsäule und Inventar)
 - Schrotflinten verschießen 10 Kugeln, der Schaden fällt mit der Entfernung ab.
-- **Keine unendliche Munition:** Start mit grauer Pistole **20/40**. Munition gibt es aus Truhen, am Boden und von Eliminierten.
+- **Keine unendliche Munition:** Start mit grauer Pistole **20 + 60 = 80 Schuss**. Munition gibt es aus Truhen, am Boden und von Eliminierten.
 
 **Truhen** – goldenes Leuchten und leises Summen. Mit **F** öffnen: **1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition**.
 

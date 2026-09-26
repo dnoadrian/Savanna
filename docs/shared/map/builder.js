@@ -102,6 +102,7 @@ export class Builder {
       c,
       col: o.col !== false && !rx && !rz,
       m: o.m ?? MAT.WOOD,
+      pass: !!o.pass,
       grp: o.grp,
     });
     return this;
@@ -248,7 +249,8 @@ export class Builder {
     const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
     this.box(mx, y + h - 0.1, mz, len, 0.1, 0.12, c, { ry, col: false });
     this.box(mx, y + h * 0.5, mz, len, 0.08, 0.1, c, { ry, col: false });
-    this.blocker(mx, y, mz, len, h, 0.15, { ry });
+    // Geländer/Zäune blockieren Laufen, aber nicht Kugeln (man kann hindurchschießen)
+    this.blocker(mx, y, mz, len, h, 0.15, { ry, pass: true });
     const n = Math.max(2, Math.round(len / 1.5) + 1);
     for (let i = 0; i < n; i++) {
       const k = i / (n - 1);

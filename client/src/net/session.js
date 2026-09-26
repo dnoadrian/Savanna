@@ -344,7 +344,9 @@ export class NetSession {
   fire(shot) {
     const rewind = INTERP_DELAY + (this.net.ping || 0) / 2000;
     const r4 = (v) => Math.round(v * 10000) / 10000;
-    this.net.send({ t: 'fire', s: shot.s, o: [r4(shot.ox), r4(shot.oy), r4(shot.oz)], d: shot.dirs.map((d) => [r4(d.x), r4(d.y), r4(d.z)]), rw: +rewind.toFixed(3) });
+    const msg = { t: 'fire', s: shot.s, o: [r4(shot.ox), r4(shot.oy), r4(shot.oz)], d: shot.dirs.map((d) => [r4(d.x), r4(d.y), r4(d.z)]), rw: +rewind.toFixed(3) };
+    if (shot.wall) msg.wb = 1;
+    this.net.send(msg);
   }
 
   reload() { this.net.send({ t: 'reload' }); }

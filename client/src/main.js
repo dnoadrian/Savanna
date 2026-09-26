@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { Settings } from './settings.js';
 import { setLanguage, t } from './i18n.js';
-import { Profile, computeXp } from './profile.js';
+import { Profile, computeXp, computeCoins } from './profile.js';
 import { AudioEngine } from './audio/engine.js';
 import { Renderer, QUALITY_PRESETS, PERFORMANCE_MODE } from './render/renderer.js';
 import { LobbyScene } from './render/lobbyScene.js';
@@ -294,6 +294,13 @@ class App {
       case 'matchStart':
         this.startNetMatch(m);
         break;
+      case 'coins':
+        // Geschenk vom Admin
+        this.profile.addCoins(m.amount);
+        this.audio.uiConfirm();
+        this.ui.toast(t('coinsGift', { n: m.amount }), 'ok');
+        this.ui.lobby.refresh?.();
+        break;
       case 'host':
         this.hostStatus = m.status;
         this.ui.onHostStatus();
@@ -477,6 +484,9 @@ class App {
     xp.levelUps = this.profile.addXp(xp.total);
     xp.level = this.profile.data.stats.level;
     xp.progress = this.profile.data.stats.xp;
+    // Coins: 50 pro Kill, 250 für den Sieg
+    xp.coins = computeCoins(r);
+    if (xp.coins) this.profile.addCoins(xp.coins);
     this.sendProfile();
     return xp;
   }

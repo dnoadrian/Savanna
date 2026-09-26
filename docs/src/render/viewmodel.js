@@ -12,6 +12,8 @@ import { OUTFIT_COLORS } from '../../shared/constants.js';
 function lerp(a, b, t) { return a + (b - a) * t; }
 const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
 
+const type0 = (it) => (it && it.k === 'w' ? it.w : null);
+
 export class Viewmodel {
   constructor() {
     this.scene = new THREE.Scene();
@@ -26,7 +28,7 @@ export class Viewmodel {
     this.camera.add(this.rig);
     this.sway = new THREE.Group();
     this.rig.add(this.sway);
-    this.gun = new THREE.Mesh(weaponGeometry('pistol', 0, 1), itemMaterial());
+    this.gun = new THREE.Mesh(weaponGeometry('pistol', 0, 1, false), itemMaterial());
     this.sway.add(this.gun);
     this.mag = new THREE.Mesh(magazineGeometry('pistol', 0), itemMaterial());
     this.gun.add(this.mag);
@@ -98,7 +100,7 @@ export class Viewmodel {
     if (item && item.k === 'w') {
       const meta = WEAPON_META[item.w];
       this.meta = meta;
-      this.gun.geometry = weaponGeometry(item.w, item.r, 1);
+      this.gun.geometry = weaponGeometry(item.w, item.r, 1, false);
       this.gun.visible = true;
       this.held.visible = false;
       this.mag.visible = !!meta.mag;
@@ -108,7 +110,7 @@ export class Viewmodel {
         this.mag.position.copy(this.magOrigin);
       }
       this.flash.position.copy(V(meta.muzzle)).add(new THREE.Vector3(0, 0, -0.03));
-      const big = item.w === 'pump' || item.w === 'tac' || item.w === 'sniper';
+      const big = WEAPONS[item.w].pellets > 1 || item.w === 'sniper';
       this.flash.scale.setScalar(big ? 1.6 : 1);
     } else {
       this.meta = null;
@@ -130,7 +132,7 @@ export class Viewmodel {
     this.kickRot = Math.min(2, this.kickRot + (heavy ? 1.8 : 1));
     this.flashT = heavy ? 0.06 : 0.045;
     this.flash.rotation.z = Math.random() * Math.PI;
-    if (type === 'pump' || type === 'sniper') this.actionT = 1;
+    if (type === 'pump' || type === 'hammer' || type === 'sniper') this.actionT = 1;
   }
 
   // Punkt aus dem Waffensystem in Weltkoordinaten der Hauptkamera
@@ -159,7 +161,9 @@ export class Viewmodel {
     const k = (cur, target, rate) => cur + (target - cur) * Math.min(1, dt * rate);
     this.adsK = k(this.adsK, s.ads ? 1 : 0, 14);
     this.sprintK = k(this.sprintK, s.sprint ? 1 : 0, 9);
-    this.useK = k(this.useK, s.use01 >= 0 ? 1 : 0, 10);
+    // sofortige Benutzung: kurzes Anheben (Trinken/Anlegen) als Rückmeldung
+    this.useFlash = Math.max(0, (this.useFlash || 0) - dt * 2.5);
+    this.useK = k(this.useK, s.use01 >= 0 || this.useFlash > 0 ? 1 : 0, 12);
     this.slideK = k(this.slideK, s.slide ? 1 : 0, 10);
     this.kick = Math.max(0, this.kick - dt * 9);
     this.kickRot = Math.max(0, this.kickRot - dt * 7);
@@ -187,11 +191,13 @@ export class Viewmodel {
     const meta = this.meta;
     const ads = meta ? this.adsK : 0;
     const hip = meta ? meta.hip : [0.16, -0.2, -0.4];
-    // Schrotflinten: beim Zielen etwas tiefer (Kolben verdeckt nicht die Mitte, Streukreis bleibt sichtbar)
-    const adsP = meta ? [0, -meta.sightY - (meta.adsDrop || 0), meta.adsZ] : hip;
+    // Wie in Valorant: die Waffe bleibt auch beim Zielen seitlich unten rechts, man zielt mit dem
+    // Fadenkreuz. Nur das Scharfschützengewehr geht mittig ins Zielfernrohr.
+    const scoped = meta && WEAPONS[type0(this.item)]?.scope;
+    const adsP = !meta ? hip : scoped ? [0, -meta.sightY, meta.adsZ] : [hip[0] * 0.72, hip[1] + 0.025, hip[2] + 0.05];
     const spr = [0.15, -0.26, -0.44];
     let px = lerp(hip[0], adsP[0], ads), py = lerp(hip[1], adsP[1], ads), pz = lerp(hip[2], adsP[2], ads);
-    let rx = 0, ry = lerp(0.04, 0, ads), rz = 0;
+    let rx = 0, ry = lerp(0.07, scoped ? 0 : 0.045, ads), rz = lerp(0.035, scoped ? 0 : 0.02, ads);
     px = lerp(px, spr[0], this.sprintK); py = lerp(py, spr[1], this.sprintK); pz = lerp(pz, spr[2], this.sprintK);
     rx += -0.35 * this.sprintK;
     ry += 0.75 * this.sprintK;
@@ -231,7 +237,7 @@ export class Viewmodel {
     if (this.actionT > 0 && type) {
       const a = 1 - this.actionT;
       const w = Math.sin(Math.min(1, Math.max(0, (a - 0.15) / 0.6)) * Math.PI);
-      if (type === 'pump') { pumpOff = w * 0.08; rx += w * 0.08; }
+      if (type === 'pump' || type === 'hammer') { pumpOff = w * 0.08; rx += w * 0.08; }
       else { leftTarget = w > 0.05 ? 'bolt' : leftTarget; rz += w * 0.15; }
     }
     // Schild/Medikit benutzen: Gegenstand zum Gesicht
@@ -239,9 +245,10 @@ export class Viewmodel {
     py -= this.equipT * 0.25;
     rx -= this.equipT * 0.5;
     py -= this.land * 0.04;
-    pz += this.kick * 0.035 * (1 - ads * 0.5);
-    py += this.kick * 0.006;
-    rx += this.kickRot * 0.06 * (1 - ads * 0.6);
+    // Rückstoß nur als kleiner Ruck nach hinten/unten – die Mündung kippt nicht ins Bild
+    pz += this.kick * 0.018 * (1 - ads * 0.5);
+    py -= this.kick * 0.004;
+    rx += this.kickRot * 0.02 * (1 - ads * 0.7);
 
     this.rig.position.set(px + bobX, py + bobY + idle, pz);
     this.rig.rotation.set(rx, ry, rz);
@@ -284,6 +291,7 @@ export class Viewmodel {
     this.placeArm(this.armR, rp, new THREE.Vector3(0.34, -0.66, -0.34));
     this.flashT -= dt;
     this.flash.visible = this.flashT > 0 && !!meta;
+    if (this.flash.visible) this.flash.material.opacity = 0.95 - this.adsK * 0.55; // beim Zielen dezenter
   }
 
   placeArm(arm, hand, elbow) {

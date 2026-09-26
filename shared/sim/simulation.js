@@ -5,11 +5,11 @@ import {
   MATCH_SIZE, COUNTDOWN, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, F,
   SPAWN_MIN_DIST, MAX_REWIND, EYE_STAND, EYE_CROUCH, PLAY_RADIUS, INTERACT_RANGE, AUTO_PICKUP_RANGE, SEA_LEVEL,
 } from '../constants.js';
-import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem } from '../items.js';
+import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem, AMMO_TYPES, KILL_AMMO, ammoItem, consumableItem } from '../items.js';
 import { RNG } from '../rng.js';
 import { createBody, stepMovement, bodyFlags } from './movement.js';
-import { createWeaponRuntime, equipWeapon, fireWeapon, startReload, cancelReload, updateWeapon, weaponSpread } from './weapon.js';
-import { createInventory, addItem, dropAll, selectedItem } from './inventory.js';
+import { createWeaponRuntime, equipWeapon, fireWeapon, startReload, cancelReload, updateWeapon, weaponSpread, botWeaponSpread } from './weapon.js';
+import { createInventory, addItem, dropAll, selectedItem, stackRoom } from './inventory.js';
 import { Loot } from './loot.js';
 import { rayPlayer, dirFromAngles, applySpread } from './combat.js';
 import { Zone } from './zone.js';
@@ -245,6 +245,7 @@ export class Simulation {
     input.using = p.useT >= 0;
     if (p.wr.reloading) input.sprint = false;
     stepMovement(p.body, input, dt, this.world);
+    if (p.body.slideStarted) this.slideCount = (this.slideCount || 0) + 1;
     p.pitch = input.pitch;
     let extra = 0;
     if (input.ads) extra |= F.ADS;
@@ -257,7 +258,7 @@ export class Simulation {
       const eye = b.y + ((flags & (F.CROUCH | F.SLIDE)) ? EYE_CROUCH : EYE_STAND);
       const base = dirFromAngles(b.yaw, p.pitch);
       const speed = Math.hypot(b.vx, b.vz);
-      const spread = weaponSpread(p.wr, item, flags, speed);
+      const spread = botWeaponSpread(p.wr, item, flags, speed) * (brain.spreadMul || 1);
       const dirs = [];
       const pellets = WEAPONS[item.w].pellets;
       const rnd = () => this.rng.next();
@@ -317,7 +318,8 @@ export class Simulation {
   }
 
   // Hitscan-Schuss mit einer oder mehreren Kugeln (Schrotflinten); Schaden je Ziel summiert
-  fireShot(shooter, item, ox, oy, oz, dirs, rewind) {
+  // wall: Admin „durch Wände schießen“ – Welt-Geometrie wird ignoriert
+  fireShot(shooter, item, ox, oy, oz, dirs, rewind, wall = false) {
     const def = WEAPONS[item.w];
     const range = def.range;
     const col = this.world.collision;
@@ -335,7 +337,7 @@ export class Simulation {
     const hits = new Map();
     const ends = [];
     for (const d of dirs) {
-      let tWorld = col.raycast(ox, oy, oz, d.x, d.y, d.z, range, true);
+      let tWorld = wall ? -1 : col.raycast(ox, oy, oz, d.x, d.y, d.z, range, true, true);
       let mat = tWorld >= 0 ? col.hitOut.mat : -1;
       if (tWorld < 0) tWorld = range;
       if (d.y < -1e-4) {
@@ -428,6 +430,12 @@ export class Simulation {
     }
     // Beute fallen lassen
     const items = dropAll(target.inv);
+    // Kill-Munition: je ein Magazin jeder Art (mit vorhandener Munition des Opfers zusammengelegt)
+    for (const a of AMMO_TYPES) {
+      const have = items.find((it) => it.k === 'a' && it.a === a);
+      if (have) have.n += KILL_AMMO[a];
+      else items.push(ammoItem(a, KILL_AMMO[a]));
+    }
     if (items.length) this.spawnLoot(items, target.body.x, target.body.y, target.body.z, null, 1.3);
     if (before - 1 <= 1) this.finish();
   }
@@ -499,12 +507,25 @@ export class Simulation {
     return true;
   }
 
+  // Beim Drüberlaufen: Munition immer, Schilde/Medikits nur, wenn schon ein Stapel davon im
+  // Inventar ist (dann nur so viele, wie noch in die vorhandenen Stapel passen)
   autoPickupAmmo(p) {
     const b = p.body;
     for (const pk of this.loot.pickups.values()) {
-      if (pk.item.k !== 'a') continue;
+      if (pk.item.k === 'w') continue;
       const dx = pk.x - b.x, dz = pk.z - b.z;
       if (dx * dx + dz * dz > AUTO_PICKUP_RANGE * AUTO_PICKUP_RANGE || Math.abs(pk.y - b.y) > 1.6) continue;
+      if (pk.item.k === 'c') {
+        const room = stackRoom(p.inv, pk.item.c);
+        if (room <= 0) continue;
+        if (room < pk.item.n) {
+          addItem(p.inv, consumableItem(pk.item.c, room), false);
+          pk.item = consumableItem(pk.item.c, pk.item.n - room);
+          this.emit({ t: 'lootn', id: pk.id, it: encodeItem(pk.item) });
+          this.emit({ t: 'pick', id: p.id, it: encodeItem(consumableItem(pk.item.c, room)) });
+          continue;
+        }
+      }
       this.pickup(p, pk);
     }
   }
@@ -534,6 +555,8 @@ export class Simulation {
     p.useT = 0;
     p.useSlot = slot;
     this.emit({ t: 'useStart', id: p.id, c: it.c });
+    // Schilde/Medikits wirken sofort
+    if (CONSUMABLES[it.c].use <= 0) this.finishUse(p, it);
     return true;
   }
 
@@ -612,7 +635,7 @@ export class Simulation {
     if (Math.hypot(ox - b.x, oz - b.z) > 3 || Math.abs(oy - b.y - 1.2) > 2.5) {
       ox = b.x; oy = b.y + EYE_STAND; oz = b.z;
     }
-    this.fireShot(p, item, ox, oy, oz, dirs, shot.rewind || 0);
+    this.fireShot(p, item, ox, oy, oz, dirs, shot.rewind || 0, !!shot.wall);
     return true;
   }
 

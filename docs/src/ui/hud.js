@@ -12,6 +12,8 @@ import { MAP_EXTENT } from '../render/mapImage.js';
 import { itemIcon } from '../render/itemIcons.js';
 
 const _v = new THREE.Vector3();
+// gebrochenes Schild (Hitmarker beim Schildbruch)
+const SHIELD_BREAK_SVG = '<svg viewBox="0 0 48 48"><path d="M24 3 42 9v13c0 11-7.6 19.4-18 23C13.6 41.4 6 33 6 22V9z" fill="#2f8fff" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><path d="M26 6 20 18l8 5-9 11 3 11" fill="none" stroke="#fff" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
 
 export function itemName(it) {
   if (!it) return '';
@@ -76,7 +78,10 @@ export class HUD {
       this.slotEls.push(el);
     }
     this.itemLabel = h('div', { class: 'item-label' });
-    const br = h('div', { class: 'hud-br' }, this.itemLabel, h('div', { class: 'ammo-line' }, this.ammoBig, this.ammoRes), bar);
+    // weißer Ausdauerbalken über der Hotbar (blendet sich bei voller Ausdauer aus)
+    this.staminaFill = h('div', { class: 'stamina-fill' });
+    this.staminaEl = h('div', { class: 'stamina full' }, this.staminaFill);
+    const br = h('div', { class: 'hud-br' }, this.itemLabel, h('div', { class: 'ammo-line' }, this.ammoBig, this.ammoRes), this.staminaEl, bar);
     // ---- Mitte ----
     this.cross = h('div', { class: 'crosshair' });
     this.hitmarkerEl = h('div', { class: 'hitmarker' });
@@ -132,8 +137,8 @@ export class HUD {
       for (const d of shape === 't' ? ['l', 'r', 'b'] : ['t', 'l', 'r', 'b']) el.appendChild(h('div', { class: 'ch-line ch-' + d }));
     } else if (shape === 'circle') el.appendChild(h('div', { class: 'ch-circle' }));
     if (s.get('crossDot') || shape === 'dot') el.appendChild(h('div', { class: 'ch-dot' }));
-    // Schrotflinten: Streukreis mit vier Ecken
-    el.appendChild(h('div', { class: 'ch-spread' }, h('i'), h('i'), h('i'), h('i')));
+    // Schrotflinten: runder Streukreis (Pump klein, Taktische groß)
+    el.appendChild(h('div', { class: 'ch-spread' }, h('i', { class: 'ring' }), h('i', { class: 'dot' })));
   }
 
   show() { this.root.classList.remove('hidden'); }
@@ -157,6 +162,15 @@ export class HUD {
       this.osRow.classList.toggle('hidden', os <= 0);
       this.osRow.querySelector('.bar-fill').style.width = (os / 50) * 100 + '%';
       this.osRow.lastChild.textContent = os;
+    }
+    // Ausdauer
+    const st = d.alive ? Math.round((d.stamina ?? 1) * 200) / 200 : 1;
+    if (c.stamina !== st || c.exhausted !== d.exhausted) {
+      c.stamina = st;
+      c.exhausted = d.exhausted;
+      this.staminaEl.classList.toggle('full', st >= 1);
+      this.staminaEl.classList.toggle('exhausted', !!d.exhausted);
+      this.staminaFill.style.transform = `scaleX(${st})`;
     }
     // Inventar
     this.updateSlots(d.inv);
@@ -203,7 +217,11 @@ export class HUD {
     const pellets = w && w.pellets > 1;
     this.cross.classList.toggle('shotgun', !!pellets);
     this.cross.classList.toggle('noweapon', !w);
-    if (pellets) this.cross.style.setProperty('--spread', Math.round(d.spread * 7.5 + 8) + 'px');
+    // Radius des Kreises = echter Streukegel auf dem Bildschirm (Pump eng, Taktische deutlich größer)
+    if (pellets) {
+      const px = d.vfov ? Math.tan((d.spread * Math.PI) / 180) / Math.tan((d.vfov * Math.PI) / 360) * (window.innerHeight / 2) : d.spread * 10;
+      this.cross.style.setProperty('--spread', Math.round(Math.max(8, px)) + 'px');
+    }
     else this.cross.style.setProperty('--gap', 4 + d.spread * 5.5 + 'px');
     this.cross.classList.toggle('enemy', !!d.overEnemy);
     this.cross.classList.toggle('hidden', !!d.hideCross);
@@ -421,12 +439,15 @@ export class HUD {
     this.ammoBig.classList.remove('shake');
     void this.ammoBig.offsetWidth;
     this.ammoBig.classList.add('shake');
-    this.message(t('reloadHint', { key: keyLabel(this.settings.get('keys').reload) }), 'warn');
   }
 
   // Schild eines Gegners gebrochen
   shieldBroken() {
     this.hitmarkerEl.classList.add('break');
+    // gebrochenes Schild-Symbol springt kurz am Fadenkreuz auf
+    const el = h('div', { class: 'shield-pop', html: SHIELD_BREAK_SVG });
+    this.center.appendChild(el);
+    setTimeout(() => el.remove(), 700);
   }
 
   siphon(amount) {

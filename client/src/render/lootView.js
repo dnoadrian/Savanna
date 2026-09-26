@@ -70,10 +70,10 @@ export class LootView {
     root.rotation.y = c.ry;
     const body = new THREE.Mesh(chestGeometry('body'), itemMaterial());
     body.castShadow = true;
+    // Scharnier an der hinteren Oberkante, Deckel reicht nach vorn (−Z)
     const lidPivot = new THREE.Group();
-    lidPivot.position.set(0, 0.6, 0.33);
+    lidPivot.position.set(0, 0.56, 0.33);
     const lid = new THREE.Mesh(chestGeometry('lid'), itemMaterial());
-    lid.position.set(0, 0, -0.33);
     lid.castShadow = true;
     lidPivot.add(lid);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffd257, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
@@ -159,7 +159,8 @@ export class LootView {
       }
       if (v.c.open && v.openT < 1) v.openT = Math.min(1, v.openT + dt * 3.2);
       const a = v.openT;
-      v.lidPivot.rotation.x = -1.9 * (1 - Math.pow(1 - a, 3)) - (a > 0 && a < 1 ? Math.sin(a * Math.PI) * 0.2 : 0);
+      // Deckel springt auf (leichtes Überschwingen)
+      v.lidPivot.rotation.x = 1.9 * (1 - Math.pow(1 - a, 3)) + (a > 0 && a < 1 ? Math.sin(a * Math.PI) * 0.2 : 0);
       v.glow.material.opacity = v.c.open ? Math.max(0, 0.55 * (1 - a * 1.4)) : 0.42 + Math.sin(time * 3 + v.c.id) * 0.13;
       const hl = target && target.kind === 'c' && target.id === v.c.id;
       v.glow.scale.set(hl ? 3.2 : 2.6, hl ? 2.4 : 2.0, 1);

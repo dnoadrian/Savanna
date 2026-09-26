@@ -115,7 +115,7 @@ export class ServerMatch {
         if (!Array.isArray(m.o) || !Array.isArray(m.d) || m.d.length > 12) break;
         const [ox, oy, oz] = m.o.map(Number);
         const dirs = m.d.filter((d) => Array.isArray(d) && d.length === 3 && d.every((v) => Number.isFinite(+v))).map((d) => ({ x: +d[0], y: +d[1], z: +d[2] }));
-        if ([ox, oy, oz].every(Number.isFinite) && dirs.length) sim.humanFire(c.pid, { s: m.s | 0, ox, oy, oz, dirs, rewind: rw });
+        if ([ox, oy, oz].every(Number.isFinite) && dirs.length) sim.humanFire(c.pid, { s: m.s | 0, ox, oy, oz, dirs, rewind: rw, wall: !!m.wb });
         break;
       }
       case 'reload': sim.humanReload(c.pid); break;

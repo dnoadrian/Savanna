@@ -1,7 +1,8 @@
 // Gemeinsame Bewegungsphysik: lokaler Spieler (Client) und Bots (Simulation).
 import {
   WALK_SPEED, SPRINT_MULT, CROUCH_MULT, ADS_MULT, USE_MOVE_MULT, SLIDE_START_MULT, SLIDE_TIME,
-  SLIDE_MAX_TIME, SLIDE_COOLDOWN, GRAVITY, JUMP_SPEED, STEP_HEIGHT, PLAYER_RADIUS, STAND_HEIGHT,
+  SLIDE_MAX_TIME, SLIDE_COOLDOWN, SLIDE_FRICTION, STAMINA_SPRINT_TIME, STAMINA_REGEN_TIME,
+  STAMINA_REGEN_DELAY, STAMINA_RECOVER, GRAVITY, JUMP_SPEED, STEP_HEIGHT, PLAYER_RADIUS, STAND_HEIGHT,
   CROUCH_HEIGHT, SLIDE_HEIGHT, EYE_STAND, EYE_CROUCH, EYE_SLIDE, MAX_WALK_SLOPE, DEEP_WATER,
   BOUNDARY_RADIUS, SEA_LEVEL, F,
 } from '../constants.js';
@@ -17,6 +18,9 @@ export function createBody(x = 0, y = 0, z = 0) {
     slideT: 0,
     slideCd: 0,
     sprinting: false,
+    stamina: 1, // 0..1
+    staminaCd: 0,
+    exhausted: false,
     waterDepth: 0,
     groundMat: MAT.TERRAIN,
     airTime: 0,
@@ -59,7 +63,7 @@ function canStand(b, world, height) {
 
 /**
  * input: { mx, mz (-1..1 lokal: mz>0 = vorwärts, mx>0 = rechts), yaw, jump, sprint, crouch,
- *          crouchPressed, ads, using, fly, flyUp, flyDown }
+ *          crouchPressed, ads, using, fly, flyUp, flyDown, flySpeed, speedMul }
  */
 export function stepMovement(b, input, dt, world) {
   b.landed = 0;
@@ -84,7 +88,7 @@ function flyStep(b, inp, h, world) {
   let mx = inp.mx || 0, mz = inp.mz || 0;
   const ml = Math.hypot(mx, mz);
   if (ml > 1) { mx /= ml; mz /= ml; }
-  const speed = WALK_SPEED * (inp.sprint ? 3.2 : 2);
+  const speed = (inp.flySpeed || WALK_SPEED * 2) * (inp.sprint ? 1.6 : 1);
   const tx = (-sin * mz + cos * mx) * speed;
   const tz = (-cos * mz - sin * mx) * speed;
   const ty = ((inp.flyUp ? 1 : 0) - (inp.flyDown ? 1 : 0)) * speed * 0.8;
@@ -132,7 +136,7 @@ function subStep(b, inp, h, world, first) {
   // --- Haltung ---
   const horizSpeed = Math.hypot(b.vx, b.vz);
   if (b.stance !== 'slide') {
-    const wantSprint = inp.sprint && moving && mz > -0.2 && !inp.ads && !inp.using;
+    const wantSprint = inp.sprint && moving && mz > -0.2 && !inp.ads && !inp.using && !b.exhausted && b.stamina > 0;
     // Slide: Ducken-Taste während des Sprints
     if (first && inp.crouchPressed && b.sprinting && b.grounded && b.slideCd <= 0 && horizSpeed > WALK_SPEED * 1.15) {
       b.stance = 'slide';
@@ -153,6 +157,17 @@ function subStep(b, inp, h, world, first) {
     }
   }
 
+  // --- Ausdauer ---
+  if (b.sprinting && horizSpeed > WALK_SPEED * 0.8) {
+    b.stamina -= h / STAMINA_SPRINT_TIME;
+    b.staminaCd = STAMINA_REGEN_DELAY;
+    if (b.stamina <= 0) { b.stamina = 0; b.exhausted = true; b.sprinting = false; }
+  } else if (b.staminaCd > 0) b.staminaCd -= h;
+  else if (b.stamina < 1) {
+    b.stamina = Math.min(1, b.stamina + h / STAMINA_REGEN_TIME);
+    if (b.exhausted && b.stamina >= STAMINA_RECOVER) b.exhausted = false;
+  }
+
   // --- Wasser ---
   const wl = terrain.waterLevelAt(b.x, b.z);
   b.waterDepth = Math.max(0, wl - b.y);
@@ -165,11 +180,11 @@ function subStep(b, inp, h, world, first) {
     // Hangbeschleunigung: bergab länger rutschen
     const g = terrain.gradientAt(b.x, b.z, tmpN);
     const slopeAlong = g.x * dirX + g.z * dirZ; // >0 bergauf
-    let ns = sp - 6.2 * h - slopeAlong * 16 * h;
+    let ns = sp - SLIDE_FRICTION * h - slopeAlong * 19 * h;
     if (b.waterDepth > 0.3) ns -= 10 * h;
-    ns = Math.max(0, Math.min(ns, WALK_SPEED * 2.4));
+    ns = Math.max(0, Math.min(ns, WALK_SPEED * 3));
     // leichte Lenkung
-    const steer = 1.6 * h;
+    const steer = 2 * h;
     let ndx = dirX + wishX * steer;
     let ndz = dirZ + wishZ * steer;
     const nl = Math.hypot(ndx, ndz) || 1;
@@ -190,6 +205,7 @@ function subStep(b, inp, h, world, first) {
     if (inp.ads) speed *= ADS_MULT;
     if (inp.using) speed *= USE_MOVE_MULT;
     if (b.waterDepth > 0.3) speed *= Math.max(0.5, 1 - (b.waterDepth - 0.3) * 0.55);
+    if (inp.speedMul) speed *= inp.speedMul; // Admin: Tempo
     const tx = wishX * speed;
     const tz = wishZ * speed;
     const accel = b.grounded ? (moving ? 11 : 13) : 2.2;

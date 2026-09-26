@@ -52,14 +52,20 @@ export const GRAVITY = 22;
 export const JUMP_SPEED = 7.4;
 
 export const WALK_SPEED = 5.4;
-export const SPRINT_MULT = 1.5;
+export const SPRINT_MULT = 1.75;
 export const CROUCH_MULT = 0.5;
 export const ADS_MULT = 0.65;
 export const USE_MOVE_MULT = 0.5; // Bewegung beim Benutzen von Schilden/Medikits
-export const SLIDE_START_MULT = 1.8;
-export const SLIDE_TIME = 1.0;
-export const SLIDE_MAX_TIME = 2.2;
-export const SLIDE_COOLDOWN = 0.8;
+export const SLIDE_START_MULT = 2.35;
+export const SLIDE_TIME = 1.3;
+export const SLIDE_MAX_TIME = 3.0;
+export const SLIDE_COOLDOWN = 0.7;
+export const SLIDE_FRICTION = 4.2;
+// Ausdauer fürs Sprinten (weißer Balken über der Hotbar)
+export const STAMINA_SPRINT_TIME = 7; // s Dauersprint mit voller Ausdauer
+export const STAMINA_REGEN_TIME = 3.2; // s von leer auf voll
+export const STAMINA_REGEN_DELAY = 0.7; // s Pause, bevor sie sich erholt
+export const STAMINA_RECOVER = 0.3; // nach komplett leer erst ab 30 % wieder sprinten
 export const MAX_WALK_SLOPE = 0.72; // Normal-Y unter diesem Wert ist zu steil (~44°)
 
 // Reichweiten für Truhen und Gegenstände
@@ -96,7 +102,26 @@ export const F = {
   WATER: 1024,
 };
 
-export const OUTFITS = ['cowboy', 'ranger', 'ninja', 'soldier', 'dancer', 'pirate', 'chef', 'astronaut'];
+export const OUTFITS = ['recruit', 'cowboy', 'ranger', 'chef', 'pirate', 'soldier', 'dancer', 'ninja', 'astronaut'];
+// Shop: Standard ist „Rekrut“ (kein Skin), alles andere kauft man mit Coins
+export const DEFAULT_OUTFIT = 'recruit';
+export const COINS_PER_KILL = 50;
+export const COINS_PER_WIN = 250;
+// Admin-Zugang (Panel mit Taste 0) – der Server prüft ihn beim Coins-Verschenken
+export const ADMIN_USER = 'adrian';
+export const ADMIN_PASS = '1234';
+export const ADMIN_MAX_COINS = 100000;
+// Preis und Seltenheit (0..4) je Skin – ein Skin kostet etwa 3–15 Runden
+export const SKIN_SHOP = {
+  cowboy: { price: 600, rarity: 1 },
+  ranger: { price: 600, rarity: 1 },
+  chef: { price: 800, rarity: 1 },
+  pirate: { price: 1200, rarity: 2 },
+  soldier: { price: 1200, rarity: 2 },
+  dancer: { price: 1500, rarity: 3 },
+  ninja: { price: 2000, rarity: 3 },
+  astronaut: { price: 2500, rarity: 4 },
+};
 export const OUTFIT_COLORS = ['#e63946', '#2a9df4', '#43aa5b', '#f4a261', '#9b5de5', '#f15bb5', '#222831', '#f1faee'];
 export const CROWN_STYLES = ['gold', 'ruby', 'emerald', 'diamond'];
 

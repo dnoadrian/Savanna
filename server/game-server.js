@@ -7,7 +7,7 @@ import { TunnelManager } from './tunnel.js';
 import { validateName, suggestAlternatives } from '../shared/names.js';
 import { generateMap } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
-import { MAP_SEED, MATCH_SIZE, PARTY_MAX, INVITE_TTL, SERVER_PORT, clampQueueWait } from '../shared/constants.js';
+import { MAP_SEED, MATCH_SIZE, PARTY_MAX, INVITE_TTL, SERVER_PORT, ADMIN_USER, ADMIN_PASS, ADMIN_MAX_COINS, clampQueueWait } from '../shared/constants.js';
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const PROXY_HEADERS = ['x-forwarded-for', 'cf-connecting-ip', 'x-real-ip', 'forwarded', 'cf-ray'];
@@ -150,6 +150,7 @@ export class GameServer {
       case 'partyChat': return this.onPartyChat(c, m.text);
       case 'queue': return this.onQueue(c, m);
       case 'queueCancel': return this.onQueueCancel(c);
+      case 'adminCoins': return this.onAdminCoins(c, m);
       case 'hostStatus': return this.sendHost(c);
       case 'hostStart':
         if (!c.isHost) return this.err(c, 'err_not_host');
@@ -312,6 +313,21 @@ export class GameServer {
         blocked: p.blocked.map(view).filter(Boolean),
       },
     });
+  }
+
+  // Admin schenkt einem Spieler Coins (Coins liegen im Profil des Browsers)
+  onAdminCoins(c, m) {
+    const reply = (ok, key, extra = {}) => this.send(c, { t: 'result', rid: m.rid, ok, key, ...extra });
+    if (String(m.user || '').toLowerCase() !== ADMIN_USER || m.pass !== ADMIN_PASS) return reply(false, 'adminWrong');
+    const amount = Math.round(Number(m.amount));
+    if (!Number.isFinite(amount) || amount < 1 || amount > ADMIN_MAX_COINS) return reply(false, 'err_generic');
+    const target = this.store.byName(String(m.name || '').trim());
+    if (!target) return reply(false, 'err_not_found');
+    const tc = this.byPid.get(target.id);
+    if (!tc) return reply(false, 'adminCoinsOffline', { name: target.name });
+    this.send(tc, { t: 'coins', amount });
+    console.log(`[admin] ${amount} Coins an ${target.name}`);
+    return reply(true, 'adminCoinsSent', { name: target.name, n: amount });
   }
 
   pushPresence(pid) {

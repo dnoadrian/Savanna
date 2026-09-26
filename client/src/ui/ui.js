@@ -396,8 +396,9 @@ export class UI {
           h('div', {}, h('b', {}, String(stats.damage)), h('small', {}, t('damage'))),
           h('div', {}, h('b', {}, String(stats.headshots || 0)), h('small', {}, t('headshots')))),
         h('div', { class: 'row center' },
-          h('button', { class: 'btn yellow', onclick: () => { app.audio.uiClick(); this.closeGameOverlay(); onSpectate(); } }, t('spectate')),
-          h('button', { class: 'btn', onclick: () => { app.audio.uiClick(); this.closeGameOverlay(); onLobby(); } }, t('backToLobby')))));
+          // Platz 2: nur noch der Sieger übrig – kein Zuschauen, direkt zurück in die Lobby
+          placement > 2 ? h('button', { class: 'btn yellow', onclick: () => { app.audio.uiClick(); this.closeGameOverlay(); onSpectate(); } }, t('spectate')) : null,
+          h('button', { class: placement > 2 ? 'btn' : 'btn yellow', onclick: () => { app.audio.uiClick(); this.closeGameOverlay(); onLobby(); } }, t('backToLobby')))));
     setTimeout(() => this.setGameOverlay('death', el), 1600);
   }
 
@@ -450,6 +451,7 @@ export class UI {
           h('div', {}, h('b', {}, fmtTime(mine.survival || 0)), h('small', {}, t('survived')))),
         h('div', { class: 'xp-list' }, ...xp.parts.map((p) => h('div', { class: 'xp-line' }, h('span', {}, t(p.key)), h('b', {}, '+' + p.xp + ' XP')))),
         h('div', { class: 'xp-total' }, t('xpEarned'), ': ', h('b', {}, '+' + xp.total + ' XP')),
+        xp.coins ? h('div', { class: 'coin-earned' }, h('span', { class: 'icon', html: ICON.coin }), h('b', {}, '+' + xp.coins), ' ' + t('coins')) : null,
         xp.levelUps ? h('div', { class: 'level-up' }, t('levelUp'), ' ', t('level'), ' ', String(xp.level)) : null,
         h('div', { class: 'xp-bar big' }, fill, h('div', { class: 'xp-text' }, `${t('level')} ${st.level} · ${st.xp} / ${need} XP`)),
         app.profile.data.winStreak > 0 ? h('div', { class: 'streak-note' }, h('span', { class: 'icon', html: ICON.crown }), ' ', t('killStreakCrown', { n: app.profile.data.winStreak })) : null,

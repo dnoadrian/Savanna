@@ -3,12 +3,15 @@ import { F } from '../constants.js';
 
 // Lokale Hitboxen (stehend, Füße bei y=0, Blick nach -Z).
 // part: 'h' Kopf, 'b' Körper, 'l' Arme/Beine
+// Alle Trefferzonen sind 25 % größer als die sichtbare Figur (verzeihender, wie im Original).
+export const HITBOX_SCALE = 1.25;
+const S = HITBOX_SCALE;
 export const PARTS = [
-  { part: 'h', sphere: true, x: 0, y: 1.6, z: -0.02, r: 0.2 },
-  { part: 'b', x: 0, y: 1.17, z: 0, hx: 0.27, hy: 0.3, hz: 0.17 },
-  { part: 'l', x: 0.37, y: 1.2, z: -0.12, hx: 0.1, hy: 0.28, hz: 0.2 },
-  { part: 'l', x: -0.37, y: 1.2, z: -0.12, hx: 0.1, hy: 0.28, hz: 0.2 },
-  { part: 'l', x: 0, y: 0.44, z: 0, hx: 0.24, hy: 0.44, hz: 0.15 },
+  { part: 'h', sphere: true, x: 0, y: 1.6, z: -0.02, r: 0.2 * S },
+  { part: 'b', x: 0, y: 1.17, z: 0, hx: 0.27 * S, hy: 0.3 * S, hz: 0.17 * S },
+  { part: 'l', x: 0.37, y: 1.2, z: -0.12, hx: 0.1 * S, hy: 0.28 * S, hz: 0.2 * S },
+  { part: 'l', x: -0.37, y: 1.2, z: -0.12, hx: 0.1 * S, hy: 0.28 * S, hz: 0.2 * S },
+  { part: 'l', x: 0, y: 0.44, z: 0, hx: 0.24 * S, hy: 0.44 * S, hz: 0.15 * S },
 ];
 
 export function stanceScale(flags) {
@@ -27,7 +30,7 @@ export function rayPlayer(p, ox, oy, oz, dx, dy, dz, maxT) {
   const cy = 0.95 * sy;
   const bx = px, by = py - cy, bz = pz;
   const b = bx * dx + by * dy + bz * dz;
-  const c = bx * bx + by * by + bz * bz - 1.25 * 1.25;
+  const c = bx * bx + by * by + bz * bz - 1.5 * 1.5;
   if (c > 0 && b > 0) return null;
   if (b * b - c < 0) return null;
   const cos = Math.cos(p.yaw), sin = Math.sin(p.yaw);

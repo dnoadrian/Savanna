@@ -3,12 +3,12 @@ import { WEAPONS, CONSUMABLES, AMMO_TYPES, AMMO_MAX, weaponItem, ammoItem } from
 
 export const SLOTS = 5;
 
-// Start: graue Pistole mit 20 Schuss im Magazin und 40 in Reserve
+// Start: graue Pistole mit 20 Schuss im Magazin und 60 in Reserve (insgesamt 80)
 export function createInventory() {
   return {
     slots: [weaponItem('pistol', 0), null, null, null, null],
     sel: 0,
-    ammo: { light: 40, medium: 0, heavy: 0, shells: 0 },
+    ammo: { light: 60, medium: 0, heavy: 0, shells: 0 },
     rev: 0,
   };
 }
@@ -23,6 +23,17 @@ export function selectedItem(inv) {
  *  - rest: Teil, der liegen bleibt (Munition/Stapel voll)
  *  - dropped: Gegenstand, der beim Tauschen fallen gelassen wurde (Inventar voll)
  */
+// Platz in vorhandenen Stapeln eines Schild-/Heilgegenstands (0 = kein Stapel oder alle voll)
+export function stackRoom(inv, c) {
+  const stack = CONSUMABLES[c].stack;
+  let room = 0;
+  for (let i = 0; i < SLOTS; i++) {
+    const s = inv.slots[i];
+    if (s && s.k === 'c' && s.c === c) room += stack - s.n;
+  }
+  return room;
+}
+
 export function addItem(inv, item, allowSwap = true) {
   const res = { taken: false, rest: null, dropped: null, slot: -1 };
   if (item.k === 'a') {

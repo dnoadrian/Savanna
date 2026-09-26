@@ -18,6 +18,9 @@ export const MAT_NAMES = ['terrain', 'wood', 'metal', 'stone', 'cloth', 'plant',
 const CELL = 4;
 const GN = Math.ceil((WORLD_HALF * 2) / CELL);
 
+// Kugel-Toleranz an den Kanten natürlicher Objekte (m)
+const SOFT_EDGE = 0.14;
+
 export class CollisionWorld {
   constructor(terrain) {
     this.terrain = terrain;
@@ -221,15 +224,19 @@ export class CollisionWorld {
   }
 
   // Strahl gegen einen einzelnen Collider. Gibt t oder -1, setzt Normale in out.
-  static rayCollider(c, ox, oy, oz, dx, dy, dz, maxT, out) {
+  // m: Kanten-Toleranz für Kugeln bei natürlichen Objekten (Felsen, Stämme): der Collider wird
+  // seitlich und oben um m kleiner, damit knapp an der Seite vorbeigeschossene Kugeln durchgehen
+  static rayCollider(c, ox, oy, oz, dx, dy, dz, maxT, out, m = 0) {
     if (c.kind === 1) {
       // senkrechter Zylinder: Mantel + Deckel
       let best = -1;
       const px = ox - c.x, pz = oz - c.z;
+      const r = m > 0 ? Math.max(c.r * 0.6, c.r - m) : c.r;
+      const maxY = c.maxY - m;
       const a = dx * dx + dz * dz;
       if (a > 1e-12) {
         const b = px * dx + pz * dz;
-        const cc = px * px + pz * pz - c.r * c.r;
+        const cc = px * px + pz * pz - r * r;
         const disc = b * b - a * cc;
         if (disc >= 0) {
           const sq = Math.sqrt(disc);
@@ -237,7 +244,7 @@ export class CollisionWorld {
           if (t < 0 && cc < 0) t = 0; // innen gestartet
           if (t >= 0 && t <= maxT) {
             const y = oy + dy * t;
-            if (y >= c.minY && y <= c.maxY) {
+            if (y >= c.minY && y <= maxY) {
               best = t;
               const hx = px + dx * t, hz = pz + dz * t;
               const l = Math.sqrt(hx * hx + hz * hz) || 1;
@@ -247,11 +254,11 @@ export class CollisionWorld {
         }
       }
       if (Math.abs(dy) > 1e-9) {
-        const capY = dy < 0 ? c.maxY : c.minY;
+        const capY = dy < 0 ? maxY : c.minY;
         const t = (capY - oy) / dy;
         if (t >= 0 && t <= maxT && (best < 0 || t < best)) {
           const hx = px + dx * t, hz = pz + dz * t;
-          if (hx * hx + hz * hz <= c.r * c.r) {
+          if (hx * hx + hz * hz <= r * r) {
             best = t;
             out.nx = 0; out.ny = dy < 0 ? 1 : -1; out.nz = 0;
           }
@@ -265,13 +272,17 @@ export class CollisionWorld {
     const loz = px * c.sin + pz * c.cos;
     const ldx = dx * c.cos - dz * c.sin;
     const ldz = dx * c.sin + dz * c.cos;
+    const bx = m > 0 ? Math.max(c.hx * 0.6, c.hx - m) : c.hx;
+    const bz = m > 0 ? Math.max(c.hz * 0.6, c.hz - m) : c.hz;
+    const by = m > 0 ? Math.max(c.hy * 0.6, c.hy - m * 0.5) : c.hy;
+    const pyc = m > 0 ? py + (c.hy - by) : py; // nur oben kürzen
     let tmin = 0, tmax = maxT;
     let axis = -1, sign = 0;
     // X
     if (Math.abs(ldx) < 1e-12) {
-      if (lox < -c.hx || lox > c.hx) return -1;
+      if (lox < -bx || lox > bx) return -1;
     } else {
-      let t1 = (-c.hx - lox) / ldx, t2 = (c.hx - lox) / ldx;
+      let t1 = (-bx - lox) / ldx, t2 = (bx - lox) / ldx;
       let s = -1;
       if (t1 > t2) { const q = t1; t1 = t2; t2 = q; s = 1; }
       if (t1 > tmin) { tmin = t1; axis = 0; sign = s; }
@@ -280,9 +291,9 @@ export class CollisionWorld {
     }
     // Y
     if (Math.abs(dy) < 1e-12) {
-      if (py < -c.hy || py > c.hy) return -1;
+      if (pyc < -by || pyc > by) return -1;
     } else {
-      let t1 = (-c.hy - py) / dy, t2 = (c.hy - py) / dy;
+      let t1 = (-by - pyc) / dy, t2 = (by - pyc) / dy;
       let s = -1;
       if (t1 > t2) { const q = t1; t1 = t2; t2 = q; s = 1; }
       if (t1 > tmin) { tmin = t1; axis = 1; sign = s; }
@@ -291,9 +302,9 @@ export class CollisionWorld {
     }
     // Z
     if (Math.abs(ldz) < 1e-12) {
-      if (loz < -c.hz || loz > c.hz) return -1;
+      if (loz < -bz || loz > bz) return -1;
     } else {
-      let t1 = (-c.hz - loz) / ldz, t2 = (c.hz - loz) / ldz;
+      let t1 = (-bz - loz) / ldz, t2 = (bz - loz) / ldz;
       let s = -1;
       if (t1 > t2) { const q = t1; t1 = t2; t2 = q; s = 1; }
       if (t1 > tmin) { tmin = t1; axis = 2; sign = s; }
@@ -313,7 +324,8 @@ export class CollisionWorld {
 
   // Raycast gegen statische Collider (DDA durch das Gitter), optional Terrain.
   // Ergebnis in this.hitOut; gibt Distanz oder -1.
-  raycast(ox, oy, oz, dx, dy, dz, maxDist, withTerrain = true) {
+  // bullet: Kugeln fliegen durch „durchlässige“ Collider (Zäune, Geländer)
+  raycast(ox, oy, oz, dx, dy, dz, maxDist, withTerrain = true, bullet = false) {
     const out = this.hitOut;
     const tmpN = this._tmpN || (this._tmpN = { nx: 0, ny: 0, nz: 0 });
     let best = maxDist;
@@ -341,7 +353,8 @@ export class CollisionWorld {
             const c = arr[k];
             if (c.mark === s) continue;
             c.mark = s;
-            const t = CollisionWorld.rayCollider(c, ox, oy, oz, dx, dy, dz, best, tmpN);
+            if (bullet && c.pass) continue;
+            const t = CollisionWorld.rayCollider(c, ox, oy, oz, dx, dy, dz, best, tmpN, bullet && c.soft ? SOFT_EDGE : 0);
             if (t >= 0 && t < best) {
               best = t;
               found = true;
@@ -385,7 +398,7 @@ export class CollisionWorld {
     const dx = bx - ax, dy = by - ay, dz = bz - az;
     const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (d < 0.01) return true;
-    const t = this.raycast(ax, ay, az, dx / d, dy / d, dz / d, d - 0.05, true);
+    const t = this.raycast(ax, ay, az, dx / d, dy / d, dz / d, d - 0.05, true, true);
     return t < 0;
   }
 }

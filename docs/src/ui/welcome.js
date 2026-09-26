@@ -158,7 +158,7 @@ export class WelcomeScreen {
       app.refreshLobbyMembers();
       app.sendProfile();
     };
-    for (const o of OUTFITS) {
+    for (const o of OUTFITS.filter((x) => app.profile.owns(x))) {
       grid.appendChild(h('button', { class: 'outfit-btn', 'data-o': o, onclick: () => { app.audio.uiClick(); app.profile.set('outfit', o); refresh(); }, onmouseenter: () => app.audio.uiHover() }, t('outfit_' + o)));
     }
     OUTFIT_COLORS.forEach((c, i) => {

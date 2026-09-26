@@ -316,6 +316,16 @@ export function generateMap(seed = MAP_SEED, onProgress = null) {
   for (const [x, z, ry] of [[-60, 61, 2.4], [84, 26, -1.6], [-20, -88, 3.1], [58, 13, 1.2], [30, 90, 3.14], [-86, 22, -1.57], [70, -60, 2.3]]) {
     out.chests.push({ x, y: hAt(x, z), z, ry });
   }
+  // zusätzliche Truhen verstreut an Stränden und Inseln (mehr Beute)
+  for (let g = 0, placed = 0; g < 3000 && placed < 12; g++) {
+    const x = rng.range(-95, 95), z = rng.range(-95, 95);
+    const h = hAt(x, z);
+    if (h < 0.35 || Math.hypot(x, z) > rimR(x, z) - 4 || nearWalk(x, z, 1.2) || !occFree(x, z, 1.4)) continue;
+    if (out.chests.some((c) => Math.hypot(c.x - x, c.z - z) < 11)) continue;
+    occAdd(x, z, 1.2);
+    out.chests.push({ x, y: h, z, ry: rng.next() * Math.PI * 2 });
+    placed++;
+  }
   for (const [x, z] of [[-50, 50], [78, 40], [12, -86], [-80, -30], [62, 16], [20, 88], [-40, -80], [86, 4], [-70, 40], [40, -70]]) {
     out.floorLoot.push({ x, y: hAt(x, z), z });
   }
@@ -325,16 +335,32 @@ export function generateMap(seed = MAP_SEED, onProgress = null) {
   const collision = new CollisionWorld(terrain);
   for (const p of parts) {
     if (!p.col) continue;
-    if (p.s === 'box' || p.s === 'slab') collision.addBox(p.x, p.y, p.z, p.w, p.h, p.d, p.ry, p.m ?? MAT.WOOD);
+    if (p.s === 'box') {
+      const c = collision.addBox(p.x, p.y, p.z, p.w, p.h, p.d, p.ry, p.m ?? MAT.WOOD);
+      if (p.pass) c.pass = true;
+    } else if (p.s === 'slab') {
+      // Felsplatten sind nach oben verjüngt und an den Ecken abgeschrägt: etwas schmaler als das Maß
+      const c = collision.addBox(p.x, p.y, p.z, p.w * 0.92, p.h, p.d * 0.92, p.ry, p.m ?? MAT.STONE);
+      c.soft = true;
+    }
     else if (p.s === 'cyl') collision.addCyl(p.x, p.z, Math.max(0.05, (p.r + p.rt) / 2), p.y - p.h / 2, p.y + p.h / 2, p.m ?? MAT.WOOD);
-    else if (p.s === 'sph') collision.addCyl(p.x, p.z, p.r * Math.max(p.sx, p.sz) * 0.85, p.y - p.r * p.sy, p.y + p.r * p.sy * 0.8, p.m ?? MAT.STONE);
+    else if (p.s === 'sph') {
+      // Kugel/Felsbrocken: breiter Kern + schmalere Kappe statt eines zu großen Zylinders
+      const R = p.r * Math.max(p.sx, p.sz), H = p.r * p.sy;
+      collision.addCyl(p.x, p.z, R * 0.86, p.y - H * 0.9, p.y + H * 0.45, p.m ?? MAT.STONE).soft = true;
+      collision.addCyl(p.x, p.z, R * 0.55, p.y + H * 0.45, p.y + H * 0.88, p.m ?? MAT.STONE).soft = true;
+    }
   }
   for (const pr of props) {
-    const cols = propColliders(pr.t, pr.s);
+    const cols = propColliders(pr.t, pr.s, pr.v);
     if (!cols) continue;
+    // lokale Versätze mitdrehen (gleiche Konvention wie three.js: Drehung um Y)
+    const cos = Math.cos(pr.ry), sin = Math.sin(pr.ry);
     for (const c of cols) {
-      if (c.k === 'c') collision.addCyl(pr.x, pr.z, c.r, pr.y + c.y0, pr.y + c.h, c.m);
-      else collision.addBox(pr.x, pr.y + c.h / 2, pr.z, c.w, c.h, c.d, pr.ry, c.m);
+      const ox = c.ox || 0, oz = c.oz || 0;
+      const x = pr.x + ox * cos + oz * sin, z = pr.z - ox * sin + oz * cos;
+      const col = c.k === 'c' ? collision.addCyl(x, z, c.r, pr.y + c.y0, pr.y + c.h, c.m) : collision.addBox(x, pr.y + c.y, z, c.w, c.h, c.d, pr.ry + (c.ry || 0), c.m);
+      if (c.m === MAT.STONE || c.m === MAT.PLANT) col.soft = true;
     }
   }
   onProgress && onProgress(0.8);

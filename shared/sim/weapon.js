@@ -106,7 +106,20 @@ export function reloadProgress(rt, item) {
 }
 
 // Streuung in Grad für den nächsten Schuss (bei Schrotflinten: Kegel der Kugeln)
-export function weaponSpread(rt, item, flags, speed) {
+// Spieler: reiner Hitscan – Kugeln fliegen immer genau aufs Fadenkreuz, egal ob man steht,
+// läuft oder springt. Nur Schrotflinten haben ihren festen Streukegel (Pump eng, Taktische weit).
+export function weaponSpread(rt, item, flags) {
+  if (!item || item.k !== 'w') return 0;
+  const def = WEAPONS[item.w];
+  if (def.pellets <= 1) return 0;
+  let s = def.spread.base;
+  if (flags & (F.CROUCH | F.SLIDE)) s *= def.spread.crouch;
+  if (flags & F.ADS) s *= def.spread.ads;
+  return s;
+}
+
+// Bots behalten die klassische Streuung (Bewegung, Sprung, Dauerfeuer), damit sie schlagbar bleiben
+export function botWeaponSpread(rt, item, flags, speed) {
   if (!item || item.k !== 'w') return 0;
   const def = WEAPONS[item.w];
   const s0 = def.spread;

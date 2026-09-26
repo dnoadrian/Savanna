@@ -1,5 +1,5 @@
 // Spielerprofil im localStorage: Name, Spieler-ID (UUID), Spind, Statistik, Krone.
-import { xpForLevel } from '../shared/constants.js';
+import { xpForLevel, OUTFITS, DEFAULT_OUTFIT, SKIN_SHOP, COINS_PER_KILL, COINS_PER_WIN } from '../shared/constants.js';
 
 const BASE_KEY = 'showdown.profile.v1';
 
@@ -68,6 +68,11 @@ export class Profile {
     if (this.data) {
       this.data.stats = { ...freshStats(), ...(this.data.stats || {}) };
       if (!this.data.id) this.data.id = uuid();
+      // Coins + gekaufte Skins (ältere Profile: nur der Standard-Skin)
+      if (!Number.isFinite(this.data.coins)) this.data.coins = 0;
+      // bestehende Profile behalten ihr bisheriges Outfit (vor dem Shop kostenlos gewählt)
+      if (!Array.isArray(this.data.owned)) this.data.owned = [...new Set([DEFAULT_OUTFIT, this.data.outfit].filter((o) => OUTFITS.includes(o)))];
+      if (!this.data.owned.includes(this.data.outfit)) this.data.outfit = DEFAULT_OUTFIT;
     }
   }
 
@@ -82,7 +87,9 @@ export class Profile {
     this.data = {
       id: uuid(),
       name,
-      outfit: 'cowboy',
+      outfit: DEFAULT_OUTFIT,
+      coins: 0,
+      owned: [DEFAULT_OUTFIT],
       color: Math.floor(Math.random() * 8),
       crownStyle: 'gold',
       winStreak: 0,
@@ -129,6 +136,25 @@ export class Profile {
     };
   }
 
+  owns(outfit) {
+    return this.data.owned.includes(outfit);
+  }
+
+  addCoins(n) {
+    this.data.coins = Math.max(0, Math.round(this.data.coins + n));
+    this.save();
+  }
+
+  // Skin kaufen: true, wenn gekauft (genug Coins)
+  buy(outfit) {
+    const item = SKIN_SHOP[outfit];
+    if (!item || this.owns(outfit) || this.data.coins < item.price) return false;
+    this.data.coins -= item.price;
+    this.data.owned.push(outfit);
+    this.save();
+    return true;
+  }
+
   // XP gutschreiben, gibt Anzahl Level-Ups zurück
   addXp(xp) {
     const s = this.data.stats;
@@ -173,4 +199,9 @@ export function computeXp(r) {
   if (r.damage) parts.push({ key: 'xpDamage', xp: Math.round(r.damage / 5) });
   if (place === 1) parts.push({ key: 'xpWin', xp: 400 });
   return { parts, total: parts.reduce((a, b) => a + b.xp, 0) };
+}
+
+// Coins einer Runde: 50 pro Kill, 250 für den Sieg
+export function computeCoins(r) {
+  return (r.kills || 0) * COINS_PER_KILL + (r.placement === 1 ? COINS_PER_WIN : 0);
 }

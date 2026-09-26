@@ -105,11 +105,11 @@ export async function runServerTest() {
   for (const X of [A, B, C]) X.msg({ t: 'loaded', mid: ms.matchId });
   await wait(600);
   assert.ok(A.all('snap').length > 3, 'keine Snapshots');
-  // Inventar kommt mit dem Snapshot: graue Pistole 20/40
+  // Inventar kommt mit dem Snapshot: graue Pistole 20 + 60
   const startInv = A.all('snap').map((m) => m.me && m.me.inv).find(Boolean);
   assert.ok(startInv, 'kein Inventar');
   assert.deepEqual(startInv.s[0], ['w', 'pistol', 0, 20]);
-  assert.equal(startInv.a.light, 40);
+  assert.equal(startInv.a.light, 60);
   assert.equal(gs.status('aaaa-1'), 'game');
   // B verlässt das Match -> Figur scheidet aus, Match läuft weiter
   B.msg({ t: 'leaveMatch' });

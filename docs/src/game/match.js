@@ -14,7 +14,7 @@ import { F, SIPHON } from '../../shared/constants.js';
 import { WEAPONS, CONSUMABLES, decodeItem } from '../../shared/items.js';
 import { weaponSpread } from '../../shared/sim/weapon.js';
 import { MAT } from '../../shared/physics/collision.js';
-import { rayPlayer, PARTS, stanceScale } from '../../shared/sim/combat.js';
+import { rayPlayer } from '../../shared/sim/combat.js';
 import { t } from '../i18n.js';
 
 const FOG_COLOR = new THREE.Color(0xbfe4f7);
@@ -177,7 +177,7 @@ export class MatchClient {
           const b = this.player.body;
           c.setHand(st.hand);
           c.root.position.set(b.x, b.y, b.z);
-          if (tp) c.update(dt, { vx: b.vx, vz: b.vz, yaw: this.player.yaw, pitch: this.player.pitch, flags: this.player.flags });
+          if (tp) c.update(dt, { vx: b.vx, vz: b.vz, yaw: this.player.bodyYaw, pitch: this.player.pitch, flags: this.player.flags });
         } else {
           c.root.position.set(st.x, st.y, st.z);
           c.update(dt, { ...st, flags: F.DEAD });
@@ -216,8 +216,9 @@ export class MatchClient {
     const pl = this.player;
     const item = pl.item;
     const reload01 = this.state === 'alive' ? pl.reload01() : -1;
-    const useDur = item && item.k === 'c' ? CONSUMABLES[item.c].use : 1;
-    const use01 = this.state === 'alive' && pl.useT >= 0 ? Math.min(1, pl.useT / useDur) : -1;
+    const useDur = item && item.k === 'c' ? CONSUMABLES[item.c].use : 0;
+    // Schilde/Medikits wirken sofort – kein Fortschrittsring
+    const use01 = this.state === 'alive' && pl.useT >= 0 && useDur > 0 ? Math.min(1, pl.useT / useDur) : -1;
     if (this.state === 'alive') {
       this.viewmodel.setSunFromWorld(this.lights.sunDir, this.camera);
       this.viewmodel.update({
@@ -233,14 +234,6 @@ export class MatchClient {
     let inStorm = false;
     if (stormOn) {
       inStorm = Math.hypot(cp.x - zone.x, cp.z - zone.z) > zone.r;
-      if (phase === 'playing' && !zone.shrinking && zone.timeLeft < 10 && zone.timeLeft > 8 && this.stormWarned !== zone.phase) {
-        this.stormWarned = zone.phase;
-        this.hud.message(t('stormWarn'), 'storm');
-      }
-      if (phase === 'playing' && zone.shrinking && this.shrinkAnnounced !== zone.phase) {
-        this.shrinkAnnounced = zone.phase;
-        this.hud.bigMessage(t('stormNow'), t('stormPhase', { n: zone.phase }), 'storm');
-      }
     }
     const stormK = inStorm ? 1 : 0;
     this.stormK = (this.stormK || 0) + (stormK - (this.stormK || 0)) * Math.min(1, dt * 3);
@@ -284,14 +277,15 @@ export class MatchClient {
     this.hud.update(dt, {
       alive: living,
       health: living ? self.health : 0, shield: living ? self.shield : 0, overshield: living ? self.overshield : 0,
+      stamina: pl.body.stamina, exhausted: pl.body.exhausted,
       inv: pl.inv, reloading: reload01 >= 0, reload01, use01, useItem: use01 >= 0 ? item : null,
       target: living ? pl.target : null,
       aliveCount: alive, total: states.length, kills: self.kills,
       zone, stormOn, phase, inStorm: inStorm && living, fps: this.fps, ping: s.isLocal ? null : s.ping,
-      weapon: def ? item.w : null, spread: living && def ? weaponSpread(pl.rt, item, pl.flags, speed) : 0,
+      vfov: this.camera.fov, weapon: def ? item.w : null, spread: living && def ? weaponSpread(pl.rt, item, pl.flags, speed) : 0,
       overEnemy: pl.overEnemy, scoped: living && pl.scoped,
       px: living ? pl.body.x : cp.x, pz: living ? pl.body.z : cp.z,
-      yaw: living ? pl.yaw : this.camera.rotation.y, hideCross: !living || pl.scoped || (pl.adsK > 0.6 && !pl.thirdPerson && def && def.pellets === 1),
+      yaw: living ? pl.yaw : this.camera.rotation.y, hideCross: !living || pl.scoped,
     });
     const W = window.innerWidth, H = window.innerHeight;
     this.hud.project(this.camera, W, H);
@@ -311,55 +305,57 @@ export class MatchClient {
     input.endFrame();
   }
 
-  // Admin: Hitboxen aller Gegner (durch Wände sichtbar)
+  // Admin: rotes Skelett-ESP aller Gegner (durch Wände sichtbar) – folgt den animierten Figuren
   updateHitboxes(states) {
-    const on = this.app.admin && this.app.admin.active('hitboxes');
+    const on = this.app.admin && this.app.admin.active('esp');
     if (!on) {
-      if (this.hitboxes) this.hitboxes.group.visible = false;
+      if (this.esp) this.esp.lines.visible = false;
       return;
     }
-    if (!this.hitboxes) {
-      const group = new THREE.Group();
-      const mats = {
-        h: new THREE.LineBasicMaterial({ color: 0xff3b3b, depthTest: false, transparent: true }),
-        b: new THREE.LineBasicMaterial({ color: 0xffd23b, depthTest: false, transparent: true }),
-        l: new THREE.LineBasicMaterial({ color: 0x3bff7a, depthTest: false, transparent: true }),
-      };
-      const boxes = new Map();
-      for (const st of states) {
-        if (st.id === this.session.youId) continue;
-        const root = new THREE.Group();
-        const inner = new THREE.Group();
-        root.add(inner);
-        for (const q of PARTS) {
-          const geo = q.sphere ? new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(q.r, 0)) : new THREE.EdgesGeometry(new THREE.BoxGeometry(q.hx * 2, q.hy * 2, q.hz * 2));
-          const m = new THREE.LineSegments(geo, mats[q.part]);
-          m.position.set(q.x, q.y, q.z);
-          m.userData.q = q;
-          m.renderOrder = 20;
-          inner.add(m);
-        }
-        group.add(root);
-        boxes.set(st.id, { root, inner });
-      }
-      this.scene.add(group);
-      this.hitboxes = { group, boxes };
+    if (!this.esp) {
+      const MAX = 12 * 16 * 2;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX * 3), 3));
+      const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xff2020, depthTest: false, transparent: true, opacity: 0.95, fog: false }));
+      lines.frustumCulled = false;
+      lines.renderOrder = 30;
+      this.scene.add(lines);
+      this.esp = { lines, pos: geo.attributes.position, v: Array.from({ length: 16 }, () => new THREE.Vector3()) };
     }
-    this.hitboxes.group.visible = true;
+    const E = this.esp;
+    E.lines.visible = true;
+    const arr = E.pos.array;
+    let n = 0;
+    const seg = (a, b) => {
+      arr[n++] = a.x; arr[n++] = a.y; arr[n++] = a.z;
+      arr[n++] = b.x; arr[n++] = b.y; arr[n++] = b.z;
+    };
+    const w = (obj, x, y, z, out) => { obj.updateWorldMatrix(true, false); return out.set(x, y, z).applyMatrix4(obj.matrixWorld); };
     for (const st of states) {
-      const hb = this.hitboxes.boxes.get(st.id);
-      if (!hb) continue;
-      hb.root.visible = st.alive;
-      if (!st.alive) continue;
-      hb.root.position.set(st.x, st.y, st.z);
-      hb.root.rotation.y = st.yaw;
-      const sy = stanceScale(st.flags);
-      for (const m of hb.inner.children) {
-        const q = m.userData.q;
-        m.position.y = q.y * sy;
-        m.scale.y = q.sphere ? 1 : sy;
-      }
+      if (st.id === this.session.youId || !st.alive) continue;
+      const c = this.chars.get(st.id);
+      if (!c || !c.root.visible) continue;
+      const [head, neck, pelvis, sL, sR, eL, eR, hL, hR, hipL, hipR, kL, kR, fL, fR, crown] = E.v;
+      w(c.head, 0, 0.18, 0, head);
+      w(c.head, 0, 0.42, 0, crown);
+      w(c.torso, 0, 0.55, 0, neck);
+      w(c.hips, 0, 0, 0, pelvis);
+      const [aL, aR] = c.arms[0].side < 0 ? [c.arms[0], c.arms[1]] : [c.arms[1], c.arms[0]];
+      w(aL.upper, 0, 0, 0, sL); w(aR.upper, 0, 0, 0, sR);
+      w(aL.lower, 0, 0, 0, eL); w(aR.lower, 0, 0, 0, eR);
+      w(aL.lower, 0, -0.32, 0, hL); w(aR.lower, 0, -0.32, 0, hR);
+      const [lL, lR] = c.legs[0].side < 0 ? [c.legs[0], c.legs[1]] : [c.legs[1], c.legs[0]];
+      w(lL.upper, 0, 0, 0, hipL); w(lR.upper, 0, 0, 0, hipR);
+      w(lL.knee, 0, 0, 0, kL); w(lR.knee, 0, 0, 0, kR);
+      w(lL.knee, 0, -0.45, 0, fL); w(lR.knee, 0, -0.45, 0, fR);
+      seg(crown, head); seg(head, neck); seg(neck, pelvis);
+      seg(neck, sL); seg(sL, eL); seg(eL, hL);
+      seg(neck, sR); seg(sR, eR); seg(eR, hR);
+      seg(pelvis, hipL); seg(hipL, kL); seg(kL, fL);
+      seg(pelvis, hipR); seg(hipR, kR); seg(kR, fR);
     }
+    E.pos.needsUpdate = true;
+    E.lines.geometry.setDrawRange(0, n / 3);
   }
 
   scoreRows(states) {
@@ -408,7 +404,7 @@ export class MatchClient {
   }
 
   // ---------------- Eigene Schüsse (sofortige Effekte) ----------------
-  onLocalShot(eye, dirs, item) {
+  onLocalShot(eye, dirs, item, wall = false) {
     const def = WEAPONS[item.w];
     const col = this.map.collision;
     const states = this.session.states();
@@ -421,7 +417,7 @@ export class MatchClient {
     const pellets = dirs.length > 1;
     for (let i = 0; i < dirs.length; i++) {
       const dir = dirs[i];
-      let tHit = col.raycast(eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, def.range, true);
+      let tHit = wall ? -1 : col.raycast(eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, def.range, true, true);
       let mat = tHit >= 0 ? col.hitOut.mat : -1;
       const n = new THREE.Vector3(col.hitOut.nx, col.hitOut.ny, col.hitOut.nz);
       if (tHit < 0) tHit = def.range;
@@ -440,7 +436,7 @@ export class MatchClient {
       }
       const end = new THREE.Vector3(eye.x + dir.x * tHit, eye.y + dir.y * tHit, eye.z + dir.z * tHit);
       // Schrot: nur jede zweite Kugel mit Leuchtspur, dünner
-      if (!pellets || i % 2 === 0) this.effects.tracer(muzzle, end, false, pellets ? 0.6 : def.scope ? 1.8 : 1, def.scope ? 900 : 520);
+      if (!pellets || i % 2 === 0) this.effects.tracer(muzzle, end, false, pellets ? 0.6 : def.scope ? 1.8 : 1, def.scope ? 2400 : 1500);
       if (hitPlayer) this.effects.blood(end);
       else if (mat >= 0 && (!pellets || i < 6)) this.effects.impact(end, n, mat);
     }
@@ -509,7 +505,7 @@ export class MatchClient {
           }
           if (e.br && vst) {
             this.effects.shieldBreak(_v.set(vst.x, vst.y + 0.9, vst.z));
-            app.audio.shieldBreak({ x: vst.x, y: vst.y + 1, z: vst.z });
+            app.audio.shieldBreak(null, true);
             this.hud.shieldBroken();
           }
           this.hitBars.set(e.v, performance.now() / 1000);
@@ -540,7 +536,6 @@ export class MatchClient {
           this.hud.hitmarker(e.hs, true);
           app.audio.killConfirm();
           app.audio.elimination();
-          this.hud.bigMessage(t('youKilled', { name: vi.name }), '', 'kill');
         }
         const c = this.chars.get(e.v);
         if (c) {
@@ -548,14 +543,13 @@ export class MatchClient {
           c.killDir = kst ? Math.atan2(kst.x - c.root.position.x, kst.z - c.root.position.z) : 0;
         }
         if (e.v === me) this.onDeath(e);
-        if (e.w === 'leave' && e.v !== me) this.hud.message(t('leftMatchNotice', { name: vi.name }));
         break;
       }
       case 'siphon': {
         if (e.id === me) {
           this.hud.siphon(SIPHON);
           app.audio.siphon();
-          this.effects.siphon(_v.set(this.player.body.x, this.player.body.y, this.player.body.z));
+          this.effects.siphon(_v.set(this.player.body.x, this.player.body.y, this.player.body.z), !this.player.thirdPerson);
         }
         break;
       }
@@ -574,10 +568,7 @@ export class MatchClient {
         if (e.id === me) {
           const it = decodeItem(e.it);
           app.audio.pickup(it);
-          if (it.k !== 'a') {
-            this.hud.pickupToast(it);
-            if (!this.player.item) this.pendingAutoSelect = performance.now();
-          }
+          if (it.k !== 'a' && !this.player.item) this.pendingAutoSelect = performance.now();
         }
         break;
       }
@@ -592,8 +583,8 @@ export class MatchClient {
         const shield = !CONSUMABLES[e.c].heal;
         if (e.id === me) {
           this.player.onUseDone();
-          app.audio.useDone(e.c);
-          this.effects[shield ? 'siphon' : 'healBurst'](_v.set(this.player.body.x, this.player.body.y, this.player.body.z));
+          if (!(performance.now() - (this.player.instantUseT || 0) < 1500)) app.audio.useDone(e.c);
+          this.effects[shield ? 'siphon' : 'healBurst'](_v.set(this.player.body.x, this.player.body.y, this.player.body.z), !this.player.thirdPerson);
         } else if (st && Math.hypot(st.x - cp.x, st.z - cp.z) < 60) {
           this.effects.healBurst(_v.set(st.x, st.y, st.z));
         }

@@ -5,7 +5,7 @@ import { RNG } from '../rng.js';
 import { SEA_LEVEL } from '../constants.js';
 import { rollChestLoot, rollFloorLoot } from '../items.js';
 
-const CHEST_CHANCE = 0.78;
+const CHEST_CHANCE = 1; // alle Truhen sind immer da
 const FLOOR_CHANCE = 0.6;
 
 export class Loot {

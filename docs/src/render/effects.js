@@ -123,6 +123,17 @@ export class Effects {
     }
     this.fNext = 0;
     // Licht für eigenes Mündungsfeuer (fest in der Szene, damit keine Shader-Neukompilierung)
+    // Schild-Bruch: Schockwellen-Ringe (zur Kamera gedreht) + Blitzkugel
+    this.rings = [];
+    const rg = new THREE.RingGeometry(0.72, 1, 40);
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({ color: 0x6fd6ff, toneMapped: false, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+      m.visible = false;
+      m.frustumCulled = false;
+      scene.add(m);
+      this.rings.push({ m, life: 0, max: 0.45, size: 1 });
+    }
+    this.ringNext = 0;
     this.muzzleLight = new THREE.PointLight(0xffc070, 0, 9, 2);
     scene.add(this.muzzleLight);
     this.muzzleLightT = 0;
@@ -153,7 +164,7 @@ export class Effects {
   }
 
   // remote: Schuss eines anderen Spielers (Spur wird kurz vor der eigenen Kamera ausgeblendet)
-  tracer(from, to, remote = false, width = 1, speed = 520) {
+  tracer(from, to, remote = false, width = 1, speed = 1500) {
     const t = this.tracers[this.tNext];
     t.remote = remote;
     t.w = width;
@@ -164,7 +175,7 @@ export class Effects {
     t.dir.normalize();
     t.pos = 0;
     t.speed = speed;
-    t.len = Math.min(5, t.dist * 0.3 + 1);
+    t.len = Math.min(9, t.dist * 0.35 + 1.5); // schnelle Kugeln: längerer Leuchtstreifen
     t.life = t.dist / t.speed + 0.05;
   }
 
@@ -240,11 +251,12 @@ export class Effects {
     s.bounced = 0;
   }
 
-  healBurst(pos) {
+  // own: eigener Spieler – Partikel weiter weg und unter Augenhöhe, damit nichts die Sicht verdeckt
+  healBurst(pos, own = false) {
     for (let i = 0; i < 16; i++) {
       const a = Math.random() * Math.PI * 2;
-      const r = 0.3 + Math.random() * 0.5;
-      this.glow(pos.x + Math.cos(a) * r, pos.y + Math.random() * 1.6, pos.z + Math.sin(a) * r, 0, 0.8 + Math.random(), 0, i % 3 ? 0x5dff8a : 0xb8ffc8, 1.0 + Math.random() * 0.4, 1.2, -0.3);
+      const r = own ? 0.9 + Math.random() * 0.5 : 0.3 + Math.random() * 0.5;
+      this.glow(pos.x + Math.cos(a) * r, pos.y + Math.random() * (own ? 0.9 : 1.6), pos.z + Math.sin(a) * r, 0, own ? 0.5 + Math.random() * 0.4 : 0.8 + Math.random(), 0, i % 3 ? 0x5dff8a : 0xb8ffc8, 1.0 + Math.random() * 0.4, own ? 0.7 : 1.2, -0.3);
     }
   }
 
@@ -253,14 +265,29 @@ export class Effects {
     for (let i = 0; i < 7; i++) this.glow(pos.x, pos.y, pos.z, (Math.random() - 0.5) * 3.5, Math.random() * 2.5, (Math.random() - 0.5) * 3.5, i % 2 ? 0x6fd0ff : 0xd8f4ff, 0.32, 0.8, 5);
   }
 
-  // Schild bricht: Splitter + Lichtring
+  // Schild bricht: große Glassplitter, leuchtende Funken und zwei Schockwellen-Ringe
   shieldBreak(pos) {
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < 40; i++) {
       const a = Math.random() * Math.PI * 2;
-      const v = 2.5 + Math.random() * 3;
-      this.glow(pos.x, pos.y + Math.random() * 0.8, pos.z, Math.cos(a) * v, Math.random() * 3, Math.sin(a) * v, i % 3 ? 0x3fb4ff : 0xffffff, 0.45 + Math.random() * 0.3, 1.2, 6);
+      const v = 3 + Math.random() * 4;
+      this.glow(pos.x, pos.y + Math.random() * 1.0 - 0.2, pos.z, Math.cos(a) * v, Math.random() * 3.5, Math.sin(a) * v, i % 3 ? 0x3fb4ff : 0xffffff, 0.5 + Math.random() * 0.35, 1.5, 6);
     }
-    for (let i = 0; i < 10; i++) this.spawn(pos.x, pos.y + 0.4, pos.z, (Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5, 0x5ac8ff, 0.7, 1.6, 10);
+    for (let i = 0; i < 22; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = 2 + Math.random() * 4;
+      this.spawn(pos.x, pos.y + Math.random() * 0.9 - 0.1, pos.z, Math.cos(a) * v, 1.5 + Math.random() * 3.5, Math.sin(a) * v, i % 4 ? 0x5ac8ff : 0xe6f7ff, 0.9 + Math.random() * 0.4, 1.8 + Math.random() * 1.4, 10);
+    }
+    this.ring(pos, 1.9, 0.42);
+    this.ring(pos, 1.2, 0.3);
+  }
+
+  ring(pos, size, life) {
+    const r = this.rings[this.ringNext];
+    this.ringNext = (this.ringNext + 1) % this.rings.length;
+    r.m.position.copy(pos);
+    r.life = r.max = life;
+    r.size = size;
+    r.m.visible = true;
   }
 
   // Truhe öffnet sich: goldene Funken
@@ -273,11 +300,13 @@ export class Effects {
   }
 
   // Siphon: grün/blaue Funken um den Spieler
-  siphon(pos) {
+  siphon(pos, own = false) {
     for (let i = 0; i < 18; i++) {
       const a = Math.random() * Math.PI * 2;
-      this.glow(pos.x + Math.cos(a) * 0.6, pos.y + Math.random() * 1.8, pos.z + Math.sin(a) * 0.6, 0, 1 + Math.random(), 0, i % 2 ? 0x5dff8a : 0x6fd0ff, 0.9, 1.2, -0.3);
+      const r = own ? 0.95 + Math.random() * 0.4 : 0.6;
+      this.glow(pos.x + Math.cos(a) * r, pos.y + Math.random() * (own ? 0.9 : 1.8), pos.z + Math.sin(a) * r, 0, own ? 0.6 + Math.random() * 0.5 : 1 + Math.random(), 0, i % 2 ? 0x5dff8a : 0x6fd0ff, 0.9, own ? 0.7 : 1.2, -0.3);
     }
+  }
   }
 
   // Rauch (Kamin): große, langsam steigende graue Partikel
@@ -407,6 +436,17 @@ export class Effects {
       this.sMesh.setMatrixAt(i, _m);
     }
     this.sMesh.instanceMatrix.needsUpdate = true;
+    // Schockwellen-Ringe
+    for (const r of this.rings) {
+      if (r.life <= 0) continue;
+      r.life -= dt;
+      if (r.life <= 0) { r.m.visible = false; continue; }
+      const k = 1 - r.life / r.max;
+      const s = 0.25 + r.size * (1 - (1 - k) * (1 - k));
+      r.m.scale.set(s, s, s);
+      if (camPos) r.m.lookAt(camPos);
+      r.m.material.opacity = (1 - k) * 0.9;
+    }
     // Mündungslicht
     this.muzzleLightT -= dt;
     if (this.muzzleLightT <= 0) this.muzzleLight.intensity = 0;

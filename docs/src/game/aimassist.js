@@ -7,7 +7,9 @@ import { F } from '../../shared/constants.js';
 import { anglesFromDir } from '../../shared/sim/combat.js';
 
 const DEG = Math.PI / 180;
-const ON = { slow: 0.35, track: 0.35, snap: 2.0, cone: 3.8 };
+// Abgestimmter „Sweetspot“: etwas stärkeres Mitziehen und größerer Fangbereich, die Verlangsamung
+// bleibt moderat, damit sich das Zielen nicht klebrig anfühlt (vorher 0.4 / 0.4 / 2.3° / 4.4°)
+const ON = { slow: 0.42, track: 0.5, snap: 2.6, cone: 5.0 };
 
 function angDiff(a, b) {
   let d = a - b;

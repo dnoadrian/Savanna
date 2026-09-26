@@ -1,11 +1,17 @@
 // Bot-KI: Zustandsmaschine mit Wahrnehmung, menschenähnlichem Zielen, Deckung, Looten (Truhen,
 // bessere Waffen, Schilde), Waffenwahl nach Entfernung, Schild/Medikit benutzen und Sturmflucht.
-import { BOT_FOV, BOT_VIEW_DIST, BOT_HEAR_DIST, F, EYE_STAND, EYE_CROUCH, INTERACT_RANGE } from '../constants.js';
+import { BOT_FOV, BOT_VIEW_DIST, BOT_HEAR_DIST, F, EYE_STAND, EYE_CROUCH, INTERACT_RANGE, WALK_SPEED, SPRINT_MULT } from '../constants.js';
 import { WEAPONS, CONSUMABLES } from '../items.js';
 import { anglesFromDir } from './combat.js';
 import { weaponScore } from './inventory.js';
 
 const DEG = Math.PI / 180;
+// Nahkampf-Nerf (≈30 % weniger Treffer auf kurze Distanz)
+const CLOSE_NERF_NEAR = 10; // m – volle Wirkung
+const CLOSE_NERF_FAR = 22; // m – keine Wirkung mehr
+const CLOSE_ERR = 1.1; // zusätzlicher Zielfehler
+const CLOSE_TURN = 0.3; // langsameres Nachdrehen
+const CLOSE_SPREAD = 1.15; // zusätzliche Streuung der Schüsse
 
 export const DIFF = {
   easy: { react: [0.8, 1.25], aimErr: 7.5, turn: 150, hs: 0.04, strafe: 0.3, burst: [3, 5], pause: [0.55, 1.0], settle: 1.6, crouch: 0.08, jump: 0.04, slide: 0.05, lead: 0.2, recoilComp: 0.3 },
@@ -15,7 +21,7 @@ export const DIFF = {
 };
 
 // maximale Kampfentfernung je Waffe
-const ENGAGE = { pistol: 45, ar: 115, drum: 55, tac: 28, pump: 24, sniper: 150 };
+const ENGAGE = { pistol: 45, ar: 115, drum: 55, tac: 28, pump: 30, hammer: 28, sniper: 150 };
 // Anfangsphase: erst looten, nur nahe Gegner oder Angreifer bekämpfen
 const EARLY_LOOT = 45;
 const EARLY_SIGHT = 12;
@@ -36,7 +42,9 @@ function suitability(item, dist, ammo) {
   if (item.mag <= 0 && ammo[def.ammo] <= 0) return -1;
   let s;
   switch (item.w) {
-    case 'pump': case 'tac': s = dist < 10 ? 300 : dist < 18 ? 150 : 20; break;
+    case 'pump': s = dist < 12 ? 330 : dist < 20 ? 170 : 20; break;
+    case 'hammer': s = dist < 12 ? 310 : dist < 19 ? 160 : 20; break;
+    case 'tac': s = dist < 10 ? 290 : dist < 16 ? 130 : 20; break;
     case 'sniper': s = dist > 40 ? 320 : dist > 20 ? 120 : 15; break;
     case 'ar': s = dist < 8 ? 120 : 210; break;
     case 'drum': s = dist < 25 ? 235 : dist < 45 ? 150 : 60; break;
@@ -91,7 +99,7 @@ export class BotBrain {
     this.noEnemyT = 10;
     this.heardT = 0;
     this.heard = null;
-    this.sprintPref = this.rng.chance(0.6);
+    this.sprintPref = this.rng.chance(0.9); // fast alle Bots sprinten auf längeren Wegen
     this.jumpCd = 0;
     this.slideCd = 0;
     this.switchCd = 0;
@@ -142,7 +150,7 @@ export class BotBrain {
       let score = v.d;
       if (this.target && v.o.id === this.target.id) score *= 0.5;
       if (me.lastDamagedBy === v.o.id && sim.time - me.lastDamageT < 3) score *= 0.4;
-      score *= 0.7 + ((v.o.health + v.o.shield) / 200) * 0.3;
+      score *= 0.55 + ((v.o.health + v.o.shield) / 200) * 0.45;
       if (score < bestScore) { bestScore = score; best = v.o; }
     }
     if (best && (!this.target || best.id !== this.target.id)) {
@@ -171,6 +179,25 @@ export class BotBrain {
         if (a) this.heard = { x: a.body.x, z: a.body.z, t: sim.time };
       }
     }
+  }
+
+  // geladene Zweitwaffe (Platz oder -1); autoOnly: nur Automatikwaffen (Pump-Kombo)
+  loadedAlt(dist, autoOnly = false) {
+    const inv = this.p.inv;
+    let best = -1, bestS = 60;
+    for (let i = 0; i < 5; i++) {
+      const it = inv.slots[i];
+      if (i === inv.sel || !it || it.k !== 'w' || it.mag <= 0) continue;
+      if (autoOnly && !WEAPONS[it.w].auto) continue;
+      const s = suitability(it, dist, inv.ammo);
+      if (s > bestS) { bestS = s; best = i; }
+    }
+    return best;
+  }
+
+  // Ausdauer mit Hysterese: erst ab 35 % wieder losrennen (Reserve für Kämpfe)
+  canSprint(b) {
+    return b.sprinting ? b.stamina > 0.05 : b.stamina > 0.35;
   }
 
   newError(mult = 1) {
@@ -397,7 +424,9 @@ export class BotBrain {
     let outsideNext = false;
     if (zoneOn && zone.next) {
       const dn = Math.hypot(b.x - zone.next.x, b.z - zone.next.z);
-      outsideNext = dn > zone.next.r * 0.92 && (zone.shrinking || zone.timeLeft < 20 || zone.phase >= 3);
+      // rechtzeitig losgehen: benötigte Laufzeit bis in den nächsten Kreis + Puffer
+      const need = Math.max(0, dn - zone.next.r * 0.85) / (WALK_SPEED * SPRINT_MULT * 0.8) + 10;
+      outsideNext = dn > zone.next.r * 0.92 && (zone.shrinking || zone.timeLeft < Math.max(20, need) || zone.phase >= 3);
       if (zone.next.r < 1) outsideNext = dn > 5;
     }
 
@@ -466,10 +495,13 @@ export class BotBrain {
         this.switchCd = 0.8;
       }
     }
-    // Nachladen: leer, oder außerhalb von Kämpfen unter halb voll
+    // Nachladen: leer, oder außerhalb von Kämpfen unter halb voll. Im Kampf mit leerem Magazin
+    // lieber auf eine geladene zweite Waffe wechseln (schneller als Nachladen)
     if (item && item.k === 'w' && !me.wr.reloading && me.useT < 0) {
       const def = WEAPONS[item.w];
-      if (item.mag === 0 && me.inv.ammo[def.ammo] > 0) act.reload = true;
+      const alt = item.mag === 0 && seeTarget && act.select < 0 ? this.loadedAlt(tDist) : -1;
+      if (alt >= 0) { act.select = alt; this.switchCd = 0.6; }
+      else if (item.mag === 0 && me.inv.ammo[def.ammo] > 0) act.reload = true;
       else if (!seeTarget && item.mag < def.mag * 0.5 && me.inv.ammo[def.ammo] > 0) act.reload = true;
     }
 
@@ -478,6 +510,7 @@ export class BotBrain {
     let desiredPitch = 0;
     let aimAtTarget = false;
     const hw = item && item.k === 'w' ? item.w : 'pistol';
+    const shotgun = WEAPONS[hw].pellets > 1;
 
     switch (this.state) {
       case 'combat': {
@@ -487,11 +520,13 @@ export class BotBrain {
         if (this.strafeT <= 0) {
           this.strafeT = this.rng.range(0.45, 1.3);
           if (this.rng.chance(0.55 + d.strafe * 0.3)) this.strafeDir = -this.strafeDir;
-          this.crouchT = this.rng.chance(d.crouch) ? this.rng.range(0.6, 1.6) : 0;
+          // auf Distanz öfter ducken (ruhiger zielen), im Nahkampf kaum
+          const cc = dist > 30 ? d.crouch * 2.2 : dist < 10 ? d.crouch * 0.4 : d.crouch;
+          this.crouchT = this.rng.chance(Math.min(0.8, cc)) ? this.rng.range(0.6, 1.6) : 0;
           if (this.rng.chance(d.jump) && this.jumpCd <= 0) { this.wantJump = true; this.jumpCd = 1.2; }
         }
         // Wunschabstand je Waffe
-        const want = hw === 'pump' || hw === 'tac' ? 5 : hw === 'sniper' ? 45 : hw === 'drum' ? 14 : 22;
+        const want = shotgun ? 5 : hw === 'sniper' ? 45 : hw === 'drum' ? 14 : 22;
         let fwd = 0;
         if (dist > want * 2.2) fwd = 1;
         else if (dist > want * 1.3) fwd = 0.6;
@@ -505,12 +540,14 @@ export class BotBrain {
         } else if (dist > ENGAGE[hw] * 0.9) {
           if (!this.dest || Math.hypot(this.dest.x - tgt.body.x, this.dest.z - tgt.body.z) > 15) this.setDest(tgt.body.x, tgt.body.z);
           wantsMove = this.followPath(input);
-          if (dist > 60 && !input.crouch) input.sprint = this.sprintPref;
+          if (dist > 35 && !input.crouch) input.sprint = true;
         } else {
           input.mz = fwd;
           input.mx = side;
           wantsMove = Math.abs(fwd) + Math.abs(side) > 0.1;
-          if (fwd > 0.4 && this.rng.chance(d.slide * dt) && this.slideCd <= 0) {
+          // mit Schrotflinte in den Gegner hineinsliden, sonst gelegentlich zum Ausweichen
+          const slideRate = shotgun && dist > 7 && dist < 18 ? d.slide * 4 : d.slide;
+          if (fwd > 0.4 && this.rng.chance(slideRate * dt) && this.slideCd <= 0) {
             input.sprint = true;
             this.slidePending = 0.35;
             this.slideCd = 4;
@@ -522,7 +559,19 @@ export class BotBrain {
           input.mz = 1;
           if (this.slidePending <= 0 && b.sprinting) input.crouchPressed = true;
         }
-        input.ads = (hw === 'sniper' || dist > 20) && !input.sprint && !outsideNow && hw !== 'pump' && hw !== 'tac';
+        input.ads = (hw === 'sniper' || dist > 20) && !input.sprint && !outsideNow && !shotgun;
+        // Schilde/Medikits wirken sofort: im Kampf nachschilden, sobald es nötig ist
+        // (bevorzugt beim Nachladen oder wenn der Gegner kurz nicht sichtbar ist)
+        if (useSlot >= 0 && this.useCd <= 0 && me.useT < 0 && (me.shield < 50 || me.health < 60) &&
+            (!seeTarget || me.wr.reloading || this.rng.chance(dt * 2.5))) {
+          act.use = useSlot;
+          this.useCd = 0.9;
+        }
+        // Pump-Kombo: nach dem Schrotschuss auf eine geladene Automatik wechseln
+        if (shotgun && me.wr.sinceShot < 0.05 && dist < 16 && this.switchCd <= 0 && act.select < 0) {
+          const alt = this.loadedAlt(dist, true);
+          if (alt >= 0 && this.rng.chance(0.35 + d.strafe * 0.3)) { act.select = alt; this.switchCd = 0.9; }
+        }
         if (me.wr.reloading && dist < 40 && !this.coverPos && sim.nav && this.rng.chance(0.02)) {
           this.coverPos = sim.nav.findCover(b.x, b.z, tgt.body.x, this.eye(tgt), tgt.body.z, 12);
           if (this.coverPos) { this.state = 'cover'; this.coverT = sim.time + 3; this.setDest(this.coverPos[0], this.coverPos[1]); }
@@ -572,8 +621,9 @@ export class BotBrain {
           this.lootCd = 0.4;
           desiredYaw = Math.atan2(-(t.x - b.x), -(t.z - b.z));
         } else {
-          input.sprint = dd > 12 && this.sprintPref;
+          input.sprint = dd > 8 && this.canSprint(b);
           wantsMove = this.followPath(input);
+          this.maybeSlide(input, b, d, dt);
           if (!wantsMove) this.moveToward(input, t.x, t.z, 0.6);
         }
         break;
@@ -581,6 +631,7 @@ export class BotBrain {
       case 'storm': {
         input.sprint = true;
         wantsMove = this.followPath(input);
+        this.maybeSlide(input, b, d, dt);
         if (!wantsMove) this.state = 'roam';
         break;
       }
@@ -594,6 +645,10 @@ export class BotBrain {
       case 'investigate': {
         if (this.heard) desiredYaw = Math.atan2(-(this.heard.x - b.x), -(this.heard.z - b.z));
         if (this.dest) wantsMove = this.followPath(input);
+        // anschleichen: in der Nähe des Geräuschs geduckt und leise, weit weg sprinten
+        const hd = this.heard ? Math.hypot(this.heard.x - b.x, this.heard.z - b.z) : 99;
+        if (hd < 28) { input.crouch = true; input.sprint = false; }
+        else input.sprint = hd > 40;
         if (sim.time > this.investigateT && !wantsMove) { this.state = 'roam'; this.heard = null; }
         break;
       }
@@ -607,12 +662,9 @@ export class BotBrain {
           }
         } else {
           const far = Math.hypot(this.dest.x - b.x, this.dest.z - b.z) > 25;
-          input.sprint = far && this.sprintPref;
+          input.sprint = far && this.sprintPref && this.canSprint(b);
           wantsMove = this.followPath(input);
-          if (input.sprint && b.sprinting && this.slideCd <= 0 && this.rng.chance(d.slide * 0.25 * dt)) {
-            input.crouchPressed = true;
-            this.slideCd = 5;
-          }
+          this.maybeSlide(input, b, d, dt);
           if (!wantsMove) {
             this.dest = null;
             this.idleT = this.rng.range(0.4, 1.8);
@@ -627,7 +679,7 @@ export class BotBrain {
     if (aimAtTarget && tgt) {
       const ey = this.eye(me);
       const low = (tgt.flags & (F.CROUCH | F.SLIDE));
-      const head = this.aimHead && hw !== 'pump' && hw !== 'tac';
+      const head = this.aimHead && !shotgun;
       const aimY = tgt.body.y + (head ? (low ? 1.05 : 1.58) : (low ? 0.78 : 1.18));
       const lead = d.lead * 0.08;
       const tx = tgt.body.x + tgt.body.vx * lead, tz = tgt.body.z + tgt.body.vz * lead;
@@ -638,7 +690,9 @@ export class BotBrain {
       desiredPitch = ang.pitch;
       this.trackT += dt;
       this.errT -= dt;
-      if (this.errT <= 0) this.newError(0.35 + 0.65 * Math.exp(-this.trackT / d.settle));
+      // Nahkampf-Nerf: auf kurze Distanz streuen Bots deutlich mehr und drehen langsamer nach
+      const close = Math.max(0, Math.min(1, (CLOSE_NERF_FAR - tDist) / (CLOSE_NERF_FAR - CLOSE_NERF_NEAR)));
+      if (this.errT <= 0) this.newError((0.35 + 0.65 * Math.exp(-this.trackT / d.settle)) * (1 + CLOSE_ERR * close));
       this.errYaw += (this.errTargetYaw - this.errYaw) * Math.min(1, dt * 3);
       this.errPitch += (this.errTargetPitch - this.errPitch) * Math.min(1, dt * 3);
       desiredYaw += this.errYaw * DEG;
@@ -649,7 +703,9 @@ export class BotBrain {
     }
     this.recoilPitch *= Math.max(0, 1 - dt * (3 + d.recoilComp * 6));
 
-    const maxTurn = d.turn * DEG * dt * (aimAtTarget ? 1 : 0.8);
+    const closeK = aimAtTarget ? Math.max(0, Math.min(1, (CLOSE_NERF_FAR - tDist) / (CLOSE_NERF_FAR - CLOSE_NERF_NEAR))) : 0;
+    const maxTurn = d.turn * DEG * dt * (aimAtTarget ? 1 - CLOSE_TURN * closeK : 0.8);
+    this.spreadMul = 1 + CLOSE_SPREAD * closeK;
     const dyaw = angDiff(desiredYaw, this.aimYaw);
     const stepYaw = Math.max(-maxTurn, Math.min(maxTurn, dyaw * Math.min(1, dt * 9)));
     this.aimYaw += stepYaw;
@@ -694,6 +750,20 @@ export class BotBrain {
     input.yaw = this.aimYaw;
     input.pitch = this.aimPitch + this.recoilPitch;
     return input;
+  }
+
+  // Slide nur, wenn es passt: beim Sprinten bergab (schneller und weiter) oder selten zwischendurch
+  maybeSlide(input, b, d, dt) {
+    if (!input.sprint || !b.sprinting || !b.grounded || this.slideCd > 0 || b.stance !== 'stand') return;
+    const sp = Math.hypot(b.vx, b.vz);
+    if (sp < 6) return;
+    const t = this.sim.world.terrain;
+    const ax = b.x + (b.vx / sp) * 3, az = b.z + (b.vz / sp) * 3;
+    const downhill = t.heightAt(ax, az) < t.heightAt(b.x, b.z) - 0.35;
+    if ((downhill && this.rng.chance(0.6)) || this.rng.chance(d.slide * 0.2 * dt)) {
+      input.crouchPressed = true;
+      this.slideCd = downhill ? 2.5 : 6;
+    }
   }
 
   onShotFired(item) {

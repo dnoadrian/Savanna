@@ -7,7 +7,7 @@ import {
   createWeaponRuntime, equipWeapon, canFire, fireWeapon, canReload, startReload, cancelReload, updateWeapon, weaponSpread, reloadProgress,
 } from '../../shared/sim/weapon.js';
 import { cloneInventory } from '../../shared/sim/inventory.js';
-import { applySpread, dirFromAngles, anglesFromDir, rayPlayer } from '../../shared/sim/combat.js';
+import { applySpread, dirFromAngles, anglesFromDir, rayPlayer, stanceScale } from '../../shared/sim/combat.js';
 import { F, CLIENT_SEND_HZ, INTERACT_RANGE, MAX_HEALTH } from '../../shared/constants.js';
 import { WEAPONS, CONSUMABLES } from '../../shared/items.js';
 import { MAT } from '../../shared/physics/collision.js';
@@ -90,6 +90,11 @@ export class LocalPlayer {
     return this.body.y + eyeHeight(this.body);
   }
 
+  // Blickrichtung der Figur (beim Spinbot die gedrehte)
+  get bodyYaw() {
+    return this.spinYaw === null || this.spinYaw === undefined ? this.yaw : this.spinYaw;
+  }
+
   get item() {
     return this.inv.slots[this.inv.sel] || null;
   }
@@ -170,13 +175,20 @@ export class LocalPlayer {
     const c = CONSUMABLES[it.c];
     const ok = c.heal ? self.health < MAX_HEALTH : self.shield < c.cap;
     if (!ok) {
-      g.hud.message(g.t(c.heal ? 'fullHealth' : c.cap < 100 ? 'miniFull' : 'fullShield'), 'warn');
       this.audio.denied();
       return;
     }
-    this.useT = 0;
     g.session.use(this.inv.sel);
-    this.audio.useStart(it.c);
+    // wirkt sofort – nur bei Gegenständen mit Benutzungszeit läuft ein Timer
+    if (c.use > 0) {
+      this.useT = 0;
+      this.audio.useStart(it.c);
+    } else {
+      // sofort: Sound + Effekt direkt beim Klick (nicht erst, wenn der Server antwortet)
+      this.audio.useDone(it.c, true);
+      this.instantUseT = performance.now();
+    }
+    g.viewmodel.useFlash = 1;
   }
 
   // Truhe/Gegenstand, auf die man schaut (F)
@@ -234,7 +246,8 @@ export class LocalPlayer {
     this.yaw += aa.addYaw;
     this.pitch += aa.addPitch;
     // Admin: Aimbot rastet beim Schießen/Zielen auf den Kopf ein
-    if (playing && this.admin.active('aimbot') && (input.isDown('fire') || input.isDown('ads'))) this.aimbot(states);
+    if (playing && this.admin.active('aimbot') && (input.isDown('fire') || input.isDown('ads'))) this.aimbot(states, dt);
+    else if (!this.admin.active('aimbot')) this.lockId = null;
     this.sinceShot += dt;
     if (this.sinceShot > 0.12 && this.recoilAcc > 0) {
       const rec = Math.min(this.recoilAcc, dt * 7 * DEG * (1 + this.recoilAcc / (6 * DEG)));
@@ -292,6 +305,8 @@ export class LocalPlayer {
       fly: fly && playing,
       flyUp: input.isDown('jump'),
       flyDown: input.isDown('crouch'),
+      flySpeed: this.admin.value('flySpeed'),
+      speedMul: this.admin.active('speed') ? this.admin.value('speedMul') : 0,
     };
     const prevGrounded = b.grounded;
     stepMovement(b, inp, dt, this.map);
@@ -310,14 +325,14 @@ export class LocalPlayer {
       this.audio.slide();
       g.effects.dust(this.tmpV.set(b.x, b.y, b.z), 8);
     }
-    if (b.stance === 'slide' && Math.random() < dt * 25) g.effects.dust(this.tmpV.set(b.x, b.y, b.z), 1);
+    if (b.stance === 'slide' && Math.random() < dt * 45) g.effects.dust(this.tmpV.set(b.x, b.y, b.z), 2);
     const hs = Math.hypot(b.vx, b.vz);
     if (b.grounded && hs > 0.8 && b.stance !== 'slide' && !fly) {
       this.stepAcc += hs * dt;
       const stride = b.sprinting ? 2.7 : b.stance === 'crouch' ? 1.5 : 2.1;
       if (this.stepAcc > stride) {
         this.stepAcc = 0;
-        const vol = b.stance === 'crouch' ? 0.1 : b.sprinting ? 1.0 : 0.6;
+        const vol = b.stance === 'crouch' ? 0.1 : b.sprinting ? 0.5 : 0.45;
         this.audio.footstep(surfaceSound(this.map, b), vol);
         if (b.waterDepth > 0.2) g.effects.splash(this.tmpV.set(b.x, b.y + b.waterDepth, b.z), 3);
       }
@@ -394,10 +409,13 @@ export class LocalPlayer {
     if (this.useT >= 0) extra |= F.USING;
     if (this.sinceShot < 0.15) extra |= F.FIRING;
     this.flags = bodyFlags(b, extra);
+    // Spinbot: die Figur dreht sich für die anderen, gezielt wird weiter mit der echten Blickrichtung
+    if (this.admin.active('spinbot') && playing) this.spinYaw = ((this.spinYaw || 0) + dt * 22) % (Math.PI * 2);
+    else this.spinYaw = null;
     this.sendAcc += dt;
     if (this.sendAcc >= 1 / CLIENT_SEND_HZ) {
       this.sendAcc = 0;
-      g.session.sendState({ x: b.x, y: b.y, z: b.z, yaw: this.yaw, pitch: this.pitch, flags: this.flags, vx: b.vx, vz: b.vz });
+      g.session.sendState({ x: b.x, y: b.y, z: b.z, yaw: this.bodyYaw, pitch: this.pitch, flags: this.flags, vx: b.vx, vz: b.vz });
     }
 
     this.overEnemy = this.checkOverEnemy(states);
@@ -420,7 +438,7 @@ export class LocalPlayer {
       // durch das Fadenkreuz zielen: Zielpunkt von der Kamera aus bestimmen
       const cam = this.camera.position;
       const cd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-      let t = this.map.collision.raycast(cam.x, cam.y, cam.z, cd.x, cd.y, cd.z, def.range, true);
+      let t = this.map.collision.raycast(cam.x, cam.y, cam.z, cd.x, cd.y, cd.z, def.range, true, true);
       if (t < 0) t = def.range;
       for (const st of states) {
         if (st.id === g.session.youId || !st.alive) continue;
@@ -430,49 +448,59 @@ export class LocalPlayer {
       const d = cam.clone().addScaledVector(cd, t).sub(eye).normalize();
       base = { x: d.x, y: d.y, z: d.z };
     }
-    const speed = Math.hypot(b.vx, b.vz);
     // Streuung zum Zeitpunkt vor dem Schuss (Bloom wurde durch fireWeapon schon erhöht)
-    const spread = weaponSpread(this.rt, item, bodyFlags(b, this.adsK > 0.5 ? F.ADS : 0), speed);
+    let spread = weaponSpread(this.rt, item, bodyFlags(b, this.adsK > 0.5 ? F.ADS : 0));
+    // Admin-Aimbot: exakt auf die Kopfmitte, ohne Streuung
+    const at = this.admin.active('aimbot') && this.aimbotTarget && this.aimbotTarget.alive ? this.aimbotTarget : null;
+    if (at) {
+      const hx = at.x - eye.x, hy = at.y + 1.6 * stanceScale(at.flags) - eye.y, hz = at.z - eye.z;
+      const l = Math.hypot(hx, hy, hz) || 1;
+      base = { x: hx / l, y: hy / l, z: hz / l };
+      spread = def.pellets > 1 ? spread * 0.35 : 0;
+    }
     const dirs = [];
     for (let k = 0; k < def.pellets; k++) dirs.push(applySpread(base, spread, Math.random));
-    g.session.fire({ s: this.inv.sel, ox: eye.x, oy: eye.y, oz: eye.z, dirs });
-    g.onLocalShot(eye.clone(), dirs, item);
-    // Rückstoß
-    const adsMul = this.adsK > 0.5 ? 0.7 : 1;
-    const crMul = b.stance !== 'stand' ? 0.85 : 1;
-    const up = def.recoil.up * (this.rt.burst <= 3 && def.auto ? 0.7 : 1) * adsMul * crMul * DEG;
-    const side = (Math.random() - 0.4) * 2 * def.recoil.side * adsMul * DEG;
-    this.pitch += up;
-    this.recoilAcc += up;
-    this.yaw -= side;
-    this.shake = Math.min(1, this.shake + (def.pellets > 1 || def.scope ? 0.7 : 0.12));
+    const wall = this.admin.active('wallbang');
+    g.session.fire({ s: this.inv.sel, ox: eye.x, oy: eye.y, oz: eye.z, dirs, wall });
+    g.onLocalShot(eye.clone(), dirs, item, wall);
+    // kein Rückstoß: das Fadenkreuz bleibt, wo du zielst (nur leichtes Bildwackeln bei Schrot/Sniper)
+    this.shake = Math.min(1, this.shake + (def.pellets > 1 || def.scope ? 0.45 : 0));
     g.viewmodel.fire(item.w);
     this.audio.gunshot(null, 0, item.w);
     if (def.scope && this.scoped) this.adsK = 0.3; // nach dem Schuss kurz aus dem Zielfernrohr
   }
 
-  aimbot(states) {
-    const cam = this.camera.position;
-    let best = null, bestA = 1.6;
+  // Admin-Aimbot: lockt immer auf den nächsten Gegner (Entfernung, nicht Blickwinkel) und rastet
+  // auf die Kopfmitte ein. Ohne „Durch Wände“ nur sichtbare Gegner; kurz verdeckte Ziele (0,6 s)
+  // bleiben gelockt. Gerechnet von der Augenposition, von der auch geschossen wird.
+  aimbot(states, dt) {
+    const b = this.body;
+    const ex = b.x, ey = this.eye, ez = b.z;
+    const wall = this.admin.active('wallbang');
+    const head = (st) => st.y + 1.6 * stanceScale(st.flags);
+    const visible = (st) => wall || this.map.collision.lineOfSight(ex, ey, ez, st.x, head(st), st.z);
+    let tgt = null, bestD = 300;
     for (const st of states) {
       if (st.id === this.game.session.youId || !st.alive) continue;
-      const hy = st.y + ((st.flags & (F.CROUCH | F.SLIDE)) ? 1.05 : 1.6);
-      const dx = st.x - cam.x, dy = hy - cam.y, dz = st.z - cam.z;
-      const d = Math.hypot(dx, dy, dz);
-      if (d > 250) continue;
-      const a = anglesFromDir(dx / d, dy / d, dz / d);
-      let dyaw = a.yaw - this.yaw;
-      while (dyaw > Math.PI) dyaw -= Math.PI * 2;
-      while (dyaw < -Math.PI) dyaw += Math.PI * 2;
-      const off = Math.hypot(dyaw, a.pitch - this.pitch);
-      if (off > bestA) continue;
-      if (!this.map.collision.lineOfSight(cam.x, cam.y, cam.z, st.x, hy, st.z)) continue;
-      bestA = off;
-      best = a;
+      const d = Math.hypot(st.x - ex, head(st) - ey, st.z - ez);
+      if (d >= bestD || !visible(st)) continue;
+      bestD = d;
+      tgt = st;
     }
-    if (best) {
-      this.yaw = best.yaw;
-      this.pitch = best.pitch;
+    // kurz verdeckter bisheriger Gegner bleibt gelockt, wenn gerade kein anderer sichtbar ist
+    if (tgt) { this.lockId = tgt.id; this.lockLost = 0; }
+    else if (this.lockId) {
+      const st = states.find((q) => q.id === this.lockId && q.alive);
+      if (st && (this.lockLost = (this.lockLost || 0) + dt) < 0.6) tgt = st;
+      else this.lockId = null;
+    }
+    this.aimbotTarget = tgt;
+    if (tgt) {
+      const dx = tgt.x - ex, dy = head(tgt) - ey, dz = tgt.z - ez;
+      const d = Math.hypot(dx, dy, dz) || 1;
+      const a = anglesFromDir(dx / d, dy / d, dz / d);
+      this.yaw = a.yaw;
+      this.pitch = a.pitch;
       this.recoilAcc = 0;
     }
   }
@@ -490,7 +518,7 @@ export class LocalPlayer {
       if (r) { best = r.t; hit = true; }
     }
     if (!hit) return false;
-    const t = this.map.collision.raycast(cam.x, cam.y, cam.z, cd.x, cd.y, cd.z, best, true);
+    const t = this.map.collision.raycast(cam.x, cam.y, cam.z, cd.x, cd.y, cd.z, best, true, true);
     return t < 0;
   }
 
@@ -513,7 +541,7 @@ export class LocalPlayer {
       bobY = Math.abs(Math.sin(this.bobPhase)) * amp;
       bobX = Math.cos(this.bobPhase) * amp * 0.5;
     }
-    const rollT = b.stance === 'slide' ? -0.1 : 0;
+    const rollT = b.stance === 'slide' ? -0.16 : 0;
     this.roll += (rollT - this.roll) * Math.min(1, dt * 8);
     // Kamerawackeln bei Schrotflinte/Sniper
     this.shake = Math.max(0, this.shake - dt * 5);
@@ -522,7 +550,7 @@ export class LocalPlayer {
     const baseFov = s.get('fov');
     const def = this.weaponDef;
     const zoom = def && def.scope ? 1 - (1 - 1 / def.scope) * this.adsK : 1 - 0.12 * this.adsK;
-    const fovT = baseFov * zoom * (b.sprinting ? 1.05 : 1) * (b.stance === 'slide' ? 1.07 : 1);
+    const fovT = baseFov * zoom * (b.sprinting ? 1.08 : 1) * (b.stance === 'slide' ? 1.1 + Math.min(0.06, hs * 0.004) : 1);
     this.fovCur += (fovT - this.fovCur) * Math.min(1, dt * 14);
     const vfov = (2 * Math.atan(Math.tan((this.fovCur * DEG) / 2) * (9 / 16))) / DEG;
     if (Math.abs(cam.fov - vfov) > 0.01) {

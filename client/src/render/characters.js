@@ -50,7 +50,9 @@ function outfitDef(outfit, primary) {
     case 'pirate': return { shirt: 0xf5efe0, shirt2: 0xc03030, pants: 0x3a2a1a, shoes: 0x1a1a1a, glove: null, belt: primary, buckle: 0xf2c230, hatTop: 0.3 };
     case 'chef': return { shirt: 0xfafafa, shirt2: 0xdddddd, pants: 0x3a3a3a, shoes: 0x1a1a1a, glove: null, belt: 0xfafafa, buckle: primary, hatTop: 0.46 };
     case 'astronaut': return { shirt: 0xf2f2f2, shirt2: primary, pants: 0xf2f2f2, shoes: 0x9a9aa8, glove: 0xd8d8e0, belt: 0x9a9aa8, buckle: primary, hatTop: 0.34 };
-    default: return outfitDef('cowboy', primary);
+    // Standard ohne Skin: schlichtes Shirt in der gewählten Farbe, dunkle Hose
+    case 'recruit': return { shirt: primary, shirt2: darker(primary, 0.7), pants: 0x3a3f4a, shoes: 0x23262b, glove: null, belt: 0x2b2b2b, buckle: 0x9aa0a8, hatTop: 0.14 };
+    default: return outfitDef('recruit', primary);
   }
 }
 
@@ -261,7 +263,7 @@ export class Character {
   }
 
   build() {
-    const { outfit = 'cowboy', color = 0, name = '' } = this.opts;
+    const { outfit = 'recruit', color = 0, name = '' } = this.opts;
     const seed = hashString(name || 'x');
     const primary = new THREE.Color(OUTFIT_COLORS[color % OUTFIT_COLORS.length]).getHex();
     const skinTone = this.opts.skinTone ?? SKIN_TONES[seed % SKIN_TONES.length];

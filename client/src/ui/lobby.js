@@ -4,7 +4,9 @@
 import { h, esc } from './dom.js';
 import { ICON, logo } from './icons.js';
 import { t } from '../i18n.js';
-import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, xpForLevel, clampQueueWait } from '../../shared/constants.js';
+import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, SKIN_SHOP, DEFAULT_OUTFIT, xpForLevel, clampQueueWait } from '../../shared/constants.js';
+import { RARITY_COLORS } from '../../shared/items.js';
+import { skinPortrait } from '../render/skinPortraits.js';
 
 export class LobbyScreen {
   constructor(ui) {
@@ -41,10 +43,11 @@ export class LobbyScreen {
     const nav = h('nav', { class: 'top-nav' },
       this.navBtn('play', t('navPlay'), () => this.toggleLocker(false)),
       this.navBtn('locker', t('locker'), () => this.toggleLocker(true)),
+      this.navBtn('shop', t('shop'), () => this.toggleLocker(true, 'shop')),
       this.navBtn('stats', t('menuStats'), () => this.ui.openStats()));
     const top = h('header', { class: 'topbar' },
       h('div', { class: 'tb-left' }, logo('small'), nav),
-      h('div', { class: 'tb-right' }, this.serverDot, this.friendsBtn,
+      h('div', { class: 'tb-right' }, this.coinPill = h('button', { class: 'coin-pill', title: t('shop'), onclick: (e) => { e.stopPropagation(); app.audio.uiClick(); this.toggleLocker(true, 'shop'); } }), this.serverDot, this.friendsBtn,
         iconBtn('gear', t('menuSettings'), () => this.ui.openSettings()),
         iconBtn('fullscreen', t('fullscreen'), () => this.ui.toggleFullscreen()),
         iconBtn('menu', t('menu'), () => this.toggleMenu()), this.menuEl));
@@ -96,7 +99,7 @@ export class LobbyScreen {
 
   updateNav() {
     if (!this.el) return;
-    for (const b of this.el.querySelectorAll('.nav-btn')) b.classList.toggle('sel', b.dataset.nav === (this.lockerOpen ? 'locker' : 'play'));
+    for (const b of this.el.querySelectorAll('.nav-btn')) b.classList.toggle('sel', b.dataset.nav === (this.lockerOpen ? this.panelKind : 'play'));
   }
 
   menuItem(ic, label, fn) {
@@ -185,7 +188,8 @@ export class LobbyScreen {
         <div class="q-info">${esc(t('queueInfo', { h: q.humans, b: MATCH_SIZE - q.humans }))}</div>`;
     } else this.queueEl.classList.add('hidden');
     this.renderParty();
-    if (this.lockerOpen) this.renderLocker();
+    this.updateCoins();
+    if (this.lockerOpen) this.renderPanel();
     this.updateNav();
   }
 
@@ -264,12 +268,88 @@ export class LobbyScreen {
   }
 
   // ---------------- Spind ----------------
-  toggleLocker(v) {
+  // rechtes Panel: Spind oder Shop
+  toggleLocker(v, kind = 'locker') {
     this.lockerOpen = v === undefined ? !this.lockerOpen : v;
+    this.panelKind = kind;
     this.lockerEl.classList.toggle('hidden', !this.lockerOpen);
+    this.lockerEl.classList.toggle('shop', kind === 'shop');
     this.el.classList.toggle('locker-open', this.lockerOpen);
-    if (this.lockerOpen) this.renderLocker();
+    if (this.lockerOpen) this.renderPanel();
     this.updateNav();
+  }
+
+  renderPanel() {
+    if (this.panelKind === 'shop') this.renderShop();
+    else this.renderLocker();
+  }
+
+  updateCoins() {
+    if (!this.coinPill) return;
+    this.coinPill.innerHTML = `<span class="icon">${ICON.coin}</span><b>${this.app.profile.data.coins.toLocaleString('de-DE')}</b>`;
+  }
+
+  // Shop: Skins mit Coins kaufen (Standard „Rekrut“ hat jeder)
+  renderShop() {
+    const app = this.app;
+    const prof = app.profile.data;
+    const el = this.lockerEl;
+    el.innerHTML = '';
+    el.appendChild(h('div', { class: 'panel-title' }, t('shop'),
+      h('span', { class: 'shop-coins' }, h('span', { class: 'icon', html: ICON.coin }), h('b', {}, prof.coins.toLocaleString('de-DE'))),
+      h('button', { class: 'close-x', onclick: () => { app.audio.uiClick(); this.toggleLocker(false); } }, '✕')));
+    el.appendChild(h('div', { class: 'hint small' }, t('shopHint')));
+    const grid = h('div', { class: 'shop-grid' });
+    for (const o of OUTFITS) {
+      if (o === DEFAULT_OUTFIT) continue;
+      const it = SKIN_SHOP[o];
+      const owned = app.profile.owns(o);
+      const worn = prof.outfit === o;
+      grid.appendChild(h('button', {
+        class: 'shop-card' + (owned ? ' owned' : '') + (worn ? ' worn' : ''),
+        style: { '--rar': RARITY_COLORS[it.rarity] },
+        onmouseenter: () => app.audio.uiHover(),
+        onclick: () => this.shopClick(o),
+      },
+      h('img', { src: skinPortrait(o, prof.color), alt: '' }),
+      h('div', { class: 'sc-name' }, t('outfit_' + o)),
+      h('div', { class: 'sc-rar' }, t('rar_' + it.rarity)),
+      h('div', { class: 'sc-price' }, worn ? t('equipped') : owned ? t('owned') : h('span', {}, h('span', { class: 'icon', html: ICON.coin }), ' ' + it.price.toLocaleString('de-DE')))));
+    }
+    el.appendChild(grid);
+  }
+
+  shopClick(o) {
+    const app = this.app;
+    const it = SKIN_SHOP[o];
+    if (app.profile.owns(o)) {
+      app.audio.uiClick();
+      this.equipOutfit(o);
+      return;
+    }
+    if (app.profile.data.coins < it.price) {
+      app.audio.uiError();
+      this.ui.toast(t('notEnoughCoins', { n: it.price - app.profile.data.coins }), 'error');
+      return;
+    }
+    app.audio.uiClick();
+    this.ui.confirm(t('buyConfirm', { name: t('outfit_' + o), n: it.price }), () => {
+      if (app.profile.buy(o)) {
+        app.audio.uiConfirm();
+        this.ui.confettiBurst(80);
+        this.ui.toast(t('bought', { name: t('outfit_' + o) }), 'ok');
+        this.equipOutfit(o);
+      }
+    });
+  }
+
+  equipOutfit(o) {
+    const app = this.app;
+    app.profile.set('outfit', o);
+    app.refreshLobbyMembers();
+    app.sendProfile();
+    this.updateCoins();
+    this.renderPanel();
   }
 
   renderLocker() {
@@ -287,7 +367,15 @@ export class LobbyScreen {
     el.appendChild(h('div', { class: 'panel-title' }, t('locker'), h('button', { class: 'close-x', onclick: () => { app.audio.uiClick(); this.toggleLocker(false); } }, '✕')));
     el.appendChild(h('div', { class: 'lbl' }, t('outfit')));
     const grid = h('div', { class: 'outfit-grid' });
-    for (const o of OUTFITS) grid.appendChild(h('button', { class: 'outfit-btn' + (prof.outfit === o ? ' sel' : ''), onclick: () => set('outfit', o), onmouseenter: () => app.audio.uiHover() }, t('outfit_' + o)));
+    for (const o of OUTFITS) {
+      const owned = app.profile.owns(o);
+      grid.appendChild(h('button', {
+        class: 'outfit-btn' + (prof.outfit === o ? ' sel' : '') + (owned ? '' : ' locked'),
+        title: owned ? '' : t('shopHint'),
+        onclick: () => (owned ? set('outfit', o) : (app.audio.uiClick(), this.toggleLocker(true, 'shop'))),
+        onmouseenter: () => app.audio.uiHover(),
+      }, owned ? null : h('span', { class: 'icon', html: ICON.lock }), t('outfit_' + o)));
+    }
     el.appendChild(grid);
     el.appendChild(h('div', { class: 'lbl' }, t('color')));
     const colors = h('div', { class: 'color-row' });
