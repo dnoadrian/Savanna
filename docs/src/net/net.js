@@ -13,19 +13,19 @@ export class NetClient {
     this.pingTimer = null;
     // Statische Webseite (z. B. GitHub Pages): kein eigener Server. Solo läuft sofort,
     // für Party/Freunde kann man sich mit einem gehosteten Server verbinden (?server=…).
-    this.staticSite = !!document.querySelector('meta[name="savanna-static"]');
+    this.staticSite = !!document.querySelector('meta[name="showdown-static"]');
     this.serverUrl = null;
     this.failed = false;
     this.everConnected = false;
     const param = new URLSearchParams(location.search).get('server');
     if (this.staticSite) {
       let saved = null;
-      try { saved = localStorage.getItem('savanna.server'); } catch { /* ignorieren */ }
-      const meta = document.querySelector('meta[name="savanna-server"]');
+      try { saved = localStorage.getItem('showdown.server'); } catch { /* ignorieren */ }
+      const meta = document.querySelector('meta[name="showdown-server"]');
       const url = normalizeServerUrl(param || saved || (meta && meta.content));
       if (url) {
         this.serverUrl = url;
-        try { localStorage.setItem('savanna.server', url); } catch { /* ignorieren */ }
+        try { localStorage.setItem('showdown.server', url); } catch { /* ignorieren */ }
       }
     }
     this.enabled = (location.protocol === 'http:' || location.protocol === 'https:') && (!this.staticSite || !!this.serverUrl);
@@ -49,7 +49,7 @@ export class NetClient {
     const n = normalizeServerUrl(url);
     if (!n) return false;
     this.serverUrl = n;
-    try { localStorage.setItem('savanna.server', n); } catch { /* ignorieren */ }
+    try { localStorage.setItem('showdown.server', n); } catch { /* ignorieren */ }
     this.enabled = true;
     this.failed = false;
     this.everConnected = false;
@@ -61,7 +61,7 @@ export class NetClient {
 
   clearServer() {
     this.serverUrl = null;
-    try { localStorage.removeItem('savanna.server'); } catch { /* ignorieren */ }
+    try { localStorage.removeItem('showdown.server'); } catch { /* ignorieren */ }
     this.enabled = !this.staticSite;
     if (this.ws) this.ws.close();
     this.emitStatus();

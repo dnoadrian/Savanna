@@ -1,14 +1,16 @@
-// Egoperspektive: sichtbare Arme + Sturmgewehr in eigener Szene (kein Clipping),
-// mit ADS über Kimme, Sprint-Haltung, Nachlade- und Heilanimation, Wippen, Schwanken, Rückstoß.
+// Egoperspektive: sichtbare Arme + Gegenstand in der Hand in eigener Szene (kein Clipping).
+// Waffen mit Zielen über Kimme und Korn (Sniper: Zielfernrohr-Overlay), Sprint-Haltung,
+// Nachladen (Magazin / Patrone für Patrone / Kammerverschluss), Pump- und Repetier-Animation,
+// Schilde trinken, Medikit, Ausrüsten, Wippen, Schwanken, Rückstoß.
 import * as THREE from 'three';
-import { createRifleMesh, setRifleSkin, buildMagazine, SIGHT_Y, MUZZLE, EJECT, MAG_ORIGIN } from './rifle.js';
-import { GeoBuilder, flatMaterial, worldMaterial } from './geom.js';
-import { buildMedkitGeo, SKIN_TONES } from './characters.js';
+import { GeoBuilder, flatMaterial } from './geom.js';
+import { WEAPON_META, weaponGeometry, magazineGeometry, consumableGeometry, itemMaterial } from './weapons.js';
+import { SKIN_TONES } from './characters.js';
+import { WEAPONS } from '../../shared/items.js';
 import { OUTFIT_COLORS } from '../../shared/constants.js';
 
-const GUN_SCALE = 1.0;
-
 function lerp(a, b, t) { return a + (b - a) * t; }
+const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
 
 export class Viewmodel {
   constructor() {
@@ -24,12 +26,13 @@ export class Viewmodel {
     this.camera.add(this.rig);
     this.sway = new THREE.Group();
     this.rig.add(this.sway);
-    this.gun = createRifleMesh('gold', 1, true);
-    this.gun.scale.setScalar(GUN_SCALE);
+    this.gun = new THREE.Mesh(weaponGeometry('pistol', 0, 1), itemMaterial());
     this.sway.add(this.gun);
-    this.mag = new THREE.Mesh(buildMagazine('gold').toGeometry(), worldMaterial());
-    this.mag.position.copy(MAG_ORIGIN);
+    this.mag = new THREE.Mesh(magazineGeometry('pistol', 0), itemMaterial());
     this.gun.add(this.mag);
+    this.held = new THREE.Mesh(consumableGeometry('mini'), itemMaterial());
+    this.held.visible = false;
+    this.sway.add(this.held);
     // Mündungsfeuer
     const fg = new THREE.BufferGeometry();
     const pts = [];
@@ -43,35 +46,31 @@ export class Viewmodel {
     }
     fg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     this.flash = new THREE.Mesh(fg, new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
-    this.flash.position.copy(MUZZLE).add(new THREE.Vector3(0, 0, -0.03));
     this.flash.visible = false;
     this.gun.add(this.flash);
-    // Arme
     this.armR = new THREE.Group();
     this.armL = new THREE.Group();
     this.sway.add(this.armR);
     this.sway.add(this.armL);
-    // Medkit
-    this.medkit = new THREE.Mesh(buildMedkitGeo(1.0).toGeometry(), flatMaterial());
-    this.medkit.visible = false;
-    this.sway.add(this.medkit);
-    this.setOutfit('cowboy', 0, 'gold');
-    // Zustand
+    this.setOutfit('cowboy', 0);
     this.adsK = 0;
     this.sprintK = 0;
-    this.healK = 0;
+    this.useK = 0;
     this.slideK = 0;
     this.kick = 0;
     this.kickRot = 0;
+    this.actionT = 0; // Pumpen / Repetieren nach dem Schuss
     this.swayX = 0;
     this.swayY = 0;
     this.bobPhase = 0;
     this.land = 0;
     this.flashT = 0;
     this.equipT = 0;
+    this.item = null;
+    this.setItem({ k: 'w', w: 'pistol', r: 0, mag: 20 });
   }
 
-  setOutfit(outfit, color, skin) {
+  setOutfit(outfit, color) {
     const primary = OUTFIT_COLORS[color % OUTFIT_COLORS.length];
     const sleeveColors = { cowboy: primary, ranger: 0xc9ab70, ninja: 0x23262e, soldier: 0x5b6b3a, dancer: primary, pirate: 0xf5efe0, chef: 0xfafafa, astronaut: 0xf2f2f2 };
     const gloveColors = { ninja: 0x111111, soldier: 0x3a3a2a, dancer: 0xffffff, astronaut: 0xd8d8e0 };
@@ -89,15 +88,34 @@ export class Viewmodel {
     this.armL.clear();
     this.armR.add(mkArm());
     this.armL.add(mkArm());
-    this.setSkin(skin);
   }
 
-  setSkin(skin) {
-    if (this.skin === skin) return;
-    this.skin = skin;
-    setRifleSkin(this.gun, skin, 1, true);
-    this.mag.geometry.dispose();
-    this.mag.geometry = buildMagazine(skin).toGeometry();
+  // Gegenstand in der Hand wechseln (mit Ausrüst-Animation)
+  setItem(item) {
+    const same = this.item && item && this.item.k === item.k && this.item.w === item.w && this.item.r === item.r && this.item.c === item.c;
+    this.item = item ? { ...item } : null;
+    if (!same) this.equipT = 1;
+    if (item && item.k === 'w') {
+      const meta = WEAPON_META[item.w];
+      this.meta = meta;
+      this.gun.geometry = weaponGeometry(item.w, item.r, 1);
+      this.gun.visible = true;
+      this.held.visible = false;
+      this.mag.visible = !!meta.mag;
+      if (meta.mag) {
+        this.mag.geometry = magazineGeometry(item.w, item.r);
+        this.magOrigin = V(meta.mag);
+        this.mag.position.copy(this.magOrigin);
+      }
+      this.flash.position.copy(V(meta.muzzle)).add(new THREE.Vector3(0, 0, -0.03));
+      const big = item.w === 'pump' || item.w === 'tac' || item.w === 'sniper';
+      this.flash.scale.setScalar(big ? 1.6 : 1);
+    } else {
+      this.meta = null;
+      this.gun.visible = false;
+      this.held.visible = !!item;
+      if (item) this.held.geometry = consumableGeometry(item.c);
+    }
   }
 
   resize(w, h) {
@@ -105,61 +123,60 @@ export class Viewmodel {
     this.camera.updateProjectionMatrix();
   }
 
-  fire() {
-    this.kick = Math.min(1.4, this.kick + 1);
-    this.kickRot = Math.min(1.6, this.kickRot + 1);
-    this.flashT = 0.045;
+  fire(type) {
+    const def = WEAPONS[type];
+    const heavy = def.pellets > 1 || def.scope;
+    this.kick = Math.min(1.6, this.kick + (heavy ? 1.5 : 1));
+    this.kickRot = Math.min(2, this.kickRot + (heavy ? 1.8 : 1));
+    this.flashT = heavy ? 0.06 : 0.045;
     this.flash.rotation.z = Math.random() * Math.PI;
-    const s = 0.8 + Math.random() * 0.5;
-    this.flash.scale.set(s, s, s);
+    if (type === 'pump' || type === 'sniper') this.actionT = 1;
   }
 
-  // Weltposition der Mündung (für Leuchtspur/Licht)
-  muzzleWorld(mainCamera, out) {
+  // Punkt aus dem Waffensystem in Weltkoordinaten der Hauptkamera
+  toWorld(local, mainCamera, out) {
     this.gun.updateWorldMatrix(true, false);
-    const p = MUZZLE.clone().applyMatrix4(this.gun.matrixWorld); // im VM-Kamera-Raum (Kamera bei 0)
-    // VM-Kamera sitzt bei Ursprung ohne Drehung -> Punkt ist in Kamerakoordinaten
+    const p = local.clone().applyMatrix4(this.gun.matrixWorld);
     const camInv = new THREE.Matrix4().copy(this.camera.matrixWorld).invert();
     p.applyMatrix4(camInv);
     p.applyMatrix4(mainCamera.matrixWorld);
     return out.copy(p);
+  }
+
+  muzzleWorld(mainCamera, out) {
+    return this.toWorld(V(this.meta ? this.meta.muzzle : [0, 0, -0.5]), mainCamera, out);
   }
 
   ejectWorld(mainCamera, out) {
-    this.gun.updateWorldMatrix(true, false);
-    const p = EJECT.clone().applyMatrix4(this.gun.matrixWorld);
-    const camInv = new THREE.Matrix4().copy(this.camera.matrixWorld).invert();
-    p.applyMatrix4(camInv);
-    p.applyMatrix4(mainCamera.matrixWorld);
-    return out.copy(p);
+    return this.toWorld(V(this.meta ? this.meta.eject : [0, 0, -0.1]), mainCamera, out);
   }
 
   /**
-   * s: { dt, ads, sprint, speed, grounded, slide, reload01 (-1 wenn nicht), heal01 (-1), lookDX, lookDY, land, time, crouch, fov }
+   * s: { dt, ads, scoped, sprint, speed, grounded, slide, reload01 (-1), use01 (-1), lookDX, lookDY, time, fov }
    */
   update(s) {
     const dt = s.dt;
     const k = (cur, target, rate) => cur + (target - cur) * Math.min(1, dt * rate);
     this.adsK = k(this.adsK, s.ads ? 1 : 0, 14);
     this.sprintK = k(this.sprintK, s.sprint ? 1 : 0, 9);
-    this.healK = k(this.healK, s.heal01 >= 0 ? 1 : 0, 10);
+    this.useK = k(this.useK, s.use01 >= 0 ? 1 : 0, 10);
     this.slideK = k(this.slideK, s.slide ? 1 : 0, 10);
     this.kick = Math.max(0, this.kick - dt * 9);
     this.kickRot = Math.max(0, this.kickRot - dt * 7);
+    this.actionT = Math.max(0, this.actionT - dt * 1.9);
     this.land = Math.max(0, this.land - dt * 3);
-    this.equipT = Math.max(0, this.equipT - dt * 2.5);
+    this.equipT = Math.max(0, this.equipT - dt * 3.2);
+    // Im Zielfernrohr ist die Waffe unsichtbar (Overlay im HUD)
+    this.sway.visible = !s.scoped;
     if (s.fov) {
-      // Viewmodel-FOV folgt leicht dem Zoom
       const f = 56 - this.adsK * 4;
       if (Math.abs(this.camera.fov - f) > 0.01) {
         this.camera.fov = f;
         this.camera.updateProjectionMatrix();
       }
     }
-    // Schwanken (hängt der Mausbewegung hinterher)
     this.swayX = k(this.swayX, Math.max(-1, Math.min(1, -s.lookDX * 0.004)), 8);
     this.swayY = k(this.swayY, Math.max(-1, Math.min(1, -s.lookDY * 0.004)), 8);
-    // Wippen
     const moving = s.grounded && s.speed > 0.5 && !s.slide;
     if (moving) this.bobPhase += dt * s.speed * (s.sprint ? 1.5 : 1.9);
     const bobAmt = (moving ? Math.min(1, s.speed / 5) : 0) * (1 - this.adsK * 0.85);
@@ -167,44 +184,60 @@ export class Viewmodel {
     const bobY = -Math.abs(Math.cos(this.bobPhase)) * 0.012 * bobAmt * (s.sprint ? 2 : 1);
     const idle = Math.sin(s.time * 1.6) * 0.003 * (1 - this.adsK);
 
-    const ads = this.adsK;
-    const hip = { x: 0.2, y: -0.215, z: -0.5 };
-    const adsP = { x: 0, y: -SIGHT_Y * GUN_SCALE, z: -0.46 };
-    const spr = { x: 0.15, y: -0.26, z: -0.44 };
-    let px = lerp(hip.x, adsP.x, ads), py = lerp(hip.y, adsP.y, ads), pz = lerp(hip.z, adsP.z, ads);
+    const meta = this.meta;
+    const ads = meta ? this.adsK : 0;
+    const hip = meta ? meta.hip : [0.16, -0.2, -0.4];
+    const adsP = meta ? [0, -meta.sightY, meta.adsZ] : hip;
+    const spr = [0.15, -0.26, -0.44];
+    let px = lerp(hip[0], adsP[0], ads), py = lerp(hip[1], adsP[1], ads), pz = lerp(hip[2], adsP[2], ads);
     let rx = 0, ry = lerp(0.04, 0, ads), rz = 0;
-    px = lerp(px, spr.x, this.sprintK); py = lerp(py, spr.y, this.sprintK); pz = lerp(pz, spr.z, this.sprintK);
+    px = lerp(px, spr[0], this.sprintK); py = lerp(py, spr[1], this.sprintK); pz = lerp(pz, spr[2], this.sprintK);
     rx += -0.35 * this.sprintK;
     ry += 0.75 * this.sprintK;
     rz += 0.25 * this.sprintK;
-    // Slide: gekippt
     rz += -0.18 * this.slideK;
-    // Heilen: Waffe nach unten weg
-    py -= this.healK * 0.25;
-    rx -= this.healK * 0.6;
     // Nachladen
     let magOff = null;
     let leftTarget = null;
-    if (s.reload01 >= 0) {
+    const type = this.item && this.item.k === 'w' ? this.item.w : null;
+    if (s.reload01 >= 0 && meta) {
       const r = s.reload01;
-      const tilt = Math.sin(Math.min(1, r * 1.15) * Math.PI);
-      rz += 0.55 * tilt;
-      rx += 0.2 * tilt;
-      py -= 0.03 * tilt;
-      px -= 0.04 * tilt;
-      // Magazin raus (0.12-0.35), neu rein (0.45-0.65), Durchladen (0.75-0.9)
-      if (r < 0.12) leftTarget = 'mag';
-      else if (r < 0.4) { magOff = (r - 0.12) / 0.28; leftTarget = 'mag'; }
-      else if (r < 0.62) { magOff = 1 - (r - 0.4) / 0.22; leftTarget = 'mag'; }
-      else if (r < 0.75) leftTarget = 'grip';
-      else if (r < 0.92) leftTarget = 'charge';
+      if (WEAPONS[type].shellReload) {
+        // Patrone für Patrone: Waffe gekippt, linke Hand pendelt zur Ladeklappe
+        const tilt = Math.min(1, r * 8, (1 - r) * 8 + 0.4);
+        rz += 0.5 * tilt;
+        rx += 0.15 * tilt;
+        py -= 0.02 * tilt;
+        const cyc = (s.time * 1.8) % 1;
+        leftTarget = cyc < 0.5 ? 'belt' : 'port';
+      } else {
+        const tilt = Math.sin(Math.min(1, r * 1.15) * Math.PI);
+        rz += 0.55 * tilt;
+        rx += 0.2 * tilt;
+        py -= 0.03 * tilt;
+        px -= 0.04 * tilt;
+        if (meta.mag) {
+          if (r < 0.12) leftTarget = 'mag';
+          else if (r < 0.4) { magOff = (r - 0.12) / 0.28; leftTarget = 'mag'; }
+          else if (r < 0.62) { magOff = 1 - (r - 0.4) / 0.22; leftTarget = 'mag'; }
+          else if (r < 0.75) leftTarget = 'grip';
+          else if (r < 0.92) leftTarget = 'charge';
+        }
+      }
     }
-    // Aufrüsten (Equip-Animation)
+    // Pumpen / Repetieren
+    let pumpOff = 0;
+    if (this.actionT > 0 && type) {
+      const a = 1 - this.actionT;
+      const w = Math.sin(Math.min(1, Math.max(0, (a - 0.15) / 0.6)) * Math.PI);
+      if (type === 'pump') { pumpOff = w * 0.08; rx += w * 0.08; }
+      else { leftTarget = w > 0.05 ? 'bolt' : leftTarget; rz += w * 0.15; }
+    }
+    // Schild/Medikit benutzen: Gegenstand zum Gesicht
+    const use = this.useK;
     py -= this.equipT * 0.25;
     rx -= this.equipT * 0.5;
-    // Landung
     py -= this.land * 0.04;
-    // Rückstoß
     pz += this.kick * 0.035 * (1 - ads * 0.5);
     py += this.kick * 0.006;
     rx += this.kickRot * 0.06 * (1 - ads * 0.6);
@@ -213,38 +246,43 @@ export class Viewmodel {
     this.rig.rotation.set(rx, ry, rz);
     this.sway.rotation.set(this.swayY * 0.08, this.swayX * 0.1, this.swayX * 0.05);
 
-    // Magazin
-    if (magOff !== null) {
-      this.mag.position.set(MAG_ORIGIN.x - magOff * 0.02, MAG_ORIGIN.y - magOff * 0.22, MAG_ORIGIN.z + magOff * 0.05);
-      this.mag.rotation.set(magOff * 0.4, 0, 0);
-      this.mag.visible = !(magOff > 0.97);
-    } else {
-      this.mag.position.copy(MAG_ORIGIN);
-      this.mag.rotation.set(0, 0, 0);
-      this.mag.visible = true;
+    if (this.mag.visible && this.magOrigin) {
+      if (magOff !== null) {
+        this.mag.position.set(this.magOrigin.x - magOff * 0.02, this.magOrigin.y - magOff * 0.22, this.magOrigin.z + magOff * 0.05);
+        this.mag.rotation.set(magOff * 0.4, 0, 0);
+      } else {
+        this.mag.position.copy(this.magOrigin);
+        this.mag.rotation.set(0, 0, 0);
+      }
     }
-    // Hände (IK-artig: Unterarm zeigt vom Griff zu einem Ellbogenpunkt außerhalb des Bildes)
+    // Hände
     this.gun.updateMatrix();
     const g = this.gun.matrix;
-    const gripR = new THREE.Vector3(0, -0.07, 0.05).applyMatrix4(g);
-    let lp;
-    if (this.healK > 0.3) {
-      this.medkit.visible = true;
-      const pump = Math.sin(s.time * 12) * 0.015;
-      this.medkit.position.set(-0.05, -0.2 + (1 - this.healK) * -0.2 + pump, -0.38);
-      this.medkit.rotation.set(0.4, -0.3, 0.1);
-      lp = this.medkit.position.clone().add(new THREE.Vector3(-0.08, -0.02, 0.02));
+    let rp, lp;
+    if (!meta) {
+      // Schild/Medikit in der rechten Hand, beim Benutzen zum Mund
+      const u = s.use01 >= 0 ? s.use01 : 0;
+      const drink = use * (0.5 + 0.5 * Math.sin(s.time * 5));
+      this.held.position.set(0.14 - use * 0.1, -0.2 + use * 0.1 + drink * 0.02, -0.42 + use * 0.1);
+      this.held.rotation.set(-0.2 + use * 0.9, 0.3 - use * 0.3, 0.1 + use * 0.5 + u * 0.3);
+      this.held.updateMatrix();
+      rp = new THREE.Vector3(0, 0.05, 0.02).applyMatrix4(this.held.matrix);
+      lp = new THREE.Vector3(-0.08, 0.08, 0.0).applyMatrix4(this.held.matrix);
+      this.placeArm(this.armL, lp, new THREE.Vector3(-0.2, -0.66, -0.3));
     } else {
-      this.medkit.visible = false;
-      if (leftTarget === 'mag') lp = new THREE.Vector3().copy(this.mag.position).add(new THREE.Vector3(0, -0.12, 0.02)).applyMatrix4(g);
+      rp = new THREE.Vector3(0, -0.07, 0.05).applyMatrix4(g);
+      const fore = meta.fore ? V(meta.fore) : new THREE.Vector3(0, -0.06, 0.0);
+      if (leftTarget === 'mag' && meta.mag) lp = this.mag.position.clone().add(new THREE.Vector3(0, -0.12, 0.02)).applyMatrix4(g);
       else if (leftTarget === 'charge') lp = new THREE.Vector3(0.06, 0.06, -0.02).applyMatrix4(g);
-      else lp = new THREE.Vector3(0, -0.01, -0.36).applyMatrix4(g);
+      else if (leftTarget === 'bolt') lp = new THREE.Vector3(0.08, 0.05, 0.0).applyMatrix4(g);
+      else if (leftTarget === 'belt') lp = new THREE.Vector3(-0.12, -0.12, 0.1).applyMatrix4(g);
+      else if (leftTarget === 'port') lp = new THREE.Vector3(0.0, -0.05, -0.12).applyMatrix4(g);
+      else lp = fore.add(new THREE.Vector3(0, 0, pumpOff)).applyMatrix4(g);
+      this.placeArm(this.armL, lp, new THREE.Vector3(0.0, -0.58, -0.4));
     }
-    this.placeArm(this.armR, gripR, new THREE.Vector3(0.34, -0.66, -0.34));
-    this.placeArm(this.armL, lp, new THREE.Vector3(0.0, -0.58, -0.4));
-    // Mündungsfeuer
+    this.placeArm(this.armR, rp, new THREE.Vector3(0.34, -0.66, -0.34));
     this.flashT -= dt;
-    this.flash.visible = this.flashT > 0;
+    this.flash.visible = this.flashT > 0 && !!meta;
   }
 
   placeArm(arm, hand, elbow) {
@@ -254,7 +292,6 @@ export class Viewmodel {
   }
 
   setSunFromWorld(sunDirWorld, mainCamera) {
-    // Richtung ins Kameraraum-System der VM-Kamera übertragen
     const inv = new THREE.Quaternion().copy(mainCamera.quaternion).invert();
     const d = sunDirWorld.clone().applyQuaternion(inv);
     this.dir.position.copy(d.multiplyScalar(5));

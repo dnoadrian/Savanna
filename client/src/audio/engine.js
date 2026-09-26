@@ -5,6 +5,16 @@
 const A4 = 440;
 const noteHz = (n) => A4 * Math.pow(2, (n - 69) / 12);
 
+// Klangprofile der Waffen (Knall, Körper, Wumms)
+const GUN_SOUNDS = {
+  pistol: { vol: 0.8, ref: 5, verb: 0.8, crack: 0.05, crackF: 2200, crackG: 1, body: 0.12, bodyF: 1800, bodyG: 0.6, thump: 170, thumpD: 0.1, thumpG: 0.6, mech: 2800 },
+  ar: { vol: 1, ref: 6, verb: 1, crack: 0.07, crackF: 1500, crackG: 1, body: 0.22, bodyF: 1300, bodyG: 0.85, thump: 140, thumpD: 0.16, thumpG: 1, mech: 2400 },
+  drum: { vol: 0.85, ref: 5, verb: 0.8, crack: 0.05, crackF: 1900, crackG: 0.9, body: 0.14, bodyF: 1500, bodyG: 0.7, thump: 150, thumpD: 0.1, thumpG: 0.7, mech: 3000 },
+  tac: { vol: 1.15, ref: 7, verb: 1.1, crack: 0.09, crackF: 1100, crackG: 1, body: 0.38, bodyF: 900, bodyG: 1, thump: 105, thumpD: 0.26, thumpG: 1.2, mech: 1800 },
+  pump: { vol: 1.25, ref: 8, verb: 1.2, crack: 0.1, crackF: 1000, crackG: 1.1, body: 0.45, bodyF: 850, bodyG: 1.1, thump: 90, thumpD: 0.3, thumpG: 1.35, mech: 1600 },
+  sniper: { vol: 1.4, ref: 10, verb: 1.6, crack: 0.12, crackF: 2400, crackG: 1.2, body: 0.7, bodyF: 1100, bodyG: 1, thump: 80, thumpD: 0.4, thumpG: 1.4, mech: 2000 },
+};
+
 export class AudioEngine {
   constructor(settings) {
     this.settings = settings;
@@ -190,23 +200,42 @@ export class AudioEngine {
   }
 
   // ---------- Waffe ----------
-  gunshot(pos = null, dist = 0) {
+  // type: pistol | ar | drum | tac | pump | sniper
+  gunshot(pos = null, dist = 0, type = 'ar') {
     if (!this.ready) return;
     const own = !pos;
     const delay = own ? 0 : Math.min(0.6, dist / 343);
     const t = this.now + delay;
     const far = Math.min(1, dist / 180);
-    const d = this.out('sfx', pos, { gain: own ? 0.9 : 1.6, ref: 6, dist: own ? undefined : dist, reverb: own ? 0.35 : 0.5 + far * 0.4, rolloff: 0.9 });
-    // Knall
-    this.noiseHit(d, t, { dur: 0.07, type: 'highpass', freq: 1500 - far * 1100, gain: own ? 0.9 : 0.7 });
+    const P = GUN_SOUNDS[type] || GUN_SOUNDS.ar;
+    const d = this.out('sfx', pos, { gain: (own ? 0.85 : 1.6) * P.vol, ref: P.ref, dist: own ? undefined : dist, reverb: (own ? 0.3 : 0.5 + far * 0.4) * P.verb, rolloff: 0.9 });
+    // Knall (hoher Anteil)
+    this.noiseHit(d, t, { dur: P.crack, type: 'highpass', freq: P.crackF - far * 1100, gain: (own ? 0.9 : 0.7) * P.crackG });
     // Körper
-    this.noiseHit(d, t, { dur: 0.22 + far * 0.3, type: 'lowpass', freq: 1300 - far * 700, freqEnd: 180, gain: 0.8 });
+    this.noiseHit(d, t, { dur: P.body + far * 0.3, type: 'lowpass', freq: P.bodyF - far * 600, freqEnd: 160, gain: P.bodyG });
     // Wumms
-    this.tone(d, t, { type: 'sine', freq: 140, freqEnd: 42, dur: 0.16, gain: own ? 0.9 : 0.5 });
+    this.tone(d, t, { type: 'sine', freq: P.thump, freqEnd: P.thump * 0.3, dur: P.thumpD, gain: (own ? 0.95 : 0.5) * P.thumpG });
     if (own) {
-      this.tone(d, t, { type: 'square', freq: 2400, freqEnd: 900, dur: 0.02, gain: 0.08 });
-      this.noiseHit(d, t + 0.05, { dur: 0.05, type: 'bandpass', freq: 3200, q: 3, gain: 0.08 });
+      // mechanisches Klicken des Verschlusses
+      this.tone(d, t, { type: 'square', freq: P.mech, freqEnd: P.mech * 0.4, dur: 0.02, gain: 0.07 });
+      this.noiseHit(d, t + 0.045, { dur: 0.04, type: 'bandpass', freq: 3200, q: 3, gain: 0.07 });
+      if (type === 'pump') this.pumpAction(d, t + 0.42);
+      if (type === 'sniper') this.boltAction(d, t + 0.62);
     }
+  }
+
+  pumpAction(d, t) {
+    this.noiseHit(d, t, { dur: 0.08, type: 'bandpass', freq: 1300, freqEnd: 2600, q: 2, gain: 0.45 });
+    this.tone(d, t, { type: 'square', freq: 420, freqEnd: 260, dur: 0.05, gain: 0.1 });
+    this.noiseHit(d, t + 0.14, { dur: 0.07, type: 'bandpass', freq: 2400, freqEnd: 1200, q: 2, gain: 0.5 });
+    this.tone(d, t + 0.14, { type: 'square', freq: 520, freqEnd: 300, dur: 0.05, gain: 0.12 });
+  }
+
+  boltAction(d, t) {
+    this.noiseHit(d, t, { dur: 0.06, type: 'bandpass', freq: 2800, q: 4, gain: 0.35 });
+    this.noiseHit(d, t + 0.16, { dur: 0.1, type: 'bandpass', freq: 1600, freqEnd: 3200, q: 2, gain: 0.35 });
+    this.noiseHit(d, t + 0.34, { dur: 0.08, type: 'bandpass', freq: 3000, freqEnd: 1500, q: 3, gain: 0.4 });
+    this.tone(d, t + 0.34, { type: 'square', freq: 700, freqEnd: 350, dur: 0.04, gain: 0.08 });
   }
 
   dryFire() {
@@ -217,21 +246,57 @@ export class AudioEngine {
     this.tone(d, t, { type: 'square', freq: 1800, freqEnd: 1200, dur: 0.02, gain: 0.08 });
   }
 
-  reloadSounds(duration, empty) {
+  // Magazin-Nachladen (Schrotflinten laden Patrone für Patrone → shellInsert)
+  reloadSounds(type, duration, empty) {
     if (!this.ready) return;
     const d = this.out('sfx');
     const t = this.now;
+    if (type === 'tac' || type === 'pump') {
+      this.noiseHit(d, t + 0.05, { dur: 0.05, type: 'bandpass', freq: 1800, q: 3, gain: 0.25 });
+      return;
+    }
     // Magazin raus (Klick)
     this.noiseHit(d, t + duration * 0.14, { dur: 0.05, type: 'bandpass', freq: 2600, q: 5, gain: 0.35 });
     this.tone(d, t + duration * 0.14, { type: 'triangle', freq: 900, freqEnd: 600, dur: 0.05, gain: 0.12 });
+    if (type === 'drum') this.noiseHit(d, t + duration * 0.3, { dur: 0.25, type: 'bandpass', freq: 2200, q: 2, gain: 0.12 });
     // Magazin rein (Klack)
     this.noiseHit(d, t + duration * 0.55, { dur: 0.07, type: 'bandpass', freq: 1400, q: 3, gain: 0.5 });
     this.tone(d, t + duration * 0.55, { type: 'square', freq: 320, freqEnd: 180, dur: 0.06, gain: 0.12 });
     // Durchladen (Ratsch)
+    if (type === 'sniper') {
+      this.boltAction(d, t + duration * 0.7);
+      return;
+    }
     const r = t + duration * (empty ? 0.8 : 0.78);
     this.noiseHit(d, r, { dur: 0.09, type: 'bandpass', freq: 2000, freqEnd: 4200, q: 2, gain: 0.35 });
     this.noiseHit(d, r + 0.12, { dur: 0.06, type: 'bandpass', freq: 3000, freqEnd: 1500, q: 3, gain: 0.4 });
     this.tone(d, r + 0.12, { type: 'square', freq: 600, freqEnd: 300, dur: 0.04, gain: 0.08 });
+  }
+
+  // eine Schrotpatrone eingeschoben
+  shellInsert() {
+    if (!this.ready) return;
+    const d = this.out('sfx');
+    const t = this.now;
+    this.noiseHit(d, t, { dur: 0.05, type: 'bandpass', freq: 1500, q: 3, gain: 0.45 });
+    this.tone(d, t, { type: 'triangle', freq: 520, freqEnd: 360, dur: 0.05, gain: 0.14 });
+    this.noiseHit(d, t + 0.05, { dur: 0.03, type: 'highpass', freq: 3500, gain: 0.12 });
+  }
+
+  // Waffe/Gegenstand in die Hand nehmen
+  equip(item) {
+    if (!this.ready || !item) return;
+    const d = this.out('sfx');
+    const t = this.now;
+    if (item.k === 'w') {
+      this.noiseHit(d, t, { dur: 0.06, type: 'bandpass', freq: 1800, q: 2, gain: 0.3 });
+      this.tone(d, t + 0.02, { type: 'square', freq: 380, freqEnd: 240, dur: 0.04, gain: 0.08 });
+      if (item.w === 'pump') this.pumpAction(d, t + 0.12);
+      else if (item.w === 'tac') this.noiseHit(d, t + 0.1, { dur: 0.05, type: 'bandpass', freq: 2600, q: 3, gain: 0.3 });
+      else this.noiseHit(d, t + 0.1, { dur: 0.05, type: 'bandpass', freq: 3000, freqEnd: 2000, q: 3, gain: 0.25 });
+    } else {
+      this.noiseHit(d, t, { dur: 0.08, type: 'bandpass', freq: 1200, q: 1.5, gain: 0.2 });
+    }
   }
 
   otherReload(pos) {
@@ -258,18 +323,36 @@ export class AudioEngine {
   }
 
   // ---------- Treffer ----------
-  hitmarker(head) {
+  // Körper: kurzes „Tick“, Kopf: helles „Ding“, Schild: gläsernes Klirren
+  hitmarker(head, shield = false) {
     if (!this.ready) return;
+    const now = this.now;
+    if (now - (this.lastHitT || 0) < 0.03 && !head) return; // Schrot: nicht 10x
+    this.lastHitT = now;
     const d = this.out('sfx');
-    const t = this.now;
+    const t = now;
     if (head) {
       this.tone(d, t, { type: 'sine', freq: 2093, dur: 0.35, gain: 0.35 });
       this.tone(d, t, { type: 'sine', freq: 3136, dur: 0.25, gain: 0.18 });
       this.tone(d, t, { type: 'triangle', freq: 4186, dur: 0.12, gain: 0.08 });
+    } else if (shield) {
+      this.tone(d, t, { type: 'sine', freq: 1760, freqEnd: 1480, dur: 0.12, gain: 0.22 });
+      this.tone(d, t, { type: 'sine', freq: 2637, dur: 0.08, gain: 0.1 });
+      this.noiseHit(d, t, { dur: 0.04, type: 'highpass', freq: 5000, gain: 0.14 });
     } else {
       this.tone(d, t, { type: 'triangle', freq: 1500, freqEnd: 1100, dur: 0.06, gain: 0.3 });
       this.noiseHit(d, t, { dur: 0.03, type: 'highpass', freq: 3000, gain: 0.15 });
     }
+  }
+
+  // Schild eines Gegners (oder der eigene) bricht
+  shieldBreak(pos) {
+    if (!this.ready) return;
+    const d = this.out('sfx', pos, { gain: pos ? 1.3 : 0.8, ref: 6, reverb: 0.3 });
+    const t = this.now;
+    for (let i = 0; i < 6; i++) this.noiseHit(d, t + i * 0.025, { dur: 0.08, type: 'highpass', freq: 4000 + i * 600, gain: 0.25 });
+    [2637, 2093, 1568, 1175].forEach((f, i) => this.tone(d, t + i * 0.045, { type: 'triangle', freq: f, freqEnd: f * 0.85, dur: 0.22, gain: 0.16 }));
+    this.tone(d, t, { type: 'sine', freq: 220, freqEnd: 70, dur: 0.25, gain: 0.35 });
   }
 
   killConfirm() {
@@ -288,13 +371,22 @@ export class AudioEngine {
     [72, 76, 79, 84].forEach((n, i) => this.tone(d, t + 0.05 + i * 0.07, { type: 'triangle', freq: noteHz(n), dur: 0.5, gain: 0.18 }));
   }
 
-  hurt() {
+  // Siphon nach einem Kill: aufsteigendes Funkeln
+  siphon() {
     if (!this.ready) return;
-    const d = this.out('sfx');
+    const d = this.out('sfx', null, { reverb: 0.35 });
+    const t = this.now + 0.35;
+    [79, 83, 86, 91, 95].forEach((n, i) => this.tone(d, t + i * 0.05, { type: 'sine', freq: noteHz(n), dur: 0.4, gain: 0.12 }));
+    this.noiseHit(d, t, { dur: 0.5, type: 'bandpass', freq: 3000, freqEnd: 8000, q: 2, gain: 0.1, attack: 0.1 });
+  }
+
+  hurt(vol = 1) {
+    if (!this.ready) return;
+    const d = this.out('sfx', null, { gain: vol });
     const t = this.now;
     this.tone(d, t, { type: 'sine', freq: 95, freqEnd: 50, dur: 0.18, gain: 0.7 });
     this.noiseHit(d, t, { dur: 0.1, type: 'lowpass', freq: 700, gain: 0.4 });
-    if (Math.random() < 0.55) {
+    if (vol >= 1 && Math.random() < 0.5) {
       // Stöhnen: Sägezahn durch Formantfilter
       const ctx = this.ctx;
       const o = ctx.createOscillator();
@@ -315,21 +407,125 @@ export class AudioEngine {
     }
   }
 
-  // ---------- Heilen ----------
-  healStart() {
+  // eigener Schild wird getroffen
+  shieldHurt() {
     if (!this.ready) return;
     const d = this.out('sfx');
     const t = this.now;
-    for (let i = 0; i < 7; i++) this.noiseHit(d, t + i * 0.12 + Math.random() * 0.04, { dur: 0.09, type: 'bandpass', freq: 2500 + Math.random() * 1500, q: 1.5, gain: 0.18 });
-    this.noiseHit(d, t + 0.35, { dur: 0.45, type: 'highpass', freq: 5000, gain: 0.12, attack: 0.05 });
+    this.tone(d, t, { type: 'sine', freq: 130, freqEnd: 70, dur: 0.14, gain: 0.5 });
+    this.tone(d, t, { type: 'triangle', freq: 1320, freqEnd: 990, dur: 0.1, gain: 0.12 });
+    this.noiseHit(d, t, { dur: 0.06, type: 'highpass', freq: 4500, gain: 0.14 });
   }
 
-  healDone() {
+  // ---------- Truhen & Beute ----------
+  chestOpen(pos = null) {
+    if (!this.ready) return;
+    const d = this.out('sfx', pos, { gain: pos ? 1.2 : 0.8, ref: 5, reverb: 0.4 });
+    const t = this.now;
+    // Holz knarrt
+    this.noiseHit(d, t, { dur: 0.18, type: 'bandpass', freq: 500, freqEnd: 900, q: 6, gain: 0.35 });
+    this.tone(d, t, { type: 'sawtooth', freq: 110, freqEnd: 150, dur: 0.16, gain: 0.08 });
+    // Deckel springt auf
+    this.noiseHit(d, t + 0.16, { dur: 0.06, type: 'bandpass', freq: 1200, q: 2, gain: 0.45 });
+    this.tone(d, t + 0.16, { type: 'sine', freq: 180, freqEnd: 90, dur: 0.12, gain: 0.4 });
+    // magisches Glitzern
+    [76, 81, 84, 88, 93].forEach((n, i) => this.tone(d, t + 0.2 + i * 0.06, { type: 'sine', freq: noteHz(n), dur: 0.55, gain: 0.13 }));
+    this.noiseHit(d, t + 0.2, { dur: 0.7, type: 'bandpass', freq: 6000, freqEnd: 9000, q: 3, gain: 0.08, attack: 0.1 });
+  }
+
+  // leises, schimmerndes Summen der nächsten geschlossenen Truhe (pos=null → aus)
+  chestHum(pos, dist = 0) {
+    if (!this.ready) return;
+    const ctx = this.ctx;
+    if (!this.hum) {
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      const p = ctx.createPanner();
+      p.panningModel = 'HRTF';
+      p.distanceModel = 'inverse';
+      p.refDistance = 2;
+      p.rolloffFactor = 1.2;
+      g.connect(p);
+      p.connect(this.bus.sfx);
+      const trem = ctx.createGain();
+      trem.gain.value = 0.7;
+      trem.connect(g);
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 5.2;
+      const lfoG = ctx.createGain();
+      lfoG.gain.value = 0.3;
+      lfo.connect(lfoG);
+      lfoG.connect(trem.gain);
+      lfo.start();
+      for (const [n, det] of [[69, -6], [76, 5], [81, -3], [88, 4]]) {
+        const o = ctx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = noteHz(n);
+        o.detune.value = det;
+        const og = ctx.createGain();
+        og.gain.value = n > 80 ? 0.03 : 0.05;
+        o.connect(og);
+        og.connect(trem);
+        o.start();
+      }
+      this.hum = { g, p };
+    }
+    const t = ctx.currentTime;
+    const target = pos ? Math.max(0, 1 - dist / 14) * 0.5 : 0;
+    this.hum.g.gain.setTargetAtTime(target, t, 0.15);
+    if (pos) {
+      this.hum.p.positionX.setTargetAtTime(pos.x, t, 0.05);
+      this.hum.p.positionY.setTargetAtTime(pos.y, t, 0.05);
+      this.hum.p.positionZ.setTargetAtTime(pos.z, t, 0.05);
+    }
+  }
+
+  pickup(item) {
+    if (!this.ready || !item) return;
+    const d = this.out('sfx');
+    const t = this.now;
+    if (item.k === 'a') {
+      for (let i = 0; i < 3; i++) this.noiseHit(d, t + i * 0.04, { dur: 0.03, type: 'bandpass', freq: 3500 + i * 400, q: 4, gain: 0.2 });
+    } else if (item.k === 'w') {
+      this.noiseHit(d, t, { dur: 0.07, type: 'bandpass', freq: 1600, q: 2, gain: 0.35 });
+      this.tone(d, t, { type: 'triangle', freq: 660, freqEnd: 990, dur: 0.1, gain: 0.12 });
+      this.noiseHit(d, t + 0.09, { dur: 0.05, type: 'bandpass', freq: 2800, q: 3, gain: 0.3 });
+    } else {
+      this.tone(d, t, { type: 'sine', freq: 520, freqEnd: 1040, dur: 0.12, gain: 0.2 });
+      this.noiseHit(d, t, { dur: 0.06, type: 'bandpass', freq: 2000, q: 2, gain: 0.15 });
+    }
+  }
+
+  // ---------- Heilen / Schild ----------
+  useStart(c, pos = null) {
+    if (!this.ready) return;
+    const d = this.out('sfx', pos, { gain: pos ? 0.9 : 0.8, ref: 3 });
+    const t = this.now;
+    if (c === 'medkit') {
+      // Klettverschluss
+      for (let i = 0; i < 7; i++) this.noiseHit(d, t + i * 0.12 + Math.random() * 0.04, { dur: 0.09, type: 'bandpass', freq: 2500 + Math.random() * 1500, q: 1.5, gain: 0.18 });
+      this.noiseHit(d, t + 0.35, { dur: 0.45, type: 'highpass', freq: 5000, gain: 0.12, attack: 0.05 });
+    } else {
+      // Deckel auf, Trinken (Gluckern)
+      this.noiseHit(d, t, { dur: 0.05, type: 'bandpass', freq: 2200, q: 3, gain: 0.3 });
+      const n = c === 'mini' ? 5 : 10;
+      for (let i = 0; i < n; i++) this.tone(d, t + 0.3 + i * 0.16, { type: 'sine', freq: 260 + Math.random() * 120, freqEnd: 520, dur: 0.07, gain: 0.12 });
+    }
+  }
+
+  useDone(c) {
     if (!this.ready) return;
     const d = this.out('sfx', null, { reverb: 0.3 });
     const t = this.now;
-    [84, 88, 91, 96].forEach((n, i) => this.tone(d, t + i * 0.07, { type: 'triangle', freq: noteHz(n), dur: 0.35, gain: 0.2 }));
-    this.tone(d, t + 0.3, { type: 'sine', freq: noteHz(100), dur: 0.5, gain: 0.08 });
+    if (c === 'medkit') {
+      [84, 88, 91, 96].forEach((n, i) => this.tone(d, t + i * 0.07, { type: 'triangle', freq: noteHz(n), dur: 0.35, gain: 0.2 }));
+      this.tone(d, t + 0.3, { type: 'sine', freq: noteHz(100), dur: 0.5, gain: 0.08 });
+    } else {
+      // Schild lädt: aufsteigendes „Schwing“
+      this.tone(d, t, { type: 'sine', freq: 400, freqEnd: 1600, dur: 0.35, gain: 0.18 });
+      [81, 88, 93].forEach((n, i) => this.tone(d, t + 0.15 + i * 0.06, { type: 'triangle', freq: noteHz(n), dur: 0.4, gain: 0.14 }));
+      this.noiseHit(d, t, { dur: 0.4, type: 'bandpass', freq: 3000, freqEnd: 7000, q: 2, gain: 0.1, attack: 0.1 });
+    }
   }
 
   denied() {

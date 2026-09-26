@@ -6,8 +6,8 @@ import fs from 'fs';
 import { QUEUE_WAIT } from '../shared/constants.js';
 
 export async function runServerTest() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'savanna-test-'));
-  process.env.SAVANNA_DATA_DIR = dir;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'showdown-test-'));
+  process.env.SHOWDOWN_DATA_DIR = dir;
   const { GameServer } = await import('../server/game-server.js');
   const gs = new GameServer(0);
 
@@ -76,34 +76,59 @@ export async function runServerTest() {
   B.msg({ t: 'partyReady', ready: true });
   B.msg({ t: 'partyChat', text: 'Hallo!' });
   assert.equal(A.last('chat').text, 'Hallo!');
-  A.msg({ t: 'queue', opts: { storm: true, botDifficulty: 'hard' } });
+  const ageQueue = () => {
+    for (const tk of gs.queue) tk.created -= (QUEUE_WAIT + 1) * 1000;
+    gs.tickQueue();
+  };
+  A.msg({ t: 'queue' });
   assert.equal(A.last('queue').state, 'waiting');
   assert.equal(A.last('queue').humans, 2);
-  // nach max. 10 s startet das Match mit 2 Menschen + 10 Bots
-  const t0 = Date.now();
-  while (!A.last('matchStart') && Date.now() - t0 < 12000) await wait(100);
+  assert.equal(A.last('queue').bots, 10);
+  // ein weiterer Spieler kommt dazu: trotzdem die vollen 15 s warten
+  const C = connect();
+  C.msg({ t: 'hello', id: 'cccc-3', name: 'Charlie' });
+  C.msg({ t: 'queue' });
+  gs.tickQueue();
+  assert.ok(!A.last('matchStart'), 'Match darf erst nach 15 s starten');
+  assert.equal(C.last('queue').humans, 3);
+  ageQueue();
   const ms = A.last('matchStart');
   assert.ok(ms, 'Match nicht gestartet');
   assert.equal(ms.players.length, 12);
-  assert.equal(ms.players.filter((p) => !p.isBot).length, 2);
+  assert.equal(ms.players.filter((p) => !p.isBot).length, 3);
   assert.ok(B.last('matchStart'));
+  assert.ok(C.last('matchStart'));
   const match = gs.matches.get(ms.matchId);
-  A.msg({ t: 'loaded', mid: ms.matchId });
-  B.msg({ t: 'loaded', mid: ms.matchId });
+  for (const X of [A, B, C]) X.msg({ t: 'loaded', mid: ms.matchId });
   await wait(600);
   assert.ok(A.all('snap').length > 3, 'keine Snapshots');
-  // Status im Spiel
+  // Inventar kommt mit dem Snapshot: graue Pistole 20/40
+  const startInv = A.all('snap').map((m) => m.me && m.me.inv).find(Boolean);
+  assert.ok(startInv, 'kein Inventar');
+  assert.deepEqual(startInv.s[0], ['w', 'pistol', 0, 20]);
+  assert.equal(startInv.a.light, 40);
   assert.equal(gs.status('aaaa-1'), 'game');
   // B verlässt das Match -> Figur scheidet aus, Match läuft weiter
   B.msg({ t: 'leaveMatch' });
+  C.msg({ t: 'leaveMatch' });
   await wait(100);
   const kill = A.all('ev').flatMap((m) => m.e).find((e) => e.t === 'kill' && e.v === 'bbbb-2');
   assert.ok(kill, 'kein Kill-Event für Verlassen');
   assert.equal(kill.w, 'leave');
-  // Match beenden: alle Bots eliminieren
   while (match.sim.phase === 'countdown') await wait(50);
   const sim = match.sim;
-  for (const p of sim.players) if (p.isBot && p.alive) sim.applyDamage(p, 999, 'aaaa-1', 'b', null);
+  // Schuss über das Netzwerkformat: Pistole trifft einen Bot
+  const me = sim.byId.get('aaaa-1');
+  const bot = sim.players.find((p) => p.isBot && p.alive);
+  bot.body.x = me.body.x; bot.body.z = me.body.z - 5; bot.body.y = me.body.y; bot.flags = 0;
+  bot.brain.update = () => bot.brain.input;
+  A.msg({ t: 'fire', s: 0, o: [me.body.x, me.body.y + 1.62, me.body.z], d: [[0, -0.05, -1]], rw: 0 });
+  await wait(120);
+  const hitEv = A.all('ev').flatMap((m) => m.e).find((e) => e.t === 'hit' && e.v === bot.id && e.a === 'aaaa-1');
+  assert.ok(hitEv, 'Treffer fehlt');
+  assert.equal(me.inv.slots[0].mag, 19);
+  // Match beenden: alle Bots eliminieren
+  for (const p of sim.players) if (p.isBot && p.alive) sim.applyDamage(p, 999, 'aaaa-1', 'b', null, 'ar');
   const t1 = Date.now();
   while (!A.last('matchEnd') && Date.now() - t1 < 4000) await wait(100);
   const end = A.last('matchEnd');
@@ -113,50 +138,9 @@ export async function runServerTest() {
   assert.equal(end.results.find((r) => r.id === 'aaaa-1').placement, 1);
   assert.equal(gs.status('aaaa-1'), 'lobby');
 
-  // Runde 2: online ohne Bots – nur die beiden Menschen
-  const ageQueue = () => {
-    for (const tk of gs.queue) tk.created -= (QUEUE_WAIT + 1) * 1000;
-    gs.tickQueue();
-  };
-  B.msg({ t: 'partyReady', ready: true });
-  const starts = A.all('matchStart').length;
-  A.msg({ t: 'queue', opts: { bots: false } });
-  const q2 = A.last('queue');
-  assert.equal(q2.state, 'waiting');
-  assert.equal(q2.noBots, true);
-  assert.equal(q2.bots, 0);
-  ageQueue();
-  assert.equal(A.all('matchStart').length, starts + 1, 'Match ohne Bots nicht gestartet');
-  const ms2 = A.last('matchStart');
-  assert.equal(ms2.players.length, 2);
-  assert.equal(ms2.players.filter((p) => p.isBot).length, 0);
-  const match2 = gs.matches.get(ms2.matchId);
-  A.msg({ t: 'loaded', mid: ms2.matchId });
-  B.msg({ t: 'loaded', mid: ms2.matchId });
-  const t2 = Date.now();
-  while (match2.sim.phase === 'countdown' && Date.now() - t2 < 8000) await wait(50);
-  B.msg({ t: 'leaveMatch' });
-  const t3 = Date.now();
-  while (A.last('matchEnd') === end && Date.now() - t3 < 4000) await wait(100);
-  const end2 = A.last('matchEnd');
-  assert.notEqual(end2, end, 'kein matchEnd ohne Bots');
-  assert.equal(end2.winner, 'aaaa-1');
-  assert.equal(end2.results.length, 2);
-
-  // Allein ohne Bots: wartet auf Mitspieler statt zu starten
-  const C = connect();
-  C.msg({ t: 'hello', id: 'cccc-3', name: 'Charlie' });
-  C.msg({ t: 'queue', opts: { bots: false } });
-  ageQueue();
-  assert.ok(!C.last('matchStart'), 'Einzelspieler ohne Bots darf nicht starten');
-  assert.equal(C.last('queue').state, 'waiting');
-  assert.equal(C.last('queue').secs, 0);
-  C.msg({ t: 'queueCancel' });
-  assert.equal(C.last('queue').state, 'idle');
-
   // Persistenz
   gs.saveNow();
-  const db = JSON.parse(fs.readFileSync(path.join(dir, 'db.json'), 'utf8'));
+  const db = JSON.parse(fs.readFileSync(path.join(dir, 'showdownbay.json'), 'utf8'));
   assert.equal(Object.keys(db.players).length, 3);
   assert.equal(db.players['aaaa-1'].friends[0], 'bbbb-2');
   assert.equal(Object.keys(db.parties).length, 1);

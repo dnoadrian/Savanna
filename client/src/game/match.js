@@ -1,19 +1,27 @@
-// Ein laufendes Match auf dem Client: verbindet Session, Welt, Figuren, Steuerung, HUD, Effekte, Audio.
+// Ein laufendes Match auf dem Client: verbindet Session, Welt, Beute, Figuren, Steuerung, HUD,
+// Effekte und Audio.
 import * as THREE from 'three';
 import { Character } from '../render/characters.js';
 import { Viewmodel } from '../render/viewmodel.js';
 import { Effects } from '../render/effects.js';
 import { StormWall } from '../render/storm.js';
 import { Sky } from '../render/sky.js';
+import { LootView } from '../render/lootView.js';
+import { WEAPON_META } from '../render/weapons.js';
 import { Lights, VIEW_DISTANCES } from '../render/renderer.js';
 import { LocalPlayer, surfaceSound } from './controller.js';
-import { F, MAX_HP } from '../../shared/constants.js';
+import { F, SIPHON } from '../../shared/constants.js';
+import { WEAPONS, CONSUMABLES, decodeItem } from '../../shared/items.js';
+import { weaponSpread } from '../../shared/sim/weapon.js';
 import { MAT } from '../../shared/physics/collision.js';
-import { dirFromAngles, rayPlayer } from '../../shared/sim/combat.js';
+import { rayPlayer, PARTS, stanceScale } from '../../shared/sim/combat.js';
 import { t } from '../i18n.js';
 
-const FOG_COLOR = new THREE.Color(0xcfe8f5);
+const FOG_COLOR = new THREE.Color(0xbfe4f7);
 const STORM_FOG = new THREE.Color(0x9a6ad8);
+const _v = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _up = new THREE.Vector3();
 
 export class MatchClient {
   constructor(app, { session, map, world, mapImage, mode }) {
@@ -23,12 +31,11 @@ export class MatchClient {
     this.world = world;
     this.mode = mode; // 'solo' | 'party'
     this.t = t;
-    this.infiniteAmmo = session.infiniteAmmo ?? true;
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.Fog(FOG_COLOR.clone(), 120, 360);
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.08, 480);
     this.camera.rotation.order = 'YXZ';
-    this.sky = new Sky();
+    this.sky = new Sky({ top: 0x2f8de6, horizon: 0xc4e6fa, bottom: 0xc4e6fa });
     this.scene.add(this.sky.group);
     this.lights = new Lights(this.scene);
     this.sky.setSun(this.lights.sunDir);
@@ -38,11 +45,10 @@ export class MatchClient {
     this.scene.add(this.storm.mesh);
     this.effects = new Effects(this.scene);
     this.effects.setTerrain(map.terrain);
-    this.effects.onShellBounce = () => {};
+    this.lootView = new LootView(this.scene, session.loot);
     this.viewmodel = new Viewmodel();
     const prof = app.profile.data;
-    this.viewmodel.setOutfit(prof.outfit, prof.color, prof.weaponSkin);
-    this.viewmodel.equipT = 1;
+    this.viewmodel.setOutfit(prof.outfit, prof.color);
     this.hud = app.hud;
     this.hud.reset();
     this.hud.setMapImage(mapImage, map.pois);
@@ -50,12 +56,14 @@ export class MatchClient {
     this.infoById = new Map(session.players.map((p) => [p.id, p]));
     this.chars = new Map();
     for (const p of session.players) {
-      const c = new Character({ outfit: p.outfit, color: p.color, skin: p.skin, name: p.name, crown: p.streak > 0, crownStyle: p.crownStyle });
+      const c = new Character({ outfit: p.outfit, color: p.color, name: p.name, crown: p.streak > 0, crownStyle: p.crownStyle });
       this.scene.add(c.root);
       this.chars.set(p.id, c);
     }
+    this.hitboxes = null;
     this.player = new LocalPlayer(this);
     this.player.spawn(session.spawn);
+    this.viewmodel.setItem(this.player.item);
     this.state = 'alive';
     this.lastCount = null;
     this.hitBars = new Map();
@@ -71,6 +79,8 @@ export class MatchClient {
     this.killedBy = null;
     this.placement = 0;
     this.remoteStep = new Map();
+    this.smokeT = 0;
+    this.pendingAutoSelect = 0;
     this.onResize();
     this.resizeFn = () => this.onResize();
     window.addEventListener('resize', this.resizeFn);
@@ -85,7 +95,7 @@ export class MatchClient {
     const vd = VIEW_DISTANCES[g.viewDistance] || VIEW_DISTANCES.far;
     this.camera.far = vd + 120;
     this.camera.updateProjectionMatrix();
-    this.scene.fog.near = vd * 0.4;
+    this.scene.fog.near = vd * 0.45;
     this.scene.fog.far = vd;
     this.world.setViewDistance(vd);
     this.lights.setQuality(g.shadows);
@@ -98,7 +108,7 @@ export class MatchClient {
   }
 
   get renderScenes() {
-    const fp = this.state === 'alive' && !this.player.thirdPerson;
+    const fp = this.state === 'alive' && !this.player.thirdPerson && !this.player.scoped;
     this.viewmodel.scene.visible = fp;
     return { scene: this.scene, camera: this.camera, vmScene: this.viewmodel.scene, vmCamera: this.viewmodel.camera };
   }
@@ -146,6 +156,7 @@ export class MatchClient {
       if (!menuOpen && input.locked) this.player.update(dt, now, phase, states);
       else {
         input.consumeMouse();
+        this.player.syncInventory();
         this.player.updateCamera(dt);
       }
     }
@@ -155,6 +166,7 @@ export class MatchClient {
 
     // Figuren
     const myId = s.youId;
+    const cp = this.camera.position;
     for (const st of states) {
       const c = this.chars.get(st.id);
       if (!c) continue;
@@ -163,8 +175,9 @@ export class MatchClient {
         c.root.visible = tp;
         if (this.state === 'alive') {
           const b = this.player.body;
+          c.setHand(st.hand);
           c.root.position.set(b.x, b.y, b.z);
-          c.update(dt, { vx: b.vx, vz: b.vz, yaw: this.player.yaw, pitch: this.player.pitch, flags: this.player.flags });
+          if (tp) c.update(dt, { vx: b.vx, vz: b.vz, yaw: this.player.yaw, pitch: this.player.pitch, flags: this.player.flags });
         } else {
           c.root.position.set(st.x, st.y, st.z);
           c.update(dt, { ...st, flags: F.DEAD });
@@ -172,10 +185,13 @@ export class MatchClient {
         continue;
       }
       c.root.position.set(st.x, st.y, st.z);
-      const dx = st.x - this.camera.position.x, dz = st.z - this.camera.position.z;
+      const dx = st.x - cp.x, dz = st.z - cp.z;
       const d2 = dx * dx + dz * dz;
       c.root.visible = d2 < (this.world.viewDist + 50) ** 2;
-      if (c.root.visible) c.update(d2 > 120 * 120 ? dt * 0.5 + 0.0001 : dt, st);
+      if (c.root.visible) {
+        c.setHand(st.hand);
+        c.update(d2 > 120 * 120 ? dt * 0.5 + 0.0001 : dt, st);
+      }
       // Schritte anderer Spieler (3D)
       if (st.alive && d2 < 30 * 30 && (st.flags & F.MOVING) && !(st.flags & F.AIR) && !(st.flags & F.SLIDE)) {
         let acc = (this.remoteStep.get(st.id) || 0) + Math.hypot(st.vx, st.vz) * dt;
@@ -187,6 +203,7 @@ export class MatchClient {
         this.remoteStep.set(st.id, acc);
       }
     }
+    this.updateHitboxes(states);
 
     // Tod / Zuschauen / Ende
     if (this.state === 'alive' && !self.alive) this.onDeath(null);
@@ -197,13 +214,15 @@ export class MatchClient {
 
     // Viewmodel
     const pl = this.player;
+    const item = pl.item;
+    const reload01 = this.state === 'alive' ? pl.reload01() : -1;
+    const useDur = item && item.k === 'c' ? CONSUMABLES[item.c].use : 1;
+    const use01 = this.state === 'alive' && pl.useT >= 0 ? Math.min(1, pl.useT / useDur) : -1;
     if (this.state === 'alive') {
-      const w = pl.weapon;
       this.viewmodel.setSunFromWorld(this.lights.sunDir, this.camera);
       this.viewmodel.update({
-        dt, time: now, ads: pl.adsK > 0.5, sprint: pl.body.sprinting, speed: Math.hypot(pl.body.vx, pl.body.vz), grounded: pl.body.grounded,
-        slide: pl.body.stance === 'slide', reload01: w.reloading ? w.reloadT / w.reloadDur : -1, heal01: pl.healT >= 0 ? pl.healT : -1,
-        lookDX: pl.lastLook.dx, lookDY: pl.lastLook.dy, fov: true,
+        dt, time: now, ads: pl.adsK > 0.5, scoped: pl.scoped, sprint: pl.body.sprinting, speed: Math.hypot(pl.body.vx, pl.body.vz), grounded: pl.body.grounded,
+        slide: pl.body.stance === 'slide', reload01, use01, lookDX: pl.lastLook.dx, lookDY: pl.lastLook.dy, fov: true,
       });
     }
 
@@ -211,11 +230,9 @@ export class MatchClient {
     const zone = s.zone();
     const stormOn = s.zoneObj.enabled;
     this.storm.update(stormOn ? zone : null, dt, this.world.viewDist);
-    const cp = this.camera.position;
     let inStorm = false;
     if (stormOn) {
       inStorm = Math.hypot(cp.x - zone.x, cp.z - zone.z) > zone.r;
-      // Ansagen
       if (phase === 'playing' && !zone.shrinking && zone.timeLeft < 10 && zone.timeLeft > 8 && this.stormWarned !== zone.phase) {
         this.stormWarned = zone.phase;
         this.hud.message(t('stormWarn'), 'storm');
@@ -232,33 +249,49 @@ export class MatchClient {
     this.world.setFog(this.scene.fog.color, this.scene.fog.near, this.scene.fog.far, 0);
     app.renderer.setTint(1 + this.stormK * 0.05, 1 - this.stormK * 0.1, 1 + this.stormK * 0.12);
 
-    // Welt, Himmel, Licht, Effekte
+    // Kaminrauch
+    this.smokeT -= dt;
+    if (this.smokeT <= 0) {
+      this.smokeT = 0.35;
+      for (const sm of this.map.smoke) if (Math.hypot(sm.x - cp.x, sm.z - cp.z) < 160) this.effects.smoke(sm.x, sm.y, sm.z);
+    }
+
+    // Welt, Himmel, Licht, Effekte, Beute
     this.world.update(this.camera, dt, now, app.settings.get('grass'));
     this.sky.update(this.camera, dt);
     this.lights.update(this.state === 'alive' ? { x: pl.body.x, y: pl.body.y, z: pl.body.z } : cp);
-    this.effects.update(dt, this.camera.position);
+    this.effects.update(dt, cp);
+    this.lootView.update(dt, now, this.state === 'alive' ? pl.target : null);
 
     // Audio-Hörer
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    const fwd = _v.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const up = _up.set(0, 1, 0).applyQuaternion(this.camera.quaternion);
     app.audio.setListener(cp, fwd, up);
+    // Summen der nächsten geschlossenen Truhe
+    let hum = null, humD = 14;
+    for (const c of s.loot.chests) {
+      if (c.open) continue;
+      const d = Math.hypot(c.x - cp.x, c.y - cp.y, c.z - cp.z);
+      if (d < humD) { humD = d; hum = c; }
+    }
+    app.audio.chestHum(hum ? { x: hum.x, y: hum.y + 0.5, z: hum.z } : null, humD);
 
     // HUD
     const alive = states.filter((q) => q.alive).length;
-    const w = pl.weapon;
-    const fl = pl.flags;
+    const def = pl.weaponDef;
     const speed = Math.hypot(pl.body.vx, pl.body.vz);
-    let progress = null, progressType = null;
-    if (this.state === 'alive') {
-      if (pl.healT >= 0) { progress = Math.min(1, pl.healT); progressType = 'heal'; }
-      else if (w.reloading) { progress = w.reloadT / w.reloadDur; progressType = 'reload'; }
-    }
+    const living = this.state === 'alive';
     this.hud.update(dt, {
-      hp: this.state === 'alive' ? self.hp : 0, medkits: self.medkits, mag: w.mag, reserve: w.reserve, alive, total: states.length, kills: self.kills,
-      zone, stormOn, phase, inStorm: inStorm && this.state === 'alive', fps: this.fps, ping: s.isLocal ? null : s.ping,
-      spread: this.state === 'alive' ? w.spread(fl, speed) : 0, overEnemy: pl.overEnemy, healing: pl.healT >= 0,
-      progress, progressType, px: this.state === 'alive' ? pl.body.x : cp.x, pz: this.state === 'alive' ? pl.body.z : cp.z,
-      yaw: this.state === 'alive' ? pl.yaw : this.camera.rotation.y, hideCross: this.state !== 'alive' || (pl.adsK > 0.6 && !pl.thirdPerson),
+      alive: living,
+      health: living ? self.health : 0, shield: living ? self.shield : 0, overshield: living ? self.overshield : 0,
+      inv: pl.inv, reloading: reload01 >= 0, reload01, use01, useItem: use01 >= 0 ? item : null,
+      target: living ? pl.target : null,
+      aliveCount: alive, total: states.length, kills: self.kills,
+      zone, stormOn, phase, inStorm: inStorm && living, fps: this.fps, ping: s.isLocal ? null : s.ping,
+      weapon: def ? item.w : null, spread: living && def ? weaponSpread(pl.rt, item, pl.flags, speed) : 0,
+      overEnemy: pl.overEnemy, scoped: living && pl.scoped,
+      px: living ? pl.body.x : cp.x, pz: living ? pl.body.z : cp.z,
+      yaw: living ? pl.yaw : this.camera.rotation.y, hideCross: !living || pl.scoped || (pl.adsK > 0.6 && !pl.thirdPerson && def && def.pellets === 1),
     });
     const W = window.innerWidth, H = window.innerHeight;
     this.hud.project(this.camera, W, H);
@@ -276,6 +309,57 @@ export class MatchClient {
       if (input.pressed('ads') || input.pressed('left') || app.input.pressedSet.has('ArrowLeft')) this.cycleSpectate(-1, states);
     }
     input.endFrame();
+  }
+
+  // Admin: Hitboxen aller Gegner (durch Wände sichtbar)
+  updateHitboxes(states) {
+    const on = this.app.admin && this.app.admin.active('hitboxes');
+    if (!on) {
+      if (this.hitboxes) this.hitboxes.group.visible = false;
+      return;
+    }
+    if (!this.hitboxes) {
+      const group = new THREE.Group();
+      const mats = {
+        h: new THREE.LineBasicMaterial({ color: 0xff3b3b, depthTest: false, transparent: true }),
+        b: new THREE.LineBasicMaterial({ color: 0xffd23b, depthTest: false, transparent: true }),
+        l: new THREE.LineBasicMaterial({ color: 0x3bff7a, depthTest: false, transparent: true }),
+      };
+      const boxes = new Map();
+      for (const st of states) {
+        if (st.id === this.session.youId) continue;
+        const root = new THREE.Group();
+        const inner = new THREE.Group();
+        root.add(inner);
+        for (const q of PARTS) {
+          const geo = q.sphere ? new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(q.r, 0)) : new THREE.EdgesGeometry(new THREE.BoxGeometry(q.hx * 2, q.hy * 2, q.hz * 2));
+          const m = new THREE.LineSegments(geo, mats[q.part]);
+          m.position.set(q.x, q.y, q.z);
+          m.userData.q = q;
+          m.renderOrder = 20;
+          inner.add(m);
+        }
+        group.add(root);
+        boxes.set(st.id, { root, inner });
+      }
+      this.scene.add(group);
+      this.hitboxes = { group, boxes };
+    }
+    this.hitboxes.group.visible = true;
+    for (const st of states) {
+      const hb = this.hitboxes.boxes.get(st.id);
+      if (!hb) continue;
+      hb.root.visible = st.alive;
+      if (!st.alive) continue;
+      hb.root.position.set(st.x, st.y, st.z);
+      hb.root.rotation.y = st.yaw;
+      const sy = stanceScale(st.flags);
+      for (const m of hb.inner.children) {
+        const q = m.userData.q;
+        m.position.y = q.y * sy;
+        m.scale.y = q.sphere ? 1 : sy;
+      }
+    }
   }
 
   scoreRows(states) {
@@ -308,59 +392,71 @@ export class MatchClient {
       }
       if (!vis.v && !spectated) continue;
       const info = this.info(st.id);
-      tags.push({ id: st.id, name: info.name, x: st.x, y: st.y - (st.flags & F.CROUCH ? 0.5 : 0), z: st.z, hp: st.hp, showBar: showBar || spectated, crown: info.streak > 0, dist });
+      tags.push({
+        id: st.id, name: info.name, x: st.x, y: st.y - (st.flags & F.CROUCH ? 0.5 : 0), z: st.z,
+        health: st.health, shield: st.shield + st.overshield, showBar: showBar || spectated, crown: info.streak > 0, dist,
+      });
     }
     this.hud.updateTags(this.camera, W, H, tags);
   }
 
+  // Mündung einer Figur (3. Person) in Weltkoordinaten
+  charMuzzle(c, type, out) {
+    const meta = WEAPON_META[type] || WEAPON_META.ar;
+    c.gun.updateWorldMatrix(true, false);
+    return out.set(meta.muzzle[0], meta.muzzle[1], meta.muzzle[2]).applyMatrix4(c.gun.matrixWorld);
+  }
+
   // ---------------- Eigene Schüsse (sofortige Effekte) ----------------
-  onLocalShot(eye, dir) {
+  onLocalShot(eye, dirs, item) {
+    const def = WEAPONS[item.w];
     const col = this.map.collision;
-    let tHit = col.raycast(eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, 400, true);
-    let mat = tHit >= 0 ? col.hitOut.mat : -1;
-    let n = new THREE.Vector3(col.hitOut.nx, col.hitOut.ny, col.hitOut.nz);
-    if (tHit < 0) tHit = 400;
-    // Wasser
-    if (dir.y < 0) {
-      const ex = eye.x + dir.x * tHit, ez = eye.z + dir.z * tHit;
-      const wl = this.map.terrain.waterLevelAt(ex, ez);
-      const tw = (wl - eye.y) / dir.y;
-      if (tw > 0 && tw < tHit && this.map.terrain.heightAt(eye.x + dir.x * tw, eye.z + dir.z * tw) < wl) {
-        tHit = tw; mat = MAT.WATER; n.set(0, 1, 0);
-      }
-    }
-    let hitPlayer = false;
-    for (const st of this.session.states()) {
-      if (st.id === this.session.youId || !st.alive) continue;
-      const r = rayPlayer(st, eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, tHit);
-      if (r) { tHit = r.t; hitPlayer = true; }
-    }
-    const end = new THREE.Vector3(eye.x + dir.x * tHit, eye.y + dir.y * tHit, eye.z + dir.z * tHit);
+    const states = this.session.states();
     const muzzle = new THREE.Vector3();
-    if (this.player.thirdPerson) {
-      const c = this.chars.get(this.session.youId);
-      c.gun.updateWorldMatrix(true, false);
-      muzzle.set(0, 0.036, -0.7).applyMatrix4(c.gun.matrixWorld);
-      this.effects.muzzleFlash(muzzle, new THREE.Vector3(dir.x, dir.y, dir.z));
-    } else {
-      this.viewmodel.muzzleWorld(this.camera, muzzle);
-    }
-    this.effects.tracer(muzzle, end);
+    if (this.player.thirdPerson) this.charMuzzle(this.chars.get(this.session.youId), item.w, muzzle);
+    else this.viewmodel.muzzleWorld(this.camera, muzzle);
+    const first = dirs[0];
+    if (this.player.thirdPerson) this.effects.muzzleFlash(muzzle, _v.set(first.x, first.y, first.z));
     this.effects.ownMuzzleLight(muzzle);
-    if (hitPlayer) this.effects.blood(end);
-    else if (mat >= 0) this.effects.impact(end, n, mat);
-    // Hülse auswerfen
+    const pellets = dirs.length > 1;
+    for (let i = 0; i < dirs.length; i++) {
+      const dir = dirs[i];
+      let tHit = col.raycast(eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, def.range, true);
+      let mat = tHit >= 0 ? col.hitOut.mat : -1;
+      const n = new THREE.Vector3(col.hitOut.nx, col.hitOut.ny, col.hitOut.nz);
+      if (tHit < 0) tHit = def.range;
+      // Wasser
+      if (dir.y < 0) {
+        const tw = (0 - eye.y) / dir.y;
+        if (tw > 0 && tw < tHit && this.map.terrain.heightAt(eye.x + dir.x * tw, eye.z + dir.z * tw) < 0) {
+          tHit = tw; mat = MAT.WATER; n.set(0, 1, 0);
+        }
+      }
+      let hitPlayer = false;
+      for (const st of states) {
+        if (st.id === this.session.youId || !st.alive) continue;
+        const r = rayPlayer(st, eye.x, eye.y, eye.z, dir.x, dir.y, dir.z, tHit);
+        if (r) { tHit = r.t; hitPlayer = true; }
+      }
+      const end = new THREE.Vector3(eye.x + dir.x * tHit, eye.y + dir.y * tHit, eye.z + dir.z * tHit);
+      // Schrot: nur jede zweite Kugel mit Leuchtspur, dünner
+      if (!pellets || i % 2 === 0) this.effects.tracer(muzzle, end, false, pellets ? 0.6 : def.scope ? 1.8 : 1, def.scope ? 900 : 520);
+      if (hitPlayer) this.effects.blood(end);
+      else if (mat >= 0 && (!pellets || i < 6)) this.effects.impact(end, n, mat);
+    }
+    // Hülse (Pump/Sniper werfen sie beim Repetieren aus – optisch reicht der Moment des Schusses)
     const ej = new THREE.Vector3();
     if (!this.player.thirdPerson) this.viewmodel.ejectWorld(this.camera, ej);
     else ej.copy(muzzle);
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-    this.effects.shell(ej, new THREE.Vector3(dir.x, dir.y, dir.z), right);
+    const right = _v2.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    this.effects.shell(ej, _v.set(first.x, first.y, first.z), right, pellets ? 2.2 : def.scope ? 1.8 : item.w === 'pistol' ? 0.9 : 1);
   }
 
   // ---------------- Ereignisse ----------------
   handleEvent(e, states) {
     const app = this.app;
     const me = this.session.youId;
+    const cp = this.camera.position;
     switch (e.t) {
       case 'go':
         this.hud.countdown(0);
@@ -370,53 +466,65 @@ export class MatchClient {
       case 'shot': {
         if (e.id === me) break;
         const o = new THREE.Vector3(e.o[0], e.o[1], e.o[2]);
-        const end = new THREE.Vector3(e.e[0], e.e[1], e.e[2]);
-        const dir = end.clone().sub(o).normalize();
+        const first = e.e[0];
+        const end0 = new THREE.Vector3(first[0], first[1], first[2]);
+        const dir = end0.clone().sub(o).normalize();
         const c = this.chars.get(e.id);
         let muzzle = o.clone().addScaledVector(dir, 0.7);
-        if (c && c.root.visible) {
-          c.gun.updateWorldMatrix(true, false);
-          muzzle = new THREE.Vector3(0, 0.036, -0.7).applyMatrix4(c.gun.matrixWorld);
-        }
-        const cp = this.camera.position;
+        if (c && c.root.visible && c.gun.visible) muzzle = this.charMuzzle(c, e.w, new THREE.Vector3());
         const dist = muzzle.distanceTo(cp);
+        const pellets = e.e.length > 1;
         if (dist < this.world.viewDist) {
-          this.effects.tracer(muzzle, end, true);
           this.effects.muzzleFlash(muzzle, dir);
-          if (e.m === MAT.PLAYER) this.effects.blood(end);
-          else if (e.m !== undefined && end.distanceTo(cp) < 120) this.effects.impact(end, e.n ? new THREE.Vector3(e.n[0], e.n[1], e.n[2]) : null, e.m);
+          e.e.forEach((en, i) => {
+            const end = new THREE.Vector3(en[0], en[1], en[2]);
+            if (!pellets || i % 3 === 0) this.effects.tracer(muzzle, end, true, pellets ? 0.6 : 1);
+            if (en[3] === MAT.PLAYER) this.effects.blood(end);
+            else if (en[3] >= 0 && (!pellets || i < 4) && end.distanceTo(cp) < 90) this.effects.impact(end, null, en[3]);
+          });
         }
-        app.audio.gunshot(muzzle, dist);
+        app.audio.gunshot(muzzle, dist, e.w);
         // Kugel fliegt nah vorbei?
         const toCam = cp.clone().sub(o);
         const along = toCam.dot(dir);
-        if (along > 5 && along < o.distanceTo(end)) {
+        if (along > 5 && along < o.distanceTo(end0)) {
           const closest = o.clone().addScaledVector(dir, along);
           if (closest.distanceTo(cp) < 2.5) app.audio.bulletWhiz(closest);
         }
         break;
       }
       case 'hit': {
+        const vst = states.find((q) => q.id === e.v);
         if (e.a === me && e.v !== me) {
           const head = e.p === 'h';
           const killing = e.hp <= 0;
+          const shieldHit = e.sd > 0;
           if (!killing) {
-            this.hud.hitmarker(head, false);
-            app.audio.hitmarker(head);
+            this.hud.hitmarker(head, false, shieldHit);
+            app.audio.hitmarker(head, shieldHit);
           }
-          if (e.pos) this.hud.damageNumber(e.pos, e.d, head);
+          if (e.pos) {
+            this.hud.damageNumber(e.pos, e.d, head ? 'head' : shieldHit ? 'shield' : 'health');
+            if (shieldHit) this.effects.shieldHit(_v.set(e.pos[0], e.pos[1], e.pos[2]));
+          }
+          if (e.br && vst) {
+            this.effects.shieldBreak(_v.set(vst.x, vst.y + 0.9, vst.z));
+            app.audio.shieldBreak({ x: vst.x, y: vst.y + 1, z: vst.z });
+            this.hud.shieldBroken();
+          }
           this.hitBars.set(e.v, performance.now() / 1000);
         } else if (e.v !== me && e.a && e.a !== 'storm') {
           this.hitBars.set(e.v, this.hitBars.get(e.v) || 0);
+          if (e.br && vst && Math.hypot(vst.x - cp.x, vst.z - cp.z) < 60) this.effects.shieldBreak(_v.set(vst.x, vst.y + 0.9, vst.z));
         }
         if (e.v === me) {
-          if (e.p === 's') {
-            this.hud.flashDamage();
-          } else if (e.d > 0) {
-            this.hud.flashDamage();
-            app.audio.hurt();
+          this.hud.flashDamage(e.sd > 0 && e.d - e.sd <= 0);
+          if (e.a === 'storm') app.audio.hurt(0.4);
+          else if (e.d > 0) {
+            if (e.sd > 0) app.audio.shieldHurt(); else app.audio.hurt();
             if (e.from) this.hud.damageIndicator(e.from[0], e.from[1]);
           }
+          if (e.br) app.audio.shieldBreak(null);
         }
         break;
       }
@@ -432,7 +540,7 @@ export class MatchClient {
           this.hud.hitmarker(e.hs, true);
           app.audio.killConfirm();
           app.audio.elimination();
-          this.hud.bigMessage(t('youKilled', { name: vi.name }), '+1 Medkit', 'kill');
+          this.hud.bigMessage(t('youKilled', { name: vi.name }), '', 'kill');
         }
         const c = this.chars.get(e.v);
         if (c) {
@@ -443,29 +551,63 @@ export class MatchClient {
         if (e.w === 'leave' && e.v !== me) this.hud.message(t('leftMatchNotice', { name: vi.name }));
         break;
       }
-      case 'heal': {
-        const st = states.find((q) => q.id === e.id);
+      case 'siphon': {
         if (e.id === me) {
-          this.hud.healFloat(e.amt);
-          app.audio.healDone();
-          this.player.onHealDone();
-          if (st) this.effects.healBurst(new THREE.Vector3(this.player.body.x, this.player.body.y, this.player.body.z));
-        } else if (st && Math.hypot(st.x - this.camera.position.x, st.z - this.camera.position.z) < 60) {
-          this.effects.healBurst(new THREE.Vector3(st.x, st.y, st.z));
+          this.hud.siphon(SIPHON);
+          app.audio.siphon();
+          this.effects.siphon(_v.set(this.player.body.x, this.player.body.y, this.player.body.z));
         }
         break;
       }
-      case 'healCancel':
-        if (e.id === me) this.player.healT = -1;
+      case 'chest': {
+        const ch = this.session.loot.chest(e.id);
+        if (ch) {
+          this.effects.chestBurst(_v.set(ch.x, ch.y, ch.z));
+          if (e.by !== me) app.audio.chestOpen({ x: ch.x, y: ch.y + 0.5, z: ch.z });
+        }
+        break;
+      }
+      case 'loot':
+        for (const a of e.a) if (a[5] !== undefined && a[5] !== null) this.lootView.spawnArc(a[0], a[5], a[6], a[7]);
+        break;
+      case 'pick': {
+        if (e.id === me) {
+          const it = decodeItem(e.it);
+          app.audio.pickup(it);
+          if (it.k !== 'a') {
+            this.hud.pickupToast(it);
+            if (!this.player.item) this.pendingAutoSelect = performance.now();
+          }
+        }
+        break;
+      }
+      case 'useStart': {
+        if (e.id === me) break;
+        const st = states.find((q) => q.id === e.id);
+        if (st && Math.hypot(st.x - cp.x, st.z - cp.z) < 35) app.audio.useStart(e.c, { x: st.x, y: st.y + 1.2, z: st.z });
+        break;
+      }
+      case 'used': {
+        const st = states.find((q) => q.id === e.id);
+        const shield = !CONSUMABLES[e.c].heal;
+        if (e.id === me) {
+          this.player.onUseDone();
+          app.audio.useDone(e.c);
+          this.effects[shield ? 'siphon' : 'healBurst'](_v.set(this.player.body.x, this.player.body.y, this.player.body.z));
+        } else if (st && Math.hypot(st.x - cp.x, st.z - cp.z) < 60) {
+          this.effects.healBurst(_v.set(st.x, st.y, st.z));
+        }
+        break;
+      }
+      case 'useCancel':
+        if (e.id === me) this.player.useT = -1;
         break;
       case 'reload': {
         if (e.id === me) break;
         const st = states.find((q) => q.id === e.id);
-        if (st && Math.hypot(st.x - this.camera.position.x, st.z - this.camera.position.z) < 30) app.audio.otherReload({ x: st.x, y: st.y + 1.2, z: st.z });
+        if (st && Math.hypot(st.x - cp.x, st.z - cp.z) < 30) app.audio.otherReload({ x: st.x, y: st.y + 1.2, z: st.z });
         break;
       }
-      case 'win':
-        break;
       default:
         break;
     }
@@ -479,7 +621,7 @@ export class MatchClient {
     this.killedBy = e ? e.k : null;
     this.deathCause = e ? e.w : null;
     this.placement = e ? e.place : this.session.self().placement || 0;
-    this.player.healT = -1;
+    this.player.useT = -1;
     this.app.input.unlock();
     this.app.audio.defeat();
     this.deathPos = new THREE.Vector3(this.player.body.x, this.player.body.y, this.player.body.z);
@@ -500,7 +642,6 @@ export class MatchClient {
     const states = this.session.states();
     const killer = this.killedBy && states.find((q) => q.id === this.killedBy && q.alive);
     this.spectateId = killer ? killer.id : (states.find((q) => q.alive && q.id !== this.session.youId) || {}).id;
-    this.specYaw = 0;
     this.updateSpectateLabel();
   }
 
@@ -545,10 +686,14 @@ export class MatchClient {
         const px = tgt.x + Math.sin(yaw) * back + Math.cos(yaw) * 0.6;
         const pz = tgt.z + Math.cos(yaw) * back - Math.sin(yaw) * 0.6;
         const py = tgt.y + 2.1;
-        cam.position.lerp(new THREE.Vector3(px, py, pz), Math.min(1, dt * 8));
+        cam.position.lerp(_v.set(px, py, pz), Math.min(1, dt * 8));
         cam.rotation.order = 'YXZ';
         cam.rotation.set(-0.12 + tgt.pitch * 0.5, yaw, 0);
       }
+    }
+    if (Math.abs(cam.fov - 58.7) > 0.01) {
+      cam.fov = 58.7;
+      cam.updateProjectionMatrix();
     }
     cam.updateMatrixWorld();
   }
@@ -578,7 +723,7 @@ export class MatchClient {
   // Ergebnisse sammeln und zurück in die Lobby
   finish() {
     const s = this.session;
-    let results = s.results();
+    const results = s.results();
     const finalize = (res, winnerId) => {
       const mine = res.find((r) => r.id === s.youId) || { kills: 0, damage: 0, headshots: 0, placement: 12, survival: 0 };
       const winnerInfo = this.info(winnerId);
@@ -601,14 +746,7 @@ export class MatchClient {
     if (!s.isLocal) s.leave();
     else if (this.state === 'alive' && !this.ended) s.leave();
     if (s.isLocal && s.phase !== 'ended') {
-      // Solo: Runde im Hintergrund fertig simulieren, damit der Sieger die Krone bekommt
       const mineNow = s.sim.stats(s.sim.byId.get(s.youId));
-      this.app.ui.toast(t('finishingMatch'));
-      s.finishInBackground((sim) => {
-        const res = sim.players.map((p) => sim.stats(p));
-        const mine = res.find((r) => r.id === s.youId) || mineNow;
-        this.app.applySoloResult({ mine, results: res, winnerId: sim.winnerId, players: s.players, silent: true });
-      });
       this.app.returnToLobby({ mine: mineNow, mode: 'solo', partial: true });
       return;
     }
@@ -625,6 +763,8 @@ export class MatchClient {
     this.unsubSettings && this.unsubSettings();
     this.session.dispose();
     this.scene.remove(this.world.group);
+    this.lootView.dispose();
+    this.app.audio.chestHum(null);
     for (const c of this.chars.values()) c.dispose();
     this.hud.hide();
     this.hud.reset();

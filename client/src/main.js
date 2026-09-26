@@ -1,24 +1,26 @@
-// SAVANNA ROYALE – Client-Einstieg: App-Zustände (Willkommen → Lobby → Laden → Match → Ergebnis).
+// SHOWDOWN BAY – Client-Einstieg: App-Zustände (Anmeldung → Lobby → Warteschlange → Laden → Match → Ergebnis).
 import * as THREE from 'three';
 import { Settings } from './settings.js';
 import { setLanguage, t } from './i18n.js';
 import { Profile, computeXp } from './profile.js';
 import { AudioEngine } from './audio/engine.js';
-import { Renderer, QUALITY_PRESETS } from './render/renderer.js';
+import { Renderer, QUALITY_PRESETS, PERFORMANCE_MODE } from './render/renderer.js';
 import { LobbyScene } from './render/lobbyScene.js';
 import { WorldView } from './render/world.js';
 import { renderMapImage } from './render/mapImage.js';
+import { preloadItemIcons } from './render/itemIcons.js';
 import { Input, enterFullscreen, lockKeyboard } from './game/input.js';
 import { MatchClient } from './game/match.js';
 import { NetClient } from './net/net.js';
 import { LocalSession, NetSession } from './net/session.js';
 import { HUD } from './ui/hud.js';
 import { UI } from './ui/ui.js';
+import { AdminPanel } from './ui/admin.js';
 import { generateMap } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
-import { MAP_SEED, MATCH_SIZE } from '../shared/constants.js';
+import { MAP_SEED, MATCH_SIZE, QUEUE_WAIT } from '../shared/constants.js';
 
 const QUALITY_ORDER = ['low', 'medium', 'high', 'epic'];
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -35,7 +37,9 @@ class App {
     this.hud = new HUD(document.getElementById('ui-root'), this.settings);
     this.lobbyScene = new LobbyScene();
     this.ui = new UI(this);
+    this.admin = new AdminPanel(this);
     this.state = 'boot';
+    this.localQueue = null;
     this.match = null;
     this.mapData = null;
     this.social = { friends: [], incoming: [], outgoing: [], blocked: [] };
@@ -110,6 +114,7 @@ class App {
   }
 
   update(dt, now) {
+    if (this.localQueue) this.tickLocalQueue();
     if (this.state === 'match' && this.match) {
       this.match.update(dt, now);
       const r = this.match.renderScenes;
@@ -127,11 +132,13 @@ class App {
   }
 
   // ---------------- Grafik ----------------
+  // alle Stufen mit 100 % 3D-Auflösung; Rendermodus „Leistung“ schaltet alles Teure ab
   effectiveGraphics() {
     const s = this.settings;
+    if (s.get('renderMode') === 'performance') return { ...PERFORMANCE_MODE };
     if (s.get('quality') === 'auto') return { ...QUALITY_PRESETS[this.autoLevel] };
     return {
-      resolution: s.get('resolution'), shadows: s.get('shadows'), viewDistance: s.get('viewDistance'),
+      resolution: 100, shadows: s.get('shadows'), viewDistance: s.get('viewDistance'),
       grass: s.get('grass'), antialias: s.get('antialias'), post: s.get('post'),
     };
   }
@@ -144,7 +151,7 @@ class App {
   }
 
   reportFps(fps) {
-    if (this.settings.get('quality') !== 'auto') return;
+    if (this.settings.get('quality') !== 'auto' || this.settings.get('renderMode') === 'performance') return;
     this.fpsSamples.push(fps);
     if (this.fpsSamples.length < 10) return;
     const avg = this.fpsSamples.reduce((a, b) => a + b, 0) / this.fpsSamples.length;
@@ -157,7 +164,7 @@ class App {
   }
 
   onSettingChanged(k) {
-    if (['quality', 'resolution', 'shadows', 'viewDistance', 'grass', 'antialias', 'post'].includes(k)) this.applyGraphics();
+    if (['renderMode', 'quality', 'shadows', 'viewDistance', 'grass', 'antialias', 'post'].includes(k)) this.applyGraphics();
     if (k === 'language') {
       setLanguage(this.settings.get('language'));
       this.ui.rebuild();
@@ -167,11 +174,18 @@ class App {
   }
 
   // ---------------- Bildschirme ----------------
+  // Menü-Hintergrund (blaues Streifen-Wallpaper) + transparente 3D-Szene davor
+  showMenuScene(mode) {
+    this.lobbyScene.mode = mode;
+    this.renderer.setScenes(this.lobbyScene.scene, this.lobbyScene.camera, null, null, true);
+    document.body.classList.add('menu');
+  }
+
   showWelcome() {
     this.state = 'welcome';
-    this.lobbyScene.mode = 'welcome';
+    this.cancelQueue();
     this.lobbyScene.setMembers([]);
-    this.renderer.setScenes(this.lobbyScene.scene, this.lobbyScene.camera);
+    this.showMenuScene('welcome');
     this.ui.showWelcome();
   }
 
@@ -185,8 +199,7 @@ class App {
 
   enterLobby() {
     this.state = 'lobby';
-    this.lobbyScene.mode = 'lobby';
-    this.renderer.setScenes(this.lobbyScene.scene, this.lobbyScene.camera);
+    this.showMenuScene('lobby');
     this.refreshLobbyMembers();
     this.ui.showLobby();
     this.audio.startLobbyMusic();
@@ -196,11 +209,11 @@ class App {
   refreshLobbyMembers() {
     const p = this.profile.data;
     if (!p) return;
-    const me = { id: p.id, outfit: p.outfit, color: p.color, skin: p.weaponSkin, name: p.name, crown: p.winStreak > 0, crownStyle: p.crownStyle };
+    const me = { id: p.id, outfit: p.outfit, color: p.color, name: p.name, crown: p.winStreak > 0, crownStyle: p.crownStyle };
     let members = [me];
     if (this.party && this.party.members.length > 1) {
       members = [me, ...this.party.members.filter((m) => m.id !== p.id).map((m) => ({
-        id: m.id, outfit: m.outfit, color: m.color, skin: m.skin, name: m.name, crown: m.streak > 0, crownStyle: m.crownStyle,
+        id: m.id, outfit: m.outfit, color: m.color, name: m.name, crown: m.streak > 0, crownStyle: m.crownStyle,
       }))];
     }
     this.lobbyScene.setMembers(members);
@@ -213,7 +226,7 @@ class App {
     if (!connected) {
       this.registered = false;
       this.party = null;
-      this.queue = null;
+      if (!this.localQueue) this.queue = null;
       this.isHost = false;
       this.refreshLobbyMembers();
       if (this.state === 'match' && this.match && !this.match.session.isLocal) this.ui.toast(t('errServerLost'), 'error');
@@ -273,6 +286,7 @@ class App {
         this.audio.uiError();
         break;
       case 'queue':
+        if (this.localQueue) break;
         this.queue = m.state === 'idle' ? null : m;
         this.ui.onQueue();
         break;
@@ -303,6 +317,7 @@ class App {
       const world = new WorldView(map);
       await world.build((p) => report(0.25 + p * 0.55));
       const mapImage = renderMapImage(map, 1024);
+      preloadItemIcons();
       report(0.9);
       this.mapData = { map, world, mapImage, nav: null };
       return this.mapData;
@@ -313,6 +328,47 @@ class App {
   ensureNav() {
     if (!this.mapData.nav) this.mapData.nav = new NavGrid(this.mapData.map.terrain, this.mapData.map.collision);
     return this.mapData.nav;
+  }
+
+  // ---------------- Warteschlange ----------------
+  // BEREIT: mit Server → 15 s Warteschlange dort (danach Bots für freie Plätze);
+  // ohne Server (Webseite) → dieselben 15 s lokal, dann eine Bot-Lobby im Browser.
+  ready() {
+    if (this.queue) return;
+    this.prepareMap().catch(() => {});
+    if (this.net.connected) {
+      this.net.send({ t: 'queue' });
+      return;
+    }
+    this.localQueue = { start: performance.now() };
+    this.queue = { state: 'waiting', secs: QUEUE_WAIT, humans: 1, bots: MATCH_SIZE - 1, local: true };
+    this.ui.onQueue();
+  }
+
+  tickLocalQueue() {
+    const q = this.localQueue;
+    const secs = Math.max(0, QUEUE_WAIT - (performance.now() - q.start) / 1000);
+    if (Math.ceil(secs) !== Math.ceil(this.queue.secs)) {
+      this.queue.secs = secs;
+      this.ui.onQueue();
+      this.audio.uiHover();
+    }
+    this.queue.secs = secs;
+    if (secs <= 0) {
+      this.localQueue = null;
+      this.queue = null;
+      this.playSolo().catch((e) => console.error(e));
+    }
+  }
+
+  cancelQueue() {
+    if (this.localQueue) {
+      this.localQueue = null;
+      this.queue = null;
+      this.ui.onQueue();
+      return;
+    }
+    if (this.queue) this.net.send({ t: 'queueCancel' });
   }
 
   // ---------------- Spielstart ----------------
@@ -332,25 +388,10 @@ class App {
     const champ = prof.soloChampion;
     const players = Simulation.fillWithBots([me], rng, champ ? { ...champ, isBot: true, crownStyle: 'gold' } : null);
     if (players.length !== MATCH_SIZE) throw new Error('Spielerzahl muss 12 sein');
-    // Offline immer mit Bots, Sturm an, Bots „Normal“, unendlich Reservemunition
-    const sim = new Simulation({ terrain: data.map.terrain, collision: data.map.collision, nav, pois: data.map.pois }, { seed, players });
+    const map = data.map;
+    const sim = new Simulation({ terrain: map.terrain, collision: map.collision, nav, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot }, { seed, players });
     const session = new LocalSession(sim, me.id);
     this.beginMatch(session, 'solo');
-  }
-
-  // Online über den Server; bots: freie Plätze bis 12 mit Bots auffüllen
-  playOnline(bots) {
-    if (!this.net.connected) {
-      if (this.net.staticSite) this.ui.openHost();
-      else this.ui.toast(t('partyNeedsServer'), 'error');
-      return;
-    }
-    this.net.send({ t: 'queue', opts: { bots: !!bots } });
-    this.prepareMap().catch(() => {});
-  }
-
-  cancelQueue() {
-    this.net.send({ t: 'queueCancel' });
   }
 
   async startNetMatch(m) {
@@ -360,13 +401,15 @@ class App {
     this.queue = null;
     this.ui.showLoading();
     const data = await this.prepareMap((p) => this.ui.setLoading(p));
-    const session = new NetSession(this.net, m, data.map.terrain);
+    const session = new NetSession(this.net, m, data.map);
     this.net.send({ t: 'loaded', mid: m.matchId });
     this.beginMatch(session, 'party');
   }
 
   beginMatch(session, mode) {
     const data = this.mapData;
+    document.body.classList.remove('menu');
+    this.admin.close();
     this.match = new MatchClient(this, { session, map: data.map, world: data.world, mapImage: data.mapImage, mode });
     this.renderer.setScenes(this.match.scene, this.match.camera, this.match.viewmodel.scene, this.match.viewmodel.camera);
     this.state = 'match';
@@ -413,8 +456,7 @@ class App {
     const xp = this.applyPersonalResult(mine);
     this.disposeMatch();
     this.state = 'results';
-    this.lobbyScene.mode = 'lobby';
-    this.renderer.setScenes(this.lobbyScene.scene, this.lobbyScene.camera);
+    this.showMenuScene('lobby');
     this.refreshLobbyMembers();
     this.ui.showResults({ mine, total: r.players.length, xp, winner: r.winner, youId: r.youId, onDone: () => this.enterLobby() });
   }
@@ -446,7 +488,7 @@ class App {
     if (w.isBot) {
       const prev = prof.data.soloChampion;
       const streak = prev && prev.name === w.name ? (prev.streak || 1) + 1 : 1;
-      prof.set('soloChampion', { name: w.name, outfit: w.outfit, color: w.color, skin: w.skin, streak });
+      prof.set('soloChampion', { name: w.name, outfit: w.outfit, color: w.color, streak });
     } else {
       prof.set('soloChampion', null);
     }

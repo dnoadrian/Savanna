@@ -1,4 +1,5 @@
-// Lobby-Server: Benutzernamen, Freunde, Party, Einladungen, Matchmaking (genau 12 Plätze),
+// Lobby-Server: Benutzernamen, Freunde, Party, Einladungen, Matchmaking (15 s Warteschlange,
+// dann mit Bots auf 12 auffüllen),
 // server-autoritative Matches und Online-Hosting-Steuerung.
 import { Store } from './store.js';
 import { ServerMatch } from './match.js';
@@ -6,7 +7,7 @@ import { TunnelManager } from './tunnel.js';
 import { validateName, suggestAlternatives } from '../shared/names.js';
 import { generateMap } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
-import { MAP_SEED, MATCH_SIZE, MIN_HUMANS_NO_BOTS, PARTY_MAX, QUEUE_WAIT, INVITE_TTL, SERVER_PORT, BOT_DIFFICULTIES } from '../shared/constants.js';
+import { MAP_SEED, MATCH_SIZE, PARTY_MAX, QUEUE_WAIT, INVITE_TTL, SERVER_PORT } from '../shared/constants.js';
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const PROXY_HEADERS = ['x-forwarded-for', 'cf-connecting-ip', 'x-real-ip', 'forwarded', 'cf-ray'];
@@ -26,8 +27,8 @@ export class GameServer {
     const t0 = Date.now();
     const map = generateMap(MAP_SEED);
     const nav = new NavGrid(map.terrain, map.collision);
-    this.world = { terrain: map.terrain, collision: map.collision, nav, pois: map.pois };
-    console.log(`Insel generiert in ${Date.now() - t0} ms (${map.collision.cols.length} Collider).`);
+    this.world = { terrain: map.terrain, collision: map.collision, nav, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot };
+    console.log(`Karte generiert in ${Date.now() - t0} ms (${map.collision.cols.length} Collider).`);
     this.tunnel = new TunnelManager(port);
     this.tunnel.on('change', (st) => this.broadcastHost(st));
     setInterval(() => this.tickQueue(), 250);
@@ -122,7 +123,7 @@ export class GameServer {
     // Match-Nachrichten
     if (c.matchId) {
       const match = this.matches.get(c.matchId);
-      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'heal', 'healCancel', 'leaveMatch', 'loaded'].includes(m.t)) {
+      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'sel', 'int', 'use', 'useCancel', 'leaveMatch', 'loaded'].includes(m.t)) {
         match.onMessage(c, m);
         return;
       }
@@ -147,7 +148,7 @@ export class GameServer {
       case 'partyPromote': return this.onPartyPromote(c, m.id);
       case 'partyReady': return this.onPartyReady(c, !!m.ready);
       case 'partyChat': return this.onPartyChat(c, m.text);
-      case 'queue': return this.onQueue(c, m.opts || {});
+      case 'queue': return this.onQueue(c);
       case 'queueCancel': return this.onQueueCancel(c);
       case 'hostStatus': return this.sendHost(c);
       case 'hostStart':
@@ -274,7 +275,7 @@ export class GameServer {
   publicProfile(pid) {
     const p = this.store.player(pid);
     const pr = (p && p.profile) || {};
-    return { id: pid, name: p ? p.name : '?', outfit: pr.outfit || 'cowboy', color: pr.color || 0, skin: pr.skin || 'gold', crownStyle: pr.crownStyle || 'gold', streak: pr.streak || 0, level: pr.level || 1 };
+    return { id: pid, name: p ? p.name : '?', outfit: pr.outfit || 'cowboy', color: pr.color || 0, crownStyle: pr.crownStyle || 'gold', streak: pr.streak || 0, level: pr.level || 1 };
   }
 
   nameOf(pid) {
@@ -593,7 +594,7 @@ export class GameServer {
   }
 
   // ---------------- Matchmaking ----------------
-  onQueue(c, opts) {
+  onQueue(c) {
     if (c.matchId) return;
     const party = this.partyOf(c.pid);
     let members = [c.pid];
@@ -604,17 +605,7 @@ export class GameServer {
       members = party.members.filter((id) => this.byPid.has(id) && !this.byPid.get(id).matchId);
     }
     if (this.queue.some((tk) => tk.members.includes(c.pid))) return;
-    const ticket = {
-      leader: c.pid,
-      members,
-      created: Date.now(),
-      opts: {
-        bots: opts.bots !== false,
-        storm: opts.storm !== false,
-        botDifficulty: BOT_DIFFICULTIES.includes(opts.botDifficulty) ? opts.botDifficulty : 'normal',
-        infiniteAmmo: opts.infiniteAmmo !== false,
-      },
-    };
+    const ticket = { leader: c.pid, members, created: Date.now() };
     this.queue.push(ticket);
     this.tickQueue();
   }
@@ -648,36 +639,26 @@ export class GameServer {
       return ok;
     });
     if (!this.queue.length) return;
-    // getrennte Warteschlangen: mit Bots / ohne Bots
-    for (const bots of [true, false]) {
-      const q = this.queue.filter((tk) => tk.opts.bots === bots);
-      if (q.length) this.tickQueueGroup(q, bots);
-    }
-  }
-
-  tickQueueGroup(queue, bots) {
     // Parties nie trennen: FIFO auffüllen bis max. 12 Menschen
     const pick = [];
     let humans = 0;
-    for (const tk of queue) {
+    for (const tk of this.queue) {
       if (humans + tk.members.length <= MATCH_SIZE) {
         pick.push(tk);
         humans += tk.members.length;
       }
     }
-    const waited = (Date.now() - queue[0].created) / 1000;
-    // ohne Bots erst ab 2 Menschen starten
-    const enough = bots || humans >= MIN_HUMANS_NO_BOTS;
-    if (humans >= MATCH_SIZE || (waited >= QUEUE_WAIT && enough)) {
+    // immer die vollen 15 s warten (auch wenn jemand dazukommt), dann mit Bots auffüllen
+    const waited = (Date.now() - this.queue[0].created) / 1000;
+    if (humans >= MATCH_SIZE || waited >= QUEUE_WAIT) {
       this.queue = this.queue.filter((tk) => !pick.includes(tk));
       this.startMatch(pick);
       return;
     }
-    // Status an alle Wartenden
     const secs = Math.max(0, QUEUE_WAIT - waited);
-    for (const tk of queue) {
+    for (const tk of this.queue) {
       const n = pick.includes(tk) ? humans : tk.members.length;
-      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs, humans: n, bots: bots ? MATCH_SIZE - n : 0, noBots: !bots });
+      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs, humans: n, bots: MATCH_SIZE - n });
     }
   }
 
@@ -688,7 +669,7 @@ export class GameServer {
       if (c && !c.matchId) clients.push(c);
     }
     if (!clients.length) return;
-    const match = new ServerMatch(this, clients, tickets[0].opts);
+    const match = new ServerMatch(this, clients);
     this.matches.set(match.id, match);
     for (const c of clients) {
       this.send(c, { t: 'queue', state: 'idle' });
@@ -710,7 +691,7 @@ export class GameServer {
     if (w && w.isBot) {
       const prev = this.store.data.champion;
       const streak = prev && prev.name === w.name ? (prev.streak || 1) + 1 : 1;
-      this.store.data.champion = { name: w.name, outfit: w.outfit, color: w.color, skin: w.skin, streak };
+      this.store.data.champion = { name: w.name, outfit: w.outfit, color: w.color, streak };
     } else if (w) {
       this.store.data.champion = null;
     }
@@ -762,7 +743,6 @@ function sanitizeProfile(p) {
   return {
     outfit: str(p.outfit, 'cowboy'),
     color: num(p.color, 0, 0, 7),
-    skin: str(p.skin, 'gold'),
     crownStyle: str(p.crownStyle, 'gold'),
     streak: num(p.streak, 0, 0, 999),
     level: num(p.level, 1, 1, 9999),

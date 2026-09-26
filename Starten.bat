@@ -1,9 +1,9 @@
 @echo off
-title SAVANNA ROYALE
+title SHOWDOWN BAY
 cd /d "%~dp0"
 echo.
 echo   =============================
-echo          SAVANNA ROYALE
+echo          SHOWDOWN BAY
 echo   =============================
 echo.
 

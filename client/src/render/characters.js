@@ -1,8 +1,10 @@
 // Stilisierte Low-Poly-Figuren mit Outfits, prozeduralen Animationen (Idle, Laufen, Sprinten,
-// Schleichen, Sliden, Schießen, Nachladen, Heilen, Tod) und Krone für den Sieger.
+// Schleichen, Sliden, Schießen, Nachladen, Schild/Medikit benutzen, Tod) und Krone für den Sieger.
+// In der Hand: die gerade gewählte Waffe (Seltenheitsfarbe) oder ein Heil-/Schild-Gegenstand.
 import * as THREE from 'three';
 import { GeoBuilder, flatMaterial } from './geom.js';
-import { createRifleMesh, setRifleSkin } from './rifle.js';
+import { weaponGeometry, consumableGeometry, itemMaterial } from './weapons.js';
+import { decodeHand } from '../../shared/sim/simulation.js';
 import { OUTFIT_COLORS, F } from '../../shared/constants.js';
 import { hashString } from '../../shared/rng.js';
 
@@ -225,16 +227,6 @@ export function createCrownMesh(style = 'gold') {
 }
 
 // Medkit-Modell (für Heilanimation)
-export function buildMedkitGeo(scale = 1) {
-  const g = new GeoBuilder();
-  const s = scale;
-  g.box(0, 0, 0, 0.22 * s, 0.16 * s, 0.1 * s, 0xf5f5f5);
-  g.box(0, 0.085 * s, 0, 0.1 * s, 0.02 * s, 0.03 * s, 0x888888);
-  g.box(0, 0, -0.052 * s, 0.1 * s, 0.03 * s, 0.01 * s, 0xe63946, { e: 0.3 });
-  g.box(0, 0, -0.052 * s, 0.03 * s, 0.1 * s, 0.01 * s, 0xe63946, { e: 0.3 });
-  return g;
-}
-
 // ---------------- Figur ----------------
 export class Character {
   constructor(opts = {}) {
@@ -259,7 +251,8 @@ export class Character {
     this.adsK = 0;
     this.sprintK = 0;
     this.airK = 0;
-    this.healK = 0;
+    this.useK = 0;
+    this.hand = null;
     this.recoil = 0;
     this.reloadT = -1;
     this.dead = false;
@@ -268,7 +261,7 @@ export class Character {
   }
 
   build() {
-    const { outfit = 'cowboy', color = 0, skin = 'gold', name = '' } = this.opts;
+    const { outfit = 'cowboy', color = 0, name = '' } = this.opts;
     const seed = hashString(name || 'x');
     const primary = new THREE.Color(OUTFIT_COLORS[color % OUTFIT_COLORS.length]).getHex();
     const skinTone = this.opts.skinTone ?? SKIN_TONES[seed % SKIN_TONES.length];
@@ -321,16 +314,18 @@ export class Character {
       this.torso.add(lower);
       this.arms.push({ upper, lower, side, shoulder: new THREE.Vector3(side * 0.31, 0.54, 0) });
     }
-    // Waffe
+    // Gegenstand in der Hand
     if (this.gun) this.torso.remove(this.gun);
-    this.gun = createRifleMesh(skin, 0);
+    this.gun = new THREE.Mesh(weaponGeometry('ar', this.opts.rarity ?? 4, 0), itemMaterial());
     this.gun.scale.setScalar(1.15);
-    this.gun.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    this.gun.castShadow = true;
     this.torso.add(this.gun);
-    // Medkit
-    this.medkit = new THREE.Mesh(buildMedkitGeo(1.1).toGeometry(), charMat());
+    if (this.medkit) this.torso.remove(this.medkit);
+    this.medkit = new THREE.Mesh(consumableGeometry('medkit'), itemMaterial());
+    this.medkit.scale.setScalar(1.3);
     this.medkit.visible = false;
     this.torso.add(this.medkit);
+    this.handCode = null;
     this.setCrown(this.opts.crown ? this.opts.crownStyle || 'gold' : null);
   }
 
@@ -345,8 +340,20 @@ export class Character {
     this.head.add(this.crown);
   }
 
-  setGunSkin(skin) {
-    setRifleSkin(this.gun, skin, 0);
+  // Waffe/Gegenstand in der Hand (Code aus dem Snapshot)
+  setHand(code) {
+    if (code === this.handCode) return;
+    this.handCode = code;
+    const it = decodeHand(code);
+    this.hand = it;
+    if (it && it.k === 'w') {
+      this.gun.geometry = weaponGeometry(it.w, it.r, 0);
+      this.gun.visible = true;
+      this.medkit.visible = false;
+    } else {
+      this.gun.visible = false;
+      if (it) this.medkit.geometry = consumableGeometry(it.c);
+    }
   }
 
   // ---------- Animation ----------
@@ -372,7 +379,8 @@ export class Character {
     this.adsK = k(flags & F.ADS ? 1 : 0, this.adsK, 12);
     this.sprintK = k(flags & F.SPRINT ? 1 : 0, this.sprintK, 8);
     this.airK = k(flags & F.AIR ? 1 : 0, this.airK, 8);
-    this.healK = k(flags & F.HEAL ? 1 : 0, this.healK, 10);
+    this.useK = k(flags & F.USING ? 1 : 0, this.useK, 10);
+    if (st.hand !== undefined) this.setHand(st.hand);
     if (flags & F.RELOAD) {
       if (this.reloadT < 0) this.reloadT = 0;
       this.reloadT += dt / 2.1;
@@ -427,7 +435,8 @@ export class Character {
     const hipPos = [0.16, 0.36, -0.34];
     const adsPos = [0.08, 0.5, -0.3];
     const sprPos = [0.12, 0.26, -0.26];
-    const heal = this.healK;
+    const holding = this.hand && this.hand.k === 'c';
+    const heal = holding ? Math.max(0.35, this.useK) : 0;
     const aim = 1 - this.sprintK;
     gp.set(
       (hipPos[0] * (1 - this.adsK) + adsPos[0] * this.adsK) * aim + sprPos[0] * this.sprintK,
@@ -450,16 +459,16 @@ export class Character {
     }
     this.gun.updateMatrix();
     // Medkit
-    this.medkit.visible = heal > 0.3;
-    if (this.medkit.visible) {
-      this.medkit.position.set(-0.08, 0.3 + Math.sin(t * 9) * 0.02, -0.38);
-      this.medkit.rotation.set(0.3, 0.2, 0);
+    this.medkit.visible = holding;
+    if (holding) {
+      this.medkit.position.set(-0.02, 0.18 + this.useK * 0.3 + Math.sin(t * 9) * 0.02 * this.useK, -0.34);
+      this.medkit.rotation.set(0.3 + this.useK * 0.8, 0.2, 0);
     }
     // IK
     const grip = _v1.set(0, -0.06, 0.045).applyMatrix4(this.gun.matrix);
     this.solveArm(this.arms[1], grip, 1);
     let lt;
-    if (heal > 0.3) lt = _v2.copy(this.medkit.position).add(_v3.set(0.12, 0, 0));
+    if (holding) lt = _v2.copy(this.medkit.position).add(_v3.set(0.1, 0.05, 0));
     else if (leftTarget) lt = _v2.copy(leftTarget).applyMatrix4(this.gun.matrix);
     else lt = _v2.set(0, 0.0, -0.4).applyMatrix4(this.gun.matrix);
     this.solveArm(this.arms[0], lt, -1);
@@ -502,7 +511,7 @@ export class Character {
     this.dead = false;
     this.fall.rotation.set(0, 0, 0);
     this.fall.position.set(0, 0, 0);
-    this.gun.visible = true;
+    this.gun.visible = !this.hand || this.hand.k === 'w';
   }
 
   updateDeath(dt) {

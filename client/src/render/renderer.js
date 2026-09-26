@@ -31,23 +31,27 @@ const GradeShader = {
     }`,
 };
 
+// Qualitätsstufen wie in Fortnite – alle mit 100 % 3D-Auflösung
 export const QUALITY_PRESETS = {
-  low: { resolution: 70, shadows: 'off', viewDistance: 'near', grass: 'low', antialias: false, post: false },
-  medium: { resolution: 85, shadows: 'low', viewDistance: 'medium', grass: 'medium', antialias: true, post: false },
+  low: { resolution: 100, shadows: 'off', viewDistance: 'near', grass: 'off', antialias: false, post: false },
+  medium: { resolution: 100, shadows: 'low', viewDistance: 'medium', grass: 'low', antialias: true, post: false },
   high: { resolution: 100, shadows: 'high', viewDistance: 'far', grass: 'medium', antialias: true, post: true },
   epic: { resolution: 100, shadows: 'high', viewDistance: 'epic', grass: 'high', antialias: true, post: true },
 };
-export const VIEW_DISTANCES = { near: 220, medium: 300, far: 400, epic: 520 };
+// Rendermodus „Leistung“: wie Fortnites Performance-Modus – alles Teure aus, 100 % Auflösung bleibt
+export const PERFORMANCE_MODE = { resolution: 100, shadows: 'off', viewDistance: 'near', grass: 'off', antialias: false, post: false };
+export const VIEW_DISTANCES = { near: 220, medium: 280, far: 340, epic: 420 };
 
 export class Renderer {
   constructor(container) {
     this.container = container;
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance', stencil: false });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.setClearColor(0xcfe8f5);
+    this.renderer.setClearColor(0xbfe4f7, 1);
+    this.transparent = false;
     this.canvas = this.renderer.domElement;
     this.canvas.id = 'game-canvas';
     container.appendChild(this.canvas);
@@ -101,11 +105,14 @@ export class Renderer {
     }
   }
 
-  setScenes(scene, camera, vmScene = null, vmCamera = null) {
+  // transparent: Lobby über dem CSS-Hintergrund (ohne Bloom/Farbkorrektur, Alpha bleibt erhalten)
+  setScenes(scene, camera, vmScene = null, vmCamera = null, transparent = false) {
     this.scene = scene;
     this.camera = camera;
     this.vmScene = vmScene;
     this.vmCamera = vmCamera;
+    this.transparent = transparent;
+    this.renderer.setClearColor(transparent ? 0x000000 : 0xbfe4f7, transparent ? 0 : 1);
     this.buildComposer();
   }
 
@@ -118,6 +125,7 @@ export class Renderer {
     this.usingComposer = !!(s.post || s.antialias);
     if (!this.usingComposer || !this.scene) return;
     const rt = new THREE.WebGLRenderTarget(this.width, this.height, { type: THREE.HalfFloatType, samples: s.antialias ? 4 : 0 });
+    const post = s.post && !this.transparent;
     const composer = new EffectComposer(this.renderer, rt);
     composer.setPixelRatio(this.renderer.getPixelRatio());
     composer.setSize(this.width, this.height);
@@ -129,7 +137,7 @@ export class Renderer {
       this.vmPass.clearDepth = true;
       composer.addPass(this.vmPass);
     }
-    if (s.post) {
+    if (post) {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(this.width / 2, this.height / 2), 0.35, 0.45, 0.88);
       composer.addPass(this.bloom);
       this.grade = new ShaderPass(GradeShader);

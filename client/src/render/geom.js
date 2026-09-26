@@ -64,6 +64,35 @@ function unitPrism() {
   return { pos: new Float32Array(v), shade };
 }
 
+// Felsblock: achteckig abgeschrägtes Prisma, oben um `taper` verkleinert (Canyonwände)
+const slabCache = new Map();
+function slabTemplate(taper) {
+  const key = Math.round(taper * 50);
+  let t = slabCache.get(key);
+  if (t) return t;
+  const c = 0.2;
+  const ring = [[-0.5 + c, -0.5], [0.5 - c, -0.5], [0.5, -0.5 + c], [0.5, 0.5 - c], [0.5 - c, 0.5], [-0.5 + c, 0.5], [-0.5, 0.5 - c], [-0.5, -0.5 + c]];
+  const tp = key / 50;
+  const v = [];
+  const shade = [];
+  for (let i = 0; i < 8; i++) {
+    const [x0, z0] = ring[i], [x1, z1] = ring[(i + 1) % 8];
+    const b0 = [x0, -0.5, z0], b1 = [x1, -0.5, z1], t0 = [x0 * tp, 0.5, z0 * tp], t1 = [x1 * tp, 0.5, z1 * tp];
+    v.push(...b0, ...t1, ...b1, ...b0, ...t0, ...t1);
+    const nx = (z1 - z0), nz = -(x1 - x0);
+    const sh = 0.86 + 0.12 * (nx * 0.6 + nz * 0.8) / Math.hypot(nx, nz);
+    shade.push(sh, sh);
+  }
+  for (let i = 1; i < 7; i++) {
+    const [x0, z0] = ring[0], [x1, z1] = ring[i], [x2, z2] = ring[i + 1];
+    v.push(x0 * tp, 0.5, z0 * tp, x2 * tp, 0.5, z2 * tp, x1 * tp, 0.5, z1 * tp);
+    shade.push(1.08);
+  }
+  t = { pos: new Float32Array(v), shade };
+  slabCache.set(key, t);
+  return t;
+}
+
 const icoCache = new Map();
 function unitIco(detail) {
   if (icoCache.has(detail)) return icoCache.get(detail);
@@ -159,6 +188,12 @@ export class GeoBuilder {
     this.jseed = o.jseed || 3;
     this.addTemplate(unitIco(o.detail || 0), _m, color, o.e || 0, o.vary ?? 0.08, o.jitter ?? 0.25);
     this.jseed = 3;
+    return this;
+  }
+
+  slab(x, y, z, w, h, d, color, o = {}) {
+    makeMatrix(x, y, z, 0, o.ry || 0, 0, w, h, d);
+    this.addTemplate(slabTemplate(o.taper ?? 0.9), _m, color, 0, o.vary ?? 0.07);
     return this;
   }
 

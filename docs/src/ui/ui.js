@@ -1,6 +1,6 @@
 // UI-Manager: Bildschirme, Overlays, Dialoge, Toasts, Einladungen, Konfetti.
 import { h, esc, fmtTime } from './dom.js';
-import { ICON } from './icons.js';
+import { ICON, logo } from './icons.js';
 import { t } from '../i18n.js';
 import { WelcomeScreen } from './welcome.js';
 import { LobbyScreen } from './lobby.js';
@@ -35,6 +35,7 @@ export class UI {
     // ESC schließt Panels
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'Escape' || this.app.input.captureCb) return;
+      if (this.app.admin && this.app.admin.isOpen) { this.app.admin.close(); e.preventDefault(); return; }
       if (this.settings.isOpen) { this.settings.close(); e.preventDefault(); return; }
       if (this.friends.isOpen) { this.friends.close(); e.preventDefault(); return; }
       if (this.host.isOpen) { this.host.close(); e.preventDefault(); return; }
@@ -101,7 +102,7 @@ export class UI {
     this.loadBar = h('div', { class: 'load-fill' });
     this.tipEl = h('div', { class: 'load-tip' }, tips[this.tipIdx]);
     this.loadingEl = h('div', { class: 'screen loading-screen' },
-      h('div', { class: 'logo big' }, h('span', { class: 'logo-crown', html: ICON.crown }), h('div', { class: 'logo-top' }, 'SAVANNA'), h('div', { class: 'logo-bottom' }, 'ROYALE')),
+      logo('big'),
       h('div', { class: 'load-title' }, t('loadingSavanna')),
       h('div', { class: 'load-bar' }, this.loadBar),
       this.tipEl);
@@ -154,7 +155,7 @@ export class UI {
 
   // Blockiert ein Overlay die Spielsteuerung?
   overlayOpen() {
-    return !!(this.gameOverlay || this.settings.isOpen || this.friends.isOpen || this.host.isOpen || this.modal || this.clickEl);
+    return !!(this.gameOverlay || this.settings.isOpen || this.friends.isOpen || this.host.isOpen || this.modal || this.clickEl || (this.app.admin && this.app.admin.isOpen));
   }
 
   onOverlayClosed() {
@@ -215,7 +216,7 @@ export class UI {
       this.clearScreens();
       document.body.classList.add('quit');
       this.screenRoot.appendChild(h('div', { class: 'screen goodbye' },
-        h('div', { class: 'logo big' }, h('div', { class: 'logo-top' }, 'SAVANNA'), h('div', { class: 'logo-bottom' }, 'ROYALE')),
+        logo('big'),
         h('h2', {}, t('goodbye')),
         h('button', { class: 'btn yellow', onclick: () => location.reload() }, t('restart'))));
       this.app.state = 'quit';

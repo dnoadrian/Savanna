@@ -23,8 +23,7 @@ const MIME = {
 const MOUNTS = [
   ['/shared/', path.join(ROOT, 'shared')],
   ['/vendor/three/', path.join(ROOT, 'node_modules', 'three')],
-  ['/fonts/luckiest/', path.join(ROOT, 'node_modules', '@fontsource', 'luckiest-guy', 'files')],
-  ['/fonts/lilita/', path.join(ROOT, 'node_modules', '@fontsource', 'lilita-one', 'files')],
+  ['/fonts/barlow/', path.join(ROOT, 'node_modules', '@fontsource', 'barlow-condensed', 'files')],
   ['/', path.join(ROOT, 'client')],
 ];
 

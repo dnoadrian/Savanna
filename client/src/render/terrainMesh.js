@@ -7,13 +7,13 @@ import { Noise2D } from '../../shared/noise.js';
 import { worldMaterial } from './geom.js';
 
 const SURF_COLORS = {
-  [SURF.GRASS]: 0xb9bf4c,
-  [SURF.DRYGRASS]: 0xe2b84e,
-  [SURF.DIRT]: 0xc7683d,
-  [SURF.ROCK]: 0xa37c62,
-  [SURF.BEACH]: 0xf3dfa6,
-  [SURF.PATH]: 0xe0bf82,
-  [SURF.SEAFLOOR]: 0xd9c48e,
+  [SURF.GRASS]: 0x86c956,
+  [SURF.DRYGRASS]: 0xc9c062,
+  [SURF.DIRT]: 0xd99a62,
+  [SURF.ROCK]: 0xc2613d,
+  [SURF.BEACH]: 0xf5c18f,
+  [SURF.PATH]: 0xe7b37f,
+  [SURF.SEAFLOOR]: 0xf3d7a6,
 };
 
 export function surfaceColor(s) {
@@ -72,10 +72,15 @@ export function buildTerrain(map, chunkCells = 48) {
       let br = 1 + noise.fbm(x / 14, z / 14, 2) * 0.08 + noise.noise(x / 3.5, z / 3.5) * 0.025;
       if (s === SURF.SEAFLOOR) br *= Math.max(0.45, 1 + h * 0.06);
       if (s === SURF.BEACH && h < 0.7) br *= 0.84 + Math.max(0, h) * 0.2; // nasser Sand an der Wasserlinie
-      if (s === SURF.GRASS || s === SURF.DRYGRASS) {
-        // leichte Farbverläufe zwischen Gold und Grün
+      if (s === SURF.GRASS) {
+        // leichte Farbverläufe im Gras
         const m = noise.noise(x / 25 + 5, z / 25) * 0.5 + 0.5;
-        col.lerp(tint.set(s === SURF.GRASS ? 0xd8c050 : 0xcaa640), m * 0.35);
+        col.lerp(tint.set(0xa6d45e), m * 0.4);
+      }
+      if (s === SURF.SEAFLOOR) {
+        // hellere Sandbänke, dunklere Rinnen unter Wasser
+        const m = noise.noise(x / 18, z / 18) * 0.5 + 0.5;
+        col.lerp(tint.set(0xe2b98a), m * 0.35);
       }
       if (s === SURF.ROCK) br *= 0.95 + Math.min(0.15, h / 40);
       br *= ao[idx];

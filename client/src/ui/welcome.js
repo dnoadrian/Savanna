@@ -1,6 +1,7 @@
-// Erststart: Benutzernamen wählen (vor der Lobby), danach optional Outfit mit 3D-Vorschau.
+// Anmeldung beim Erststart: Benutzernamen wählen (vor der Lobby), danach optional Outfit mit
+// 3D-Vorschau. Rechts daneben drehen sich Waffen aus dem Spiel.
 import { h } from './dom.js';
-import { ICON } from './icons.js';
+import { ICON, logo } from './icons.js';
 import { t } from '../i18n.js';
 import { validateName, randomName } from '../../shared/names.js';
 import { OUTFITS, OUTFIT_COLORS } from '../../shared/constants.js';
@@ -16,20 +17,21 @@ export class WelcomeScreen {
 
   show() {
     this.el = h('div', { class: 'screen welcome-screen' });
-    const logo = h('div', { class: 'logo big' }, h('span', { class: 'logo-crown', html: ICON.crown }), h('div', { class: 'logo-top' }, 'SAVANNA'), h('div', { class: 'logo-bottom' }, 'ROYALE'));
     this.input = h('input', { class: 'name-input', type: 'text', maxlength: 16, placeholder: t('namePlaceholder'), autocomplete: 'off', spellcheck: 'false' });
     this.dice = h('button', { class: 'btn dice', title: t('randomName'), html: ICON.dice });
     this.status = h('div', { class: 'name-status' });
     this.suggest = h('div', { class: 'name-suggest' });
     this.nextBtn = h('button', { class: 'btn yellow big', disabled: true }, t('next'));
-    const card = h('div', { class: 'welcome-card' },
+    const card = h('div', { class: 'welcome-card panel' },
+      logo('big'),
+      h('div', { class: 'wc-kicker' }, t('welcomeKicker')),
       h('h2', {}, t('welcomeTitle')),
       h('p', { class: 'sub' }, t('welcomeSub')),
       h('div', { class: 'name-row' }, this.input, this.dice),
       this.status,
       this.suggest,
       this.nextBtn);
-    this.el.append(logo, card);
+    this.el.append(card, h('div', { class: 'welcome-foot' }, t('welcomeFoot')));
     this.ui.screenRoot.appendChild(this.el);
     this.input.addEventListener('input', () => {
       this.app.audio.uiType();
@@ -162,7 +164,7 @@ export class WelcomeScreen {
     OUTFIT_COLORS.forEach((c, i) => {
       colors.appendChild(h('button', { class: 'swatch', 'data-c': i, style: { background: c }, onclick: () => { app.audio.uiClick(); app.profile.set('color', i); refresh(); } }));
     });
-    const panel = h('div', { class: 'outfit-panel' },
+    const panel = h('div', { class: 'outfit-panel panel' },
       h('h2', {}, t('outfitStep')),
       grid,
       h('div', { class: 'lbl' }, t('color')),

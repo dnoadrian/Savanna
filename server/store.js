@@ -4,8 +4,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.SAVANNA_DATA_DIR || path.join(__dirname, 'data');
-const FILE = path.join(DATA_DIR, 'db.json');
+const DATA_DIR = process.env.SHOWDOWN_DATA_DIR || path.join(__dirname, 'data');
+// neue Datei für Showdown Bay: alle Spielerkonten starten frisch
+const FILE = path.join(DATA_DIR, 'showdownbay.json');
 
 export class Store {
   constructor() {

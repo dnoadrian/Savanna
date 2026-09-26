@@ -153,16 +153,17 @@ export class Effects {
   }
 
   // remote: Schuss eines anderen Spielers (Spur wird kurz vor der eigenen Kamera ausgeblendet)
-  tracer(from, to, remote = false) {
+  tracer(from, to, remote = false, width = 1, speed = 520) {
     const t = this.tracers[this.tNext];
     t.remote = remote;
+    t.w = width;
     this.tNext = (this.tNext + 1) % MAX_TRACERS;
     t.from = from.clone();
     t.dir = to.clone().sub(from);
     t.dist = t.dir.length();
     t.dir.normalize();
     t.pos = 0;
-    t.speed = 520;
+    t.speed = speed;
     t.len = Math.min(5, t.dist * 0.3 + 1);
     t.life = t.dist / t.speed + 0.05;
   }
@@ -227,8 +228,9 @@ export class Effects {
     this.dMesh.instanceMatrix.needsUpdate = true;
   }
 
-  shell(pos, dir, right) {
+  shell(pos, dir, right, size = 1) {
     const s = this.shells[this.sNext];
+    s.size = size;
     this.sNext = (this.sNext + 1) % MAX_SHELLS;
     s.p.copy(pos);
     s.v.copy(right).multiplyScalar(2.2 + Math.random()).addScaledVector(dir, -0.4).add(_v.set(0, 2 + Math.random(), 0));
@@ -244,6 +246,43 @@ export class Effects {
       const r = 0.3 + Math.random() * 0.5;
       this.glow(pos.x + Math.cos(a) * r, pos.y + Math.random() * 1.6, pos.z + Math.sin(a) * r, 0, 0.8 + Math.random(), 0, i % 3 ? 0x5dff8a : 0xb8ffc8, 1.0 + Math.random() * 0.4, 1.2, -0.3);
     }
+  }
+
+  // Treffer auf Schild: blaue Funken
+  shieldHit(pos) {
+    for (let i = 0; i < 7; i++) this.glow(pos.x, pos.y, pos.z, (Math.random() - 0.5) * 3.5, Math.random() * 2.5, (Math.random() - 0.5) * 3.5, i % 2 ? 0x6fd0ff : 0xd8f4ff, 0.32, 0.8, 5);
+  }
+
+  // Schild bricht: Splitter + Lichtring
+  shieldBreak(pos) {
+    for (let i = 0; i < 26; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = 2.5 + Math.random() * 3;
+      this.glow(pos.x, pos.y + Math.random() * 0.8, pos.z, Math.cos(a) * v, Math.random() * 3, Math.sin(a) * v, i % 3 ? 0x3fb4ff : 0xffffff, 0.45 + Math.random() * 0.3, 1.2, 6);
+    }
+    for (let i = 0; i < 10; i++) this.spawn(pos.x, pos.y + 0.4, pos.z, (Math.random() - 0.5) * 5, 2 + Math.random() * 3, (Math.random() - 0.5) * 5, 0x5ac8ff, 0.7, 1.6, 10);
+  }
+
+  // Truhe öffnet sich: goldene Funken
+  chestBurst(pos) {
+    for (let i = 0; i < 24; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * 0.5;
+      this.glow(pos.x + Math.cos(a) * r, pos.y + 0.5, pos.z + Math.sin(a) * r, Math.cos(a) * 1.4, 2 + Math.random() * 2.5, Math.sin(a) * 1.4, i % 3 ? 0xffd257 : 0xfff4c0, 0.8 + Math.random() * 0.5, 1.1, 3);
+    }
+  }
+
+  // Siphon: grün/blaue Funken um den Spieler
+  siphon(pos) {
+    for (let i = 0; i < 18; i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.glow(pos.x + Math.cos(a) * 0.6, pos.y + Math.random() * 1.8, pos.z + Math.sin(a) * 0.6, 0, 1 + Math.random(), 0, i % 2 ? 0x5dff8a : 0x6fd0ff, 0.9, 1.2, -0.3);
+    }
+  }
+
+  // Rauch (Kamin): große, langsam steigende graue Partikel
+  smoke(x, y, z) {
+    this.spawn(x + (Math.random() - 0.5) * 0.2, y, z + (Math.random() - 0.5) * 0.2, 0.35 + Math.random() * 0.2, 0.9 + Math.random() * 0.3, (Math.random() - 0.5) * 0.2, Math.random() < 0.5 ? 0xe4e4e0 : 0xcfcfcb, 4.5, 7 + Math.random() * 3, -0.05);
   }
 
   dust(pos, amount = 3, color = 0xd9b56a) {
@@ -321,7 +360,7 @@ export class Effects {
         continue;
       }
       _q.setFromUnitVectors(NEG_Z, t.dir);
-      _m.compose(_v, _q, _s.set(1, 1, len));
+      _m.compose(_v, _q, _s.set(t.w, t.w, len));
       this.tMesh.setMatrixAt(i, _m);
     }
     this.tMesh.instanceMatrix.needsUpdate = true;
@@ -364,7 +403,7 @@ export class Effects {
       }
       s.r.x += s.w.x * dt; s.r.y += s.w.y * dt; s.r.z += s.w.z * dt;
       _q.setFromEuler(s.r);
-      _m.compose(s.p, _q, _s.set(1, 1, 1));
+      _m.compose(s.p, _q, _s.set(s.size, s.size * 1.6 - 0.6, s.size * 1.6 - 0.6));
       this.sMesh.setMatrixAt(i, _m);
     }
     this.sMesh.instanceMatrix.needsUpdate = true;

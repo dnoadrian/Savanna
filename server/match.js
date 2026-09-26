@@ -1,29 +1,23 @@
 // Server-autoritatives Match: gemeinsame Simulation mit 30 Hz, Snapshots mit 20 Hz,
 // Ereignisse sofort, Lag-Kompensation beim Treffertest.
 import { Simulation } from '../shared/sim/simulation.js';
+import { encodeItem } from '../shared/items.js';
 import { RNG } from '../shared/rng.js';
 import { SIM_DT, SIM_HZ, SNAPSHOT_HZ, MATCH_SIZE, MAX_REWIND } from '../shared/constants.js';
 
 let nextMatch = 1;
 
 export class ServerMatch {
-  constructor(gs, clients, opts) {
+  constructor(gs, clients) {
     this.gs = gs;
     this.id = 'm' + nextMatch++ + '_' + Date.now().toString(36);
-    this.opts = opts;
     this.seed = (Math.random() * 0xffffffff) >>> 0;
     const rng = new RNG(this.seed ^ 0xabc);
     const humans = clients.slice(0, MATCH_SIZE).map((c) => ({ ...gs.publicProfile(c.pid), isBot: false }));
     const champ = gs.store.data.champion;
-    // mit Bots: auf 12 auffüllen; ohne Bots: nur die Menschen
-    const players = opts.bots === false ? humans : Simulation.fillWithBots(humans, rng, champ ? { ...champ, crownStyle: 'gold' } : null);
-    this.sim = new Simulation(gs.world, {
-      seed: this.seed,
-      players,
-      storm: opts.storm !== false,
-      botDifficulty: opts.botDifficulty || 'normal',
-      infiniteAmmo: opts.infiniteAmmo !== false,
-    });
+    // freie Plätze bis 12 mit Bots auffüllen
+    const players = Simulation.fillWithBots(humans, rng, champ ? { ...champ, crownStyle: 'gold' } : null);
+    this.sim = new Simulation(gs.world, { seed: this.seed, players });
     this.clients = new Map(clients.map((c) => [c.pid, c]));
     this.loaded = new Set();
     this.started = false;
@@ -31,12 +25,13 @@ export class ServerMatch {
     this.tick = 0;
     this.ended = false;
     this.endSent = false;
-    this.players = this.sim.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, outfit: p.outfit, color: p.color, skin: p.skin, crownStyle: p.crownStyle, streak: p.streak }));
+    this.players = this.sim.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, outfit: p.outfit, color: p.color, crownStyle: p.crownStyle, streak: p.streak }));
+    this.sentRev = new Map();
     const spawns = {};
     for (const p of this.sim.players) spawns[p.id] = [r2(p.body.x), r2(p.body.y), r2(p.body.z), r2(p.body.yaw)];
     for (const c of this.clients.values()) {
       c.matchId = this.id;
-      gs.send(c, { t: 'matchStart', matchId: this.id, seed: this.seed, storm: opts.storm !== false, infiniteAmmo: opts.infiniteAmmo !== false, players: this.players, spawns, you: c.pid });
+      gs.send(c, { t: 'matchStart', matchId: this.id, seed: this.seed, players: this.players, spawns, you: c.pid });
     }
     this.timer = setInterval(() => this.update(), 1000 / SIM_HZ);
     console.log(`Match ${this.id} gestartet: ${humans.length} Menschen + ${this.sim.players.length - humans.length} Bots = ${this.sim.players.length}`);
@@ -86,8 +81,16 @@ export class ServerMatch {
     for (const c of this.clients.values()) {
       if (c.matchId !== this.id) continue;
       const p = this.sim.byId.get(c.pid);
-      const msg = { t: 'snap', mid: this.id, s, me: { mk: p ? p.medkits : 0 } };
+      const msg = { t: 'snap', mid: this.id, s };
       if (sc) msg.sc = sc;
+      if (p) {
+        msg.me = { u: p.useT >= 0 ? Math.round(p.useT * 100) / 100 : -1 };
+        // Inventar nur bei Änderungen
+        if (this.sentRev.get(c.pid) !== p.inv.rev) {
+          this.sentRev.set(c.pid, p.inv.rev);
+          msg.me.inv = { s: p.inv.slots.map((it) => (it ? encodeItem(it) : null)), sel: p.inv.sel, a: p.inv.ammo, rev: p.inv.rev };
+        }
+      }
       this.gs.send(c, msg);
     }
   }
@@ -109,14 +112,21 @@ export class ServerMatch {
         break;
       case 'fire': {
         const rw = Math.max(0, Math.min(MAX_REWIND, Number(m.rw) || 0));
-        const shot = { ox: +m.ox, oy: +m.oy, oz: +m.oz, dx: +m.dx, dy: +m.dy, dz: +m.dz, rewind: rw };
-        if (Object.values(shot).every(Number.isFinite)) sim.humanFire(c.pid, shot);
+        if (!Array.isArray(m.o) || !Array.isArray(m.d) || m.d.length > 12) break;
+        const [ox, oy, oz] = m.o.map(Number);
+        const dirs = m.d.filter((d) => Array.isArray(d) && d.length === 3 && d.every((v) => Number.isFinite(+v))).map((d) => ({ x: +d[0], y: +d[1], z: +d[2] }));
+        if ([ox, oy, oz].every(Number.isFinite) && dirs.length) sim.humanFire(c.pid, { s: m.s | 0, ox, oy, oz, dirs, rewind: rw });
         break;
       }
       case 'reload': sim.humanReload(c.pid); break;
       case 'reloadCancel': sim.humanCancelReload(c.pid); break;
-      case 'heal': sim.humanHeal(c.pid); break;
-      case 'healCancel': sim.humanCancelHeal(c.pid); break;
+      case 'sel': sim.humanSelect(c.pid, m.s | 0); break;
+      case 'int':
+        if (Number.isInteger(m.c)) sim.humanInteract(c.pid, { c: m.c });
+        else if (Number.isInteger(m.l)) sim.humanInteract(c.pid, { l: m.l });
+        break;
+      case 'use': sim.humanUse(c.pid, m.s | 0); break;
+      case 'useCancel': sim.humanCancelUse(c.pid); break;
       case 'leaveMatch': this.leave(c); break;
       default: break;
     }

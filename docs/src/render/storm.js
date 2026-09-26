@@ -30,7 +30,7 @@ void main() {
   vec3 col = mix(c1, c2, n);
   float stripes = smoothstep(0.55, 0.9, sin(y * 0.6 + n * 5.0 - uTime * 2.0) * 0.5 + 0.5);
   col += vec3(0.25, 0.15, 0.35) * stripes;
-  float fadeTop = 1.0 - smoothstep(18.0, 60.0, y);
+  float fadeTop = 1.0 - smoothstep(14.0, 48.0, y);
   float dist = length(cameraPosition.xz - vWorld.xz);
   float fadeFar = 1.0 - smoothstep(uFar * 0.3, uFar * 0.9, dist) * 0.93;
   float alpha = (0.38 + n * 0.25 + stripes * 0.15) * fadeTop * fadeFar;

@@ -2,7 +2,7 @@
 # README → "Deploy to Render" oder im Render-Dashboard "New → Blueprint" mit diesem Repository.
 services:
   - type: web
-    name: savanna-royale
+    name: showdown-bay
     runtime: node
     plan: free
     buildCommand: npm ci

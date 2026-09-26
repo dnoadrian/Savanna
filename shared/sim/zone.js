@@ -12,7 +12,7 @@ export class Zone {
       const r = STORM_PHASES[i].radius;
       let best = null;
       for (let tries = 0; tries < 60; tries++) {
-        const maxOff = Math.max(0, Math.min(prev.r - r, i === 0 ? 14 : prev.r - r));
+        const maxOff = Math.max(0, Math.min(prev.r - r, i === 0 ? 18 : prev.r - r));
         const a = rng.next() * Math.PI * 2;
         const d = Math.sqrt(rng.next()) * maxOff;
         const x = prev.x + Math.cos(a) * d;
@@ -20,7 +20,7 @@ export class Zone {
         best = { x, z, r };
         if (!terrain) break;
         const h = terrain.heightAt(x, z);
-        if (h > 2 && terrain.waterLevelAt(x, z) < h && Math.hypot(x, z) < 40) break;
+        if (h > -2 && Math.hypot(x, z) < 60) break;
       }
       this.circles.push(best);
       prev = best;

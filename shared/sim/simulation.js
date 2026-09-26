@@ -1,13 +1,17 @@
-// Gemeinsames Simulationsmodul: Treffer, Schaden, Bots, Zone, Heilen, Sieg.
-// Solo: läuft im Browser. Lokaler Mehrspieler: läuft server-autoritativ.
+// Gemeinsames Simulationsmodul: Treffer, Schaden (Überschild → Schild → Gesundheit), Siphon,
+// Waffen, Inventar, Truhen und Beute, Heil-/Schild-Gegenstände, Bots, Zone, Sieg.
+// Läuft im Browser (Bot-Lobby ohne Server) und server-autoritativ im Mehrspieler.
 import {
-  MATCH_SIZE, COUNTDOWN, MAX_HP, MEDKIT_START, MEDKIT_MAX, MEDKIT_HEAL, MEDKIT_TIME, WEAPON, F,
-  SPAWN_MIN_DIST, MAX_REWIND, EYE_STAND, EYE_CROUCH, ISLAND_RADIUS,
+  MATCH_SIZE, COUNTDOWN, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, F,
+  SPAWN_MIN_DIST, MAX_REWIND, EYE_STAND, EYE_CROUCH, PLAY_RADIUS, INTERACT_RANGE, AUTO_PICKUP_RANGE, SEA_LEVEL,
 } from '../constants.js';
+import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem } from '../items.js';
 import { RNG } from '../rng.js';
 import { createBody, stepMovement, bodyFlags } from './movement.js';
-import { WeaponState } from './weapon.js';
-import { rayPlayer, computeDamage, dirFromAngles, applySpread } from './combat.js';
+import { createWeaponRuntime, equipWeapon, fireWeapon, startReload, cancelReload, updateWeapon, weaponSpread } from './weapon.js';
+import { createInventory, addItem, dropAll, selectedItem } from './inventory.js';
+import { Loot } from './loot.js';
+import { rayPlayer, dirFromAngles, applySpread } from './combat.js';
 import { Zone } from './zone.js';
 import { BotBrain } from './bots.js';
 import { MAT } from '../physics/collision.js';
@@ -15,23 +19,34 @@ import { BOT_NAMES } from '../names.js';
 
 const HIST = 24;
 
+// Waffe/Gegenstand in der Hand als Zahl (für Snapshots und Figuren)
+export function handCode(item) {
+  if (!item) return 0;
+  if (item.k === 'w') return 1 + WEAPON_TYPES.indexOf(item.w) * 5 + item.r;
+  if (item.k === 'c') return -(1 + CONSUMABLE_TYPES.indexOf(item.c));
+  return 0;
+}
+
+export function decodeHand(code) {
+  if (code > 0) return { k: 'w', w: WEAPON_TYPES[Math.floor((code - 1) / 5)], r: (code - 1) % 5 };
+  if (code < 0) return { k: 'c', c: CONSUMABLE_TYPES[-code - 1] };
+  return null;
+}
+
 export class Simulation {
   /**
-   * world: { terrain, collision, nav, pois }
-   * cfg: { seed, players:[{id,name,isBot,outfit,color,skin,crownStyle,streak}], storm, botDifficulty, infiniteAmmo }
+   * world: { terrain, collision, nav, pois, chests, floorLoot }
+   * cfg: { seed, players:[{id,name,isBot,outfit,color,crownStyle,streak}], storm, botDifficulty }
    */
   constructor(world, cfg) {
     this.world = world;
     this.nav = world.nav || null;
     this.seed = cfg.seed >>> 0;
     this.rng = new RNG(this.seed ^ 0x9e3779b9);
-    this.opts = {
-      storm: cfg.storm !== false,
-      botDifficulty: cfg.botDifficulty || 'normal',
-      infiniteAmmo: cfg.infiniteAmmo !== false,
-    };
+    this.opts = { storm: cfg.storm !== false, botDifficulty: cfg.botDifficulty || 'mixed' };
     this.zone = new Zone(this.seed, world.terrain, this.opts.storm);
     this.zone.update(0);
+    this.loot = new Loot(world, this.seed);
     this.time = 0;
     this.matchTime = 0;
     this.phase = 'countdown';
@@ -42,34 +57,40 @@ export class Simulation {
     this.winnerId = null;
     this.players = [];
     this.byId = new Map();
-    // mit Bots immer 12 Spieler; online ohne Bots nur die Menschen
+    this.stepCount = 0;
     if (cfg.players.length < 1 || cfg.players.length > MATCH_SIZE) throw new Error('Match braucht 1 bis ' + MATCH_SIZE + ' Spieler');
     const spawns = this.pickSpawns(cfg.players.length);
     cfg.players.forEach((pc, i) => this.addPlayer(pc, spawns[i]));
   }
 
+  // Bodenhöhe inkl. Stege/Böden
+  groundAt(x, z) {
+    const t = this.world.terrain.heightAt(x, z);
+    return Math.max(t, this.world.collision.groundAt(x, z, 0.35, Math.max(t, SEA_LEVEL) + 2.2));
+  }
+
   pickSpawns(n) {
     const out = [];
-    const t = this.world.terrain;
     const col = this.world.collision;
     let minDist = SPAWN_MIN_DIST;
     let tries = 0;
+    const R = PLAY_RADIUS - 8;
     while (out.length < n && tries < 20000) {
       tries++;
       if (tries % 3000 === 0) minDist *= 0.85;
-      const x = this.rng.range(-ISLAND_RADIUS + 8, ISLAND_RADIUS - 8);
-      const z = this.rng.range(-ISLAND_RADIUS + 8, ISLAND_RADIUS - 8);
-      const h = t.heightAt(x, z);
-      if (h < 2.2 || t.waterLevelAt(x, z) > h - 0.1) continue;
-      const n2 = t.normalAt(x, z);
-      if (n2.y < 0.85) continue;
+      const x = this.rng.range(-R, R);
+      const z = this.rng.range(-R, R);
+      if (Math.hypot(x, z) > R) continue;
+      const h = this.groundAt(x, z);
+      if (h < SEA_LEVEL + 0.15) continue; // nicht im Wasser
+      if (h - this.world.terrain.heightAt(x, z) < 0.05 && this.world.terrain.normalAt(x, z).y < 0.85) continue;
       if (this.nav && !this.nav.isFree(x, z)) continue;
-      if (col.overlaps(x, z, 1.0, h + 0.1, h + 2.5)) continue;
-      if (col.ceilingAt(x, z, 0.5, h + 0.1) < h + 12) continue; // nicht unter Dächern/im Stollen
+      if (col.overlaps(x, z, 0.9, h + 0.1, h + 2.3)) continue;
+      if (col.ceilingAt(x, z, 0.5, h + 0.1) < h + 12) continue; // nicht unter Dächern
       if (out.some((s) => Math.hypot(s.x - x, s.z - z) < minDist)) continue;
       out.push({ x, y: h, z, yaw: this.rng.next() * Math.PI * 2 });
     }
-    while (out.length < n) out.push({ x: 0, y: t.heightAt(0, 0), z: 0, yaw: 0 });
+    while (out.length < n) out.push({ x: 0, y: this.groundAt(0, 0), z: 0, yaw: 0 });
     return out;
   }
 
@@ -82,35 +103,45 @@ export class Simulation {
       isBot: !!pc.isBot,
       outfit: pc.outfit || 'cowboy',
       color: pc.color ?? 0,
-      skin: pc.skin || 'gold',
       crownStyle: pc.crownStyle || 'gold',
       streak: pc.streak || 0,
       body,
       pitch: 0,
       flags: 0,
-      hp: MAX_HP,
+      health: MAX_HEALTH,
+      shield: 0,
+      overshield: START_OVERSHIELD,
       alive: true,
       kills: 0,
       damage: 0,
       headshots: 0,
       shotsHit: 0,
-      medkits: MEDKIT_START,
-      weapon: new WeaponState(this.opts.infiniteAmmo),
-      healT: -1,
+      inv: createInventory(),
+      wr: createWeaponRuntime(),
+      useT: -1,
+      useSlot: -1,
       placement: 0,
       deathT: 0,
       killerId: null,
       lastDamagedBy: null,
       lastDamageT: -10,
       stormAcc: 0,
-      fireTokens: 3,
+      fireTokens: 1.5,
       hist: new Float32Array(HIST * 6),
       histN: 0,
       histHead: 0,
       connected: true,
       ping: 0,
     };
-    if (p.isBot) p.brain = new BotBrain(this, p, this.opts.botDifficulty);
+    if (p.isBot) {
+      // gemischte Lobby: viele leichte/normale Bots, wenige starke
+      let diff = this.opts.botDifficulty;
+      if (diff === 'mixed') {
+        const r = this.rng.next();
+        diff = r < 0.45 ? 'easy' : r < 0.9 ? 'normal' : 'hard';
+      }
+      p.brain = new BotBrain(this, p, diff);
+    }
     this.players.push(p);
     this.byId.set(p.id, p);
     return p;
@@ -135,6 +166,7 @@ export class Simulation {
   // ---------------- Schritt ----------------
   step(dt) {
     this.time += dt;
+    this.stepCount++;
     this.pathBudget = 2;
     if (this.phase === 'countdown') {
       this.countdown -= dt;
@@ -154,32 +186,32 @@ export class Simulation {
       this.matchTime += dt;
       this.zone.update(this.matchTime);
     }
-    // alte Schüsse vergessen
     while (this.recentShots.length && this.recentShots[0].t < this.time - 1.2) this.recentShots.shift();
 
+    const autoPickup = this.stepCount % 4 === 0;
     for (const p of this.players) {
       if (!p.alive) continue;
-      // Waffe
-      if (p.weapon.update(dt)) this.emit({ t: 'reloaded', id: p.id });
-      // Feuerrate-Budget für Menschen
-      p.fireTokens = Math.min(3, p.fireTokens + dt * WEAPON.fireRate * 1.1);
-      // Heilen
-      if (p.healT >= 0) {
-        p.healT += dt;
-        if (p.healT >= MEDKIT_TIME) {
-          p.healT = -1;
-          if (p.medkits > 0 && p.hp < MAX_HP) {
-            p.medkits--;
-            const before = p.hp;
-            p.hp = Math.min(MAX_HP, p.hp + MEDKIT_HEAL);
-            this.emit({ t: 'heal', id: p.id, amt: p.hp - before, hp: p.hp, mk: p.medkits });
-          }
-        }
+      const item = selectedItem(p.inv);
+      const wev = updateWeapon(p.wr, item, p.inv.ammo, dt);
+      if (wev) {
+        p.inv.rev++;
+        if (wev === 'done') this.emit({ t: 'reloaded', id: p.id });
       }
+      // Feuerrate-Budget (Server prüft Schüsse der Menschen)
+      const rate = item && item.k === 'w' ? WEAPONS[item.w].fireRate : 1;
+      p.fireTokens = Math.min(1.5, p.fireTokens + dt * rate * 1.15);
+      // Schild/Medikit benutzen
+      if (p.useT >= 0) {
+        p.useT += dt;
+        const it = p.inv.slots[p.useSlot];
+        if (!it || it.k !== 'c' || p.inv.sel !== p.useSlot) this.cancelUse(p);
+        else if (p.useT >= CONSUMABLES[it.c].use) this.finishUse(p, it);
+      }
+      if (autoPickup) this.autoPickupAmmo(p);
       if (p.isBot) this.stepBot(p, dt);
     }
 
-    // Sturmschaden
+    // Sturmschaden (nur Gesundheit)
     if (this.phase === 'playing' && this.zone.enabled) {
       const dps = this.zone.state.dps;
       for (const p of this.players) {
@@ -189,7 +221,7 @@ export class Simulation {
           if (p.stormAcc >= 1) {
             const dmg = Math.floor(p.stormAcc);
             p.stormAcc -= dmg;
-            this.applyDamage(p, dmg, 'storm', 's', null);
+            this.applyDamage(p, dmg, 'storm', 's', null, null);
             if (this.phase === 'ended') break;
           }
         } else {
@@ -205,36 +237,34 @@ export class Simulation {
     const input = brain.update(dt);
     const act = brain.actions;
     if (this.phase !== 'playing') return;
-    // Aktionen
-    if (act.heal) this.startHeal(p);
-    if (act.reload && !p.weapon.reloading && p.healT < 0) {
-      if (p.weapon.startReload()) this.emit({ t: 'reload', id: p.id });
-    }
-    input.healing = p.healT >= 0;
-    // Bots laden lieber fertig nach, statt den Nachladevorgang durch Sprinten abzubrechen
-    if (p.weapon.reloading) input.sprint = false;
+    if (act.select >= 0 && act.select !== p.inv.sel) this.selectSlot(p, act.select);
+    if (act.use >= 0) this.startUse(p, act.use);
+    if (act.interact) this.interact(p, act.interact);
+    const item = selectedItem(p.inv);
+    if (act.reload && p.useT < 0 && startReload(p.wr, item, p.inv.ammo)) this.emit({ t: 'reload', id: p.id });
+    input.using = p.useT >= 0;
+    if (p.wr.reloading) input.sprint = false;
     stepMovement(p.body, input, dt, this.world);
-    if (p.body.slideStarted) this.slideCount = (this.slideCount || 0) + 1;
     p.pitch = input.pitch;
     let extra = 0;
     if (input.ads) extra |= F.ADS;
-    if (p.weapon.reloading) extra |= F.RELOAD;
-    if (p.healT >= 0) extra |= F.HEAL;
-    if (act.fire && !p.body.sprinting && p.weapon.canFire()) {
-      if (p.healT >= 0) this.cancelHeal(p);
-      if (p.weapon.fire()) {
-        extra |= F.FIRING;
-        const b = p.body;
-        const flags = bodyFlags(b, extra);
-        const eye = b.y + ((flags & (F.CROUCH | F.SLIDE)) ? EYE_CROUCH : EYE_STAND);
-        let dir = dirFromAngles(b.yaw, p.pitch);
-        const speed = Math.hypot(b.vx, b.vz);
-        dir = applySpread(dir, p.weapon.spread(flags, speed), () => this.rng.next());
-        this.fireShot(p, b.x, eye, b.z, dir.x, dir.y, dir.z, 0);
-        brain.onShotFired();
-        if (p.weapon.mag === 0 && p.weapon.startReload()) this.emit({ t: 'reload', id: p.id });
-      }
-    } else if (p.weapon.sinceShot < 0.2) {
+    if (p.wr.reloading) extra |= F.RELOAD;
+    if (p.useT >= 0) extra |= F.USING;
+    if (act.fire && !p.body.sprinting && item && item.k === 'w' && p.useT < 0 && fireWeapon(p.wr, item)) {
+      extra |= F.FIRING;
+      const b = p.body;
+      const flags = bodyFlags(b, extra);
+      const eye = b.y + ((flags & (F.CROUCH | F.SLIDE)) ? EYE_CROUCH : EYE_STAND);
+      const base = dirFromAngles(b.yaw, p.pitch);
+      const speed = Math.hypot(b.vx, b.vz);
+      const spread = weaponSpread(p.wr, item, flags, speed);
+      const dirs = [];
+      const pellets = WEAPONS[item.w].pellets;
+      const rnd = () => this.rng.next();
+      for (let k = 0; k < pellets; k++) dirs.push(applySpread(base, spread, rnd));
+      this.fireShot(p, item, b.x, eye, b.z, dirs, 0);
+      brain.onShotFired(item);
+    } else if (p.wr.sinceShot < 0.2) {
       extra |= F.FIRING;
     }
     p.flags = bodyFlags(p.body, extra);
@@ -280,103 +310,125 @@ export class Simulation {
       }
       newer = idx;
     }
-    // älter als der Puffer
     if (newer >= 0) {
       out.x = h[newer * 6 + 1]; out.y = h[newer * 6 + 2]; out.z = h[newer * 6 + 3]; out.yaw = h[newer * 6 + 4]; out.flags = h[newer * 6 + 5];
     }
     return out;
   }
 
-  // Hitscan-Schuss
-  fireShot(shooter, ox, oy, oz, dx, dy, dz, rewind) {
-    const range = WEAPON.range;
+  // Hitscan-Schuss mit einer oder mehreren Kugeln (Schrotflinten); Schaden je Ziel summiert
+  fireShot(shooter, item, ox, oy, oz, dirs, rewind) {
+    const def = WEAPONS[item.w];
+    const range = def.range;
     const col = this.world.collision;
-    let tWorld = col.raycast(ox, oy, oz, dx, dy, dz, range, true);
-    let mat = tWorld >= 0 ? col.hitOut.mat : -1;
-    let nx = col.hitOut.nx, ny = col.hitOut.ny, nz = col.hitOut.nz;
-    if (tWorld < 0) tWorld = range;
-    // Wasseroberfläche
-    if (dy < -1e-4) {
-      const ex = ox + dx * tWorld, ez = oz + dz * tWorld;
-      const wl = this.world.terrain.waterLevelAt(ex, ez);
-      const tw = (wl - oy) / dy;
-      if (tw > 0 && tw < tWorld && this.world.terrain.heightAt(ox + dx * tw, oz + dz * tw) < wl) {
-        tWorld = tw;
-        mat = MAT.WATER;
-        nx = 0; ny = 1; nz = 0;
-      }
-    }
-    // Spieler
+    const terrain = this.world.terrain;
     const rt = this.time - Math.min(MAX_REWIND, Math.max(0, rewind || 0));
-    const tmp = this._rw || (this._rw = { x: 0, y: 0, z: 0, yaw: 0, flags: 0 });
-    let best = tWorld;
-    let hitP = null;
-    let hitPart = null;
+    const states = this._states || (this._states = new Map());
+    states.clear();
     for (const o of this.players) {
       if (o === shooter || !o.alive) continue;
-      const st = rewind > 0 ? this.rewindState(o, rt, tmp) : { x: o.body.x, y: o.body.y, z: o.body.z, yaw: o.body.yaw, flags: o.flags };
-      const r = rayPlayer(st, ox, oy, oz, dx, dy, dz, best);
-      if (r && r.t < best) {
-        best = r.t;
-        hitP = o;
-        hitPart = r.part;
+      const st = { x: 0, y: 0, z: 0, yaw: 0, flags: 0 };
+      if (rewind > 0) this.rewindState(o, rt, st);
+      else { st.x = o.body.x; st.y = o.body.y; st.z = o.body.z; st.yaw = o.body.yaw; st.flags = o.flags; }
+      states.set(o, st);
+    }
+    const hits = new Map();
+    const ends = [];
+    for (const d of dirs) {
+      let tWorld = col.raycast(ox, oy, oz, d.x, d.y, d.z, range, true);
+      let mat = tWorld >= 0 ? col.hitOut.mat : -1;
+      if (tWorld < 0) tWorld = range;
+      if (d.y < -1e-4) {
+        const tw = (SEA_LEVEL - oy) / d.y;
+        if (tw > 0 && tw < tWorld && terrain.heightAt(ox + d.x * tw, oz + d.z * tw) < SEA_LEVEL) {
+          tWorld = tw;
+          mat = MAT.WATER;
+        }
+      }
+      let best = tWorld;
+      let hitP = null;
+      let hitPart = null;
+      for (const [o, st] of states) {
+        const r = rayPlayer(st, ox, oy, oz, d.x, d.y, d.z, best);
+        if (r && r.t < best) { best = r.t; hitP = o; hitPart = r.part; }
+      }
+      const ex = ox + d.x * best, ey = oy + d.y * best, ez = oz + d.z * best;
+      ends.push([r2(ex), r2(ey), r2(ez), hitP ? MAT.PLAYER : mat]);
+      if (hitP) {
+        let h = hits.get(hitP);
+        if (!h) hits.set(hitP, (h = { dmg: 0, head: false, part: hitPart, pos: [r2(ex), r2(ey), r2(ez)] }));
+        h.dmg += weaponDamage(item.w, item.r, hitPart, best);
+        if (hitPart === 'h') { h.head = true; h.pos = [r2(ex), r2(ey), r2(ez)]; }
       }
     }
-    const ex = ox + dx * best, ey = oy + dy * best, ez = oz + dz * best;
     this.recentShots.push({ x: ox, y: oy, z: oz, t: this.time, id: shooter.id });
-    const shot = { t: 'shot', id: shooter.id, o: [r2(ox), r2(oy), r2(oz)], e: [r2(ex), r2(ey), r2(ez)] };
-    if (hitP) {
-      shot.m = MAT.PLAYER;
-      this.emit(shot);
-      const dmg = computeDamage(hitPart, best);
+    this.emit({ t: 'shot', id: shooter.id, w: item.w, o: [r2(ox), r2(oy), r2(oz)], e: ends });
+    for (const [target, h] of hits) {
       shooter.shotsHit++;
-      this.applyDamage(hitP, dmg, shooter.id, hitPart, [ex, ey, ez]);
-    } else {
-      if (mat >= 0) {
-        shot.m = mat;
-        shot.n = [r2(nx), r2(ny), r2(nz)];
-      }
-      this.emit(shot);
+      this.applyDamage(target, Math.max(1, Math.round(h.dmg)), shooter.id, h.head ? 'h' : h.part, h.pos, item.w);
+      if (this.phase === 'ended') break;
     }
-    return hitP;
   }
 
-  applyDamage(target, dmg, attackerId, part, pos) {
+  // Schaden: Überschild → Schild → Gesundheit (Sturm trifft nur die Gesundheit)
+  applyDamage(target, dmg, attackerId, part, pos, weapon) {
     if (!target.alive || this.phase === 'ended') return;
     const attacker = attackerId && attackerId !== 'storm' ? this.byId.get(attackerId) : null;
-    const real = Math.min(target.hp, dmg);
-    target.hp -= dmg;
+    let rest = dmg;
+    let sd = 0;
+    const hadShield = target.shield + target.overshield > 0;
+    if (attackerId !== 'storm') {
+      const a = Math.min(target.overshield, rest);
+      target.overshield -= a;
+      rest -= a;
+      const b = Math.min(target.shield, rest);
+      target.shield -= b;
+      rest -= b;
+      sd = a + b;
+    }
+    const hd = Math.min(target.health, rest);
+    target.health -= rest;
     target.lastDamagedBy = attackerId;
     target.lastDamageT = this.time;
     if (attacker) {
-      attacker.damage += real;
+      attacker.damage += sd + hd;
       if (part === 'h') attacker.headshots++;
     }
-    const ev = { t: 'hit', a: attackerId, v: target.id, d: dmg, p: part, hp: Math.max(0, target.hp) };
+    const ev = {
+      t: 'hit', a: attackerId, v: target.id, d: dmg, sd, p: part,
+      hp: Math.max(0, target.health), sh: target.shield, os: target.overshield,
+    };
+    if (hadShield && sd > 0 && target.shield + target.overshield <= 0 && target.health > 0) ev.br = 1;
     if (pos) ev.pos = pos;
     if (attacker) ev.from = [r2(attacker.body.x), r2(attacker.body.z)];
     this.emit(ev);
-    if (target.hp <= 0) this.kill(target, attacker, part === 'h', attackerId === 'storm' ? 'storm' : 'ar');
+    if (target.health <= 0) this.kill(target, attacker, part === 'h', attackerId === 'storm' ? 'storm' : weapon || 'ar');
   }
 
   kill(target, killer, headshot, cause) {
     if (!target.alive) return;
     const before = this.aliveCount();
     target.alive = false;
-    target.hp = 0;
-    target.healT = -1;
+    target.health = 0;
+    target.shield = 0;
+    target.overshield = 0;
+    target.useT = -1;
     target.placement = before;
     target.deathT = this.matchTime;
     target.killerId = killer ? killer.id : null;
     target.flags = F.DEAD;
-    if (killer && killer !== target) {
-      killer.kills++;
-      if (killer.medkits < MEDKIT_MAX) {
-        killer.medkits++;
-      }
-      this.emit({ t: 'medkit', id: killer.id, n: killer.medkits });
-    }
     this.emit({ t: 'kill', k: killer ? killer.id : null, v: target.id, hs: !!headshot, w: cause, place: before });
+    if (killer && killer !== target && killer.alive) {
+      killer.kills++;
+      // Siphon: +50, erst Gesundheit, Rest als Schild
+      const toHealth = Math.min(SIPHON, MAX_HEALTH - killer.health);
+      killer.health += toHealth;
+      killer.shield = Math.min(MAX_SHIELD, killer.shield + (SIPHON - toHealth));
+      this.emit({ t: 'siphon', id: killer.id, hp: killer.health, sh: killer.shield });
+    }
+    // Beute fallen lassen
+    const items = dropAll(target.inv);
+    if (items.length) this.spawnLoot(items, target.body.x, target.body.y, target.body.z, null, 1.3);
     if (before - 1 <= 1) this.finish();
   }
 
@@ -384,14 +436,122 @@ export class Simulation {
     if (this.phase === 'ended') return;
     const alive = this.players.filter((p) => p.alive);
     let winner = alive[0];
-    if (!winner) {
-      // alle gleichzeitig gestorben: zuletzt Gestorbener gewinnt
-      winner = this.players.slice().sort((a, b) => a.placement - b.placement)[0];
-    }
+    if (!winner) winner = this.players.slice().sort((a, b) => a.placement - b.placement)[0];
     this.phase = 'ended';
     this.winnerId = winner.id;
     winner.placement = 1;
     this.emit({ t: 'win', id: winner.id });
+  }
+
+  // ---------------- Beute ----------------
+  spawnLoot(items, x, y, z, dirYaw, radius) {
+    const list = this.loot.scatter(items, x, y, z, dirYaw, radius);
+    this.emitLoot(list);
+    return list;
+  }
+
+  emitLoot(list) {
+    this.emit({ t: 'loot', a: list.map((p) => [p.id, encodeItem(p.item), r2(p.x), r2(p.y), r2(p.z), r2(p.fx), r2(p.fy), r2(p.fz)]) });
+  }
+
+  interact(p, target) {
+    if (!p.alive || this.phase !== 'playing') return false;
+    const b = p.body;
+    const reach = INTERACT_RANGE + (p.isBot ? 0 : 1.0); // Menschen: Toleranz für Netzwerkverzögerung
+    if (target.c !== undefined) {
+      const c = this.loot.chest(target.c);
+      if (!c || c.open) return false;
+      if (Math.hypot(c.x - b.x, c.z - b.z) > reach || Math.abs(c.y - b.y) > 2.5) return false;
+      const list = this.loot.openChest(c);
+      this.emit({ t: 'chest', id: c.id, by: p.id });
+      this.emitLoot(list);
+      return true;
+    }
+    if (target.l !== undefined) {
+      const pk = this.loot.pickups.get(target.l);
+      if (!pk) return false;
+      if (Math.hypot(pk.x - b.x, pk.z - b.z) > reach || Math.abs(pk.y - b.y) > 2.5) return false;
+      return this.pickup(p, pk);
+    }
+    return false;
+  }
+
+  pickup(p, pk) {
+    const item = pk.item;
+    const wasEmpty = !selectedItem(p.inv);
+    const res = addItem(p.inv, item, true);
+    if (!res.taken) return false;
+    if (res.rest) {
+      pk.item = res.rest;
+      this.emit({ t: 'lootn', id: pk.id, it: encodeItem(pk.item) });
+    } else {
+      this.loot.remove(pk.id);
+      this.emit({ t: 'unloot', id: pk.id, by: p.id });
+    }
+    if (res.dropped) {
+      this.cancelUse(p);
+      this.spawnLoot([res.dropped], p.body.x, p.body.y, p.body.z, p.body.yaw, 1.0);
+    }
+    // neue Waffe landet im gewählten Platz oder die Hand war leer: gleich ausrüsten
+    if (res.slot === p.inv.sel && (res.dropped || wasEmpty)) equipWeapon(p.wr, selectedItem(p.inv));
+    else if (wasEmpty && res.slot >= 0 && item.k !== 'a') this.selectSlot(p, res.slot);
+    this.emit({ t: 'pick', id: p.id, it: encodeItem(item) });
+    return true;
+  }
+
+  autoPickupAmmo(p) {
+    const b = p.body;
+    for (const pk of this.loot.pickups.values()) {
+      if (pk.item.k !== 'a') continue;
+      const dx = pk.x - b.x, dz = pk.z - b.z;
+      if (dx * dx + dz * dz > AUTO_PICKUP_RANGE * AUTO_PICKUP_RANGE || Math.abs(pk.y - b.y) > 1.6) continue;
+      this.pickup(p, pk);
+    }
+  }
+
+  selectSlot(p, slot) {
+    if (slot < 0 || slot > 4 || slot === p.inv.sel) return;
+    this.cancelUse(p);
+    p.inv.sel = slot;
+    equipWeapon(p.wr, selectedItem(p.inv));
+    p.fireTokens = 1;
+  }
+
+  // ---------------- Schilde / Medikits ----------------
+  canUse(p, it) {
+    if (!it || it.k !== 'c') return false;
+    const c = CONSUMABLES[it.c];
+    if (c.heal) return p.health < MAX_HEALTH;
+    return p.shield < c.cap;
+  }
+
+  startUse(p, slot) {
+    if (!p.alive || p.useT >= 0 || this.phase !== 'playing') return false;
+    const it = p.inv.slots[slot];
+    if (!this.canUse(p, it)) return false;
+    if (p.inv.sel !== slot) this.selectSlot(p, slot);
+    cancelReload(p.wr);
+    p.useT = 0;
+    p.useSlot = slot;
+    this.emit({ t: 'useStart', id: p.id, c: it.c });
+    return true;
+  }
+
+  cancelUse(p) {
+    if (p.useT < 0) return;
+    p.useT = -1;
+    this.emit({ t: 'useCancel', id: p.id });
+  }
+
+  finishUse(p, it) {
+    const c = CONSUMABLES[it.c];
+    if (c.heal) p.health = Math.min(MAX_HEALTH, c.heal);
+    else if (p.shield < c.cap) p.shield = Math.min(c.cap, p.shield + c.shield);
+    it.n--;
+    if (it.n <= 0) p.inv.slots[p.useSlot] = null;
+    p.inv.rev++;
+    p.useT = -1;
+    this.emit({ t: 'used', id: p.id, c: it.c, hp: p.health, sh: p.shield });
   }
 
   // ---------------- Menschliche Eingaben ----------------
@@ -415,71 +575,76 @@ export class Simulation {
     b.yaw = s.yaw;
     p.pitch = s.pitch;
     let f = s.flags | 0;
-    f &= ~(F.HEAL | F.DEAD);
-    if (p.healT >= 0) f |= F.HEAL;
+    f &= ~(F.USING | F.DEAD);
+    if (p.useT >= 0) f |= F.USING;
     p.flags = f;
     b.stance = f & F.SLIDE ? 'slide' : f & F.CROUCH ? 'crouch' : 'stand';
     b.grounded = !(f & F.AIR);
     b.sprinting = !!(f & F.SPRINT);
   }
 
+  // shot: { s: Platz, ox, oy, oz, dirs: [{x,y,z}, …], rewind }
   humanFire(id, shot) {
     const p = this.byId.get(id);
     if (!p || !p.alive || this.phase !== 'playing') return false;
-    if (p.fireTokens < 1) return false;
-    // Server-Magazin: Nachladen ggf. vorzeitig beenden (Netzwerk-Jitter). Nachgeladen wird nur auf Tastendruck.
-    if (p.weapon.reloading && p.weapon.reloadDur - p.weapon.reloadT < 0.4) p.weapon.finishReload();
-    if (!p.weapon.fire(true)) return false;
+    if (shot.s !== p.inv.sel && shot.s >= 0 && shot.s < 5) {
+      p.inv.sel = shot.s;
+      equipWeapon(p.wr, selectedItem(p.inv));
+      p.wr.equipT = 0;
+    }
+    const item = selectedItem(p.inv);
+    if (!item || item.k !== 'w' || p.fireTokens < 1) return false;
+    const def = WEAPONS[item.w];
+    // Nachladen ggf. vorzeitig beenden (Netzwerk-Jitter)
+    if (p.wr.reloading && !def.shellReload && p.wr.reloadDur - p.wr.reloadT < 0.4) updateWeapon(p.wr, item, p.inv.ammo, 1);
+    p.wr.equipT = 0;
+    if (!fireWeapon(p.wr, item, true)) return false;
     p.fireTokens -= 1;
-    if (p.healT >= 0) this.cancelHeal(p);
-    let { ox, oy, oz, dx, dy, dz } = shot;
-    const l = Math.hypot(dx, dy, dz);
-    if (!(l > 0.5 && l < 1.5)) return false;
-    dx /= l; dy /= l; dz /= l;
-    // Ursprung plausibel (nahe Spielerposition)
+    this.cancelUse(p);
+    const dirs = [];
+    for (const d of (shot.dirs || []).slice(0, def.pellets)) {
+      const l = Math.hypot(d.x, d.y, d.z);
+      if (l > 0.5 && l < 1.5) dirs.push({ x: d.x / l, y: d.y / l, z: d.z / l });
+    }
+    if (!dirs.length) return false;
+    let { ox, oy, oz } = shot;
     const b = p.body;
     if (Math.hypot(ox - b.x, oz - b.z) > 3 || Math.abs(oy - b.y - 1.2) > 2.5) {
       ox = b.x; oy = b.y + EYE_STAND; oz = b.z;
     }
-    this.fireShot(p, ox, oy, oz, dx, dy, dz, shot.rewind || 0);
+    this.fireShot(p, item, ox, oy, oz, dirs, shot.rewind || 0);
     return true;
   }
 
   humanReload(id) {
     const p = this.byId.get(id);
-    if (!p || !p.alive) return;
-    if (p.weapon.startReload()) this.emit({ t: 'reload', id: p.id });
+    if (!p || !p.alive || p.useT >= 0) return;
+    if (startReload(p.wr, selectedItem(p.inv), p.inv.ammo)) this.emit({ t: 'reload', id: p.id });
   }
 
   humanCancelReload(id) {
     const p = this.byId.get(id);
-    if (!p) return;
-    p.weapon.cancelReload();
+    if (p) cancelReload(p.wr);
   }
 
-  startHeal(p) {
-    if (!p.alive || p.healT >= 0 || p.medkits <= 0 || p.hp >= MAX_HP) return false;
-    p.healT = 0;
-    if (p.weapon.reloading) p.weapon.cancelReload();
-    this.emit({ t: 'healStart', id: p.id });
-    return true;
-  }
-
-  cancelHeal(p) {
-    if (p.healT < 0) return;
-    p.healT = -1;
-    this.emit({ t: 'healCancel', id: p.id });
-  }
-
-  humanHeal(id) {
+  humanSelect(id, slot) {
     const p = this.byId.get(id);
-    if (!p || this.phase !== 'playing') return false;
-    return this.startHeal(p);
+    if (p && p.alive) this.selectSlot(p, slot | 0);
   }
 
-  humanCancelHeal(id) {
+  humanInteract(id, target) {
     const p = this.byId.get(id);
-    if (p) this.cancelHeal(p);
+    return p ? this.interact(p, target) : false;
+  }
+
+  humanUse(id, slot) {
+    const p = this.byId.get(id);
+    return p ? this.startUse(p, slot | 0) : false;
+  }
+
+  humanCancelUse(id) {
+    const p = this.byId.get(id);
+    if (p) this.cancelUse(p);
   }
 
   // Spieler verlässt das Match: Figur scheidet aus
@@ -488,8 +653,8 @@ export class Simulation {
     if (!p) return;
     p.connected = false;
     if (p.alive && this.phase !== 'ended') {
-      p.hp = 0;
-      this.emit({ t: 'hit', a: null, v: p.id, d: 0, p: 'x', hp: 0 });
+      p.health = 0;
+      this.emit({ t: 'hit', a: null, v: p.id, d: 0, sd: 0, p: 'x', hp: 0, sh: 0, os: 0 });
       this.kill(p, null, false, 'leave');
     }
   }
@@ -503,8 +668,9 @@ export class Simulation {
       ph: this.phase,
       cd: r2(this.countdown),
       p: this.players.map((p) => [
-        p.id, r2(p.body.x), r2(p.body.y), r2(p.body.z), r3(p.body.yaw), r3(p.pitch), p.alive ? p.flags : F.DEAD, p.hp,
-        r2(p.body.vx), r2(p.body.vz),
+        p.id, r2(p.body.x), r2(p.body.y), r2(p.body.z), r3(p.body.yaw), r3(p.pitch), p.alive ? p.flags : F.DEAD,
+        Math.ceil(p.health), Math.ceil(p.shield), Math.ceil(p.overshield), r2(p.body.vx), r2(p.body.vz),
+        p.alive ? handCode(selectedItem(p.inv)) : 0,
       ]),
       z: [r2(z.x), r2(z.z), r2(z.r)],
     };
@@ -517,7 +683,7 @@ export class Simulation {
       name: p.name,
       isBot: p.isBot,
       kills: p.kills,
-      damage: p.damage,
+      damage: Math.round(p.damage),
       headshots: p.headshots,
       placement: p.alive ? (this.phase === 'ended' ? 1 : 0) : p.placement,
       survival: p.alive ? this.matchTime : p.deathT,
@@ -532,7 +698,6 @@ export class Simulation {
     const names = rng.shuffle(BOT_NAMES.slice());
     let k = 0;
     const outfits = ['cowboy', 'ranger', 'ninja', 'soldier', 'dancer', 'pirate', 'chef', 'astronaut'];
-    const skins = ['grey', 'green', 'blue', 'purple', 'gold'];
     let botIdx = 0;
     if (champion && players.length < MATCH_SIZE) {
       players.push({ ...champion, id: 'bot_champ', isBot: true });
@@ -549,7 +714,6 @@ export class Simulation {
         isBot: true,
         outfit: rng.pick(outfits),
         color: rng.int(0, 7),
-        skin: rng.pick(skins),
         crownStyle: 'gold',
         streak: 0,
       });

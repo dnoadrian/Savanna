@@ -1,18 +1,16 @@
 // Aufbau der statischen Welt: Terrain, Wasser, Strukturen + Deko als zusammengeführte
-// Chunk-Meshes mit zwei LOD-Stufen, animierte Gruppen (Windräder), instanziertes Gras
-// und ferne Deko-Inseln am Horizont.
+// Chunk-Meshes mit zwei LOD-Stufen, animierte Gruppen, instanziertes Gras und Schilder.
 import * as THREE from 'three';
 import { GeoBuilder, worldMaterial, makeMatrix } from './geom.js';
 import { propModel, LOD_SKIP } from './models.js';
-import { PROP_TYPES, PT } from '../../shared/map/props.js';
+import { PROP_TYPES } from '../../shared/map/props.js';
 import { buildTerrain, heightTexture } from './terrainMesh.js';
 import { createWater } from './water.js';
 import { Grass } from './grass.js';
 import { C } from '../../shared/map/builder.js';
-import { RNG } from '../../shared/rng.js';
 
 const CHUNK = 32;
-const EMISSIVE_COLORS = new Set([C.FIRE, C.FIRE2]);
+const EMISSIVE_COLORS = new Set([C.FIRE, C.FIRE2, C.LAMP]);
 
 const nextFrame = () => new Promise((r) => setTimeout(r, 0));
 
@@ -37,7 +35,7 @@ export class WorldView {
     this.heightTex = heightTexture(map);
     this.water = createWater(this.heightTex, map.terrain.half, 0);
     this.group.add(this.water.mesh);
-    this.group.add(buildScenery(map.seed));
+    for (const sg of map.signs) this.group.add(buildSign(sg));
     onProgress(0.2);
     await nextFrame();
 
@@ -180,33 +178,39 @@ export class WorldView {
   }
 }
 
-// Ferne Deko-Inseln (nur Optik, nicht erreichbar): Sandbank, Grasrücken und Palmen
-function buildScenery(seed) {
-  const rng = new RNG(seed ^ 0x51ce);
-  const g = new GeoBuilder();
-  const m4 = new THREE.Matrix4();
-  const count = 7;
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * Math.PI * 2 + rng.range(-0.3, 0.3);
-    const r = rng.range(190, 290);
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    const size = rng.range(14, 28);
-    const ry = rng.next() * Math.PI;
-    g.ico(x, -1.4, z, size, 0xf0d9a0, { sx: 1.3, sy: 0.14, sz: 1.0, ry, detail: 1, jitter: 0.1, jseed: i * 7 });
-    const sy = rng.range(0.22, 0.55);
-    g.ico(x, 0.2, z, size * 0.72, i % 3 === 0 ? 0xa37c62 : 0xb9bf4c, { sx: 1.15, sy, sz: 0.85, ry, detail: 1, jitter: 0.16, jseed: i * 7 + 1 });
-    const top = 0.2 + size * 0.72 * sy * 0.75;
-    const palms = rng.int(1, 4);
-    for (let k = 0; k < palms; k++) {
-      const px = x + rng.range(-size * 0.35, size * 0.35), pz = z + rng.range(-size * 0.3, size * 0.3);
-      const sc = rng.range(2.0, 2.8);
-      makeMatrix(px, top - 0.6, pz, 0, rng.next() * 6.28, 0, sc, sc, sc, m4);
-      g.appendModel(propModel(PT.palm_s, k % 3, 1), m4);
-    }
+// Holzschild mit Schriftzug (Canvas-Textur), Vorderseite zeigt in Blickrichtung ry
+function buildSign(sg) {
+  const c = document.createElement('canvas');
+  const ratio = sg.w / sg.h;
+  c.height = 128;
+  c.width = Math.min(1024, Math.round(128 * ratio));
+  const g = c.getContext('2d');
+  g.fillStyle = sg.bg;
+  g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = 'rgba(0,0,0,0.35)';
+  g.lineWidth = 8;
+  g.strokeRect(4, 4, c.width - 8, c.height - 8);
+  for (let y = 22; y < c.height; y += 30) {
+    g.fillStyle = 'rgba(0,0,0,0.08)';
+    g.fillRect(0, y, c.width, 3);
   }
-  const mesh = new THREE.Mesh(g.toGeometry(), worldMaterial());
-  mesh.matrixAutoUpdate = false;
-  mesh.name = 'scenery';
+  g.fillStyle = sg.fg;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  let size = 92;
+  g.font = `${size}px "Luckiest Guy", Georgia, serif`;
+  while (g.measureText(sg.text).width > c.width * 0.9 && size > 20) {
+    size -= 4;
+    g.font = `${size}px "Luckiest Guy", Georgia, serif`;
+  }
+  g.fillText(sg.text, c.width / 2, c.height / 2 + 6);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(sg.w, sg.h), new THREE.MeshLambertMaterial({ map: tex }));
+  mesh.position.set(sg.x, sg.y, sg.z);
+  mesh.rotation.y = sg.ry;
+  mesh.name = 'sign';
   return mesh;
 }
 
@@ -217,6 +221,7 @@ export function addPart(g, p, e = 0) {
     case 'cyl': g.cyl(p.x, p.y, p.z, p.r, p.h, p.c, { ...o, rt: p.rt, seg: p.seg }); break;
     case 'sph': g.ico(p.x, p.y, p.z, p.r, p.c, { ...o, sx: p.sx, sy: p.sy, sz: p.sz, detail: p.detail, jseed: Math.round(p.x * 3 + p.z) }); break;
     case 'prism': g.prism(p.x, p.y, p.z, p.w, p.h, p.d, p.c, o); break;
+    case 'slab': g.slab(p.x, p.y, p.z, p.w, p.h, p.d, p.c, { ry: p.ry, taper: p.taper }); break;
     default: break;
   }
 }

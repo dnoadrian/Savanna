@@ -1,4 +1,4 @@
-// SAVANNA ROYALE – Server: liefert das Spiel aus (Port 4242) und betreibt Lobby, Freunde,
+// SHOWDOWN BAY – Server: liefert das Spiel aus (Port 4242) und betreibt Lobby, Freunde,
 // Party, Matchmaking und server-autoritative Matches über WebSocket.
 import http from 'http';
 import os from 'os';
@@ -49,7 +49,7 @@ server.on('error', (e) => {
 
 server.listen(port, '0.0.0.0', () => {
   console.log('');
-  console.log('  ███ SAVANNA ROYALE ███');
+  console.log('  ███ SHOWDOWN BAY ███');
   console.log('');
   console.log(`  Spiel läuft:   http://localhost:${port}`);
   for (const ip of lanAddresses()) console.log(`  Im WLAN/LAN:   http://${ip}:${port}`);
@@ -58,7 +58,7 @@ server.listen(port, '0.0.0.0', () => {
   console.log('  Freunde aus aller Welt: in der Lobby ≡ → „Online hosten“ (oder npm run online).');
   console.log('  Beenden mit STRG+C.');
   console.log('');
-  if (process.argv.includes('--online') || process.env.SAVANNA_ONLINE === '1') {
+  if (process.argv.includes('--online') || (process.env.SHOWDOWN_ONLINE || process.env.SAVANNA_ONLINE) === '1') {
     console.log('  Starte Online-Tunnel … (der Link für Freunde erscheint gleich hier)');
     game.tunnel.start();
   }

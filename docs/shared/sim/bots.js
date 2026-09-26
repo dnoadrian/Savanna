@@ -1,21 +1,50 @@
-// Bot-KI: Zustandsmaschine mit Wahrnehmung, menschenähnlichem Zielen, Deckung, Heilen und Sturmflucht.
-import { BOT_FOV, BOT_VIEW_DIST, BOT_HEAR_DIST, MAX_HP, WEAPON, F, EYE_STAND, EYE_CROUCH } from '../constants.js';
+// Bot-KI: Zustandsmaschine mit Wahrnehmung, menschenähnlichem Zielen, Deckung, Looten (Truhen,
+// bessere Waffen, Schilde), Waffenwahl nach Entfernung, Schild/Medikit benutzen und Sturmflucht.
+import { BOT_FOV, BOT_VIEW_DIST, BOT_HEAR_DIST, F, EYE_STAND, EYE_CROUCH, INTERACT_RANGE } from '../constants.js';
+import { WEAPONS, CONSUMABLES } from '../items.js';
 import { anglesFromDir } from './combat.js';
+import { weaponScore } from './inventory.js';
 
 const DEG = Math.PI / 180;
 
 export const DIFF = {
-  easy: { react: [0.7, 1.1], aimErr: 6.0, turn: 150, hs: 0.04, strafe: 0.3, burst: [3, 5], pause: [0.55, 1.0], settle: 1.6, crouch: 0.08, jump: 0.04, slide: 0.05, lead: 0.2, recoilComp: 0.3, heal: 70, engage: 110 },
-  normal: { react: [0.42, 0.7], aimErr: 3.6, turn: 230, hs: 0.12, strafe: 0.6, burst: [4, 8], pause: [0.32, 0.65], settle: 1.3, crouch: 0.18, jump: 0.08, slide: 0.12, lead: 0.55, recoilComp: 0.55, heal: 80, engage: 130 },
-  hard: { react: [0.26, 0.44], aimErr: 2.2, turn: 330, hs: 0.22, strafe: 0.85, burst: [5, 10], pause: [0.2, 0.45], settle: 1.0, crouch: 0.28, jump: 0.13, slide: 0.22, lead: 0.8, recoilComp: 0.72, heal: 90, engage: 145 },
-  pro: { react: [0.16, 0.3], aimErr: 1.4, turn: 450, hs: 0.34, strafe: 1.0, burst: [6, 12], pause: [0.14, 0.32], settle: 0.8, crouch: 0.34, jump: 0.18, slide: 0.32, lead: 0.95, recoilComp: 0.85, heal: 100, engage: 150 },
+  easy: { react: [0.8, 1.25], aimErr: 7.5, turn: 150, hs: 0.04, strafe: 0.3, burst: [3, 5], pause: [0.55, 1.0], settle: 1.6, crouch: 0.08, jump: 0.04, slide: 0.05, lead: 0.2, recoilComp: 0.3 },
+  normal: { react: [0.5, 0.85], aimErr: 4.6, turn: 230, hs: 0.12, strafe: 0.6, burst: [4, 8], pause: [0.32, 0.65], settle: 1.3, crouch: 0.18, jump: 0.08, slide: 0.12, lead: 0.55, recoilComp: 0.55 },
+  hard: { react: [0.32, 0.55], aimErr: 3.0, turn: 330, hs: 0.22, strafe: 0.85, burst: [5, 10], pause: [0.2, 0.45], settle: 1.0, crouch: 0.28, jump: 0.13, slide: 0.22, lead: 0.8, recoilComp: 0.72 },
+  pro: { react: [0.16, 0.3], aimErr: 1.4, turn: 450, hs: 0.34, strafe: 1.0, burst: [6, 12], pause: [0.14, 0.32], settle: 0.8, crouch: 0.34, jump: 0.18, slide: 0.32, lead: 0.95, recoilComp: 0.85 },
 };
+
+// maximale Kampfentfernung je Waffe
+const ENGAGE = { pistol: 45, ar: 115, drum: 55, tac: 28, pump: 24, sniper: 150 };
+// Anfangsphase: erst looten, nur nahe Gegner oder Angreifer bekämpfen
+const EARLY_LOOT = 45;
+const EARLY_SIGHT = 12;
+// Bots untereinander kämpfen erst auf kürzere Distanz (Runden dauern länger, Menschen bleiben im Fokus)
+const BOT_VS_BOT_DIST = 45;
 
 function angDiff(a, b) {
   let d = a - b;
   while (d > Math.PI) d -= Math.PI * 2;
   while (d < -Math.PI) d += Math.PI * 2;
   return d;
+}
+
+// Eignung einer Waffe für eine Entfernung
+function suitability(item, dist, ammo) {
+  if (!item || item.k !== 'w') return -1;
+  const def = WEAPONS[item.w];
+  if (item.mag <= 0 && ammo[def.ammo] <= 0) return -1;
+  let s;
+  switch (item.w) {
+    case 'pump': case 'tac': s = dist < 10 ? 300 : dist < 18 ? 150 : 20; break;
+    case 'sniper': s = dist > 40 ? 320 : dist > 20 ? 120 : 15; break;
+    case 'ar': s = dist < 8 ? 120 : 210; break;
+    case 'drum': s = dist < 25 ? 235 : dist < 45 ? 150 : 60; break;
+    default: s = dist < 30 ? 105 : 70;
+  }
+  s *= 1 + item.r * 0.08;
+  if (item.mag === 0) s *= 0.55;
+  return s;
 }
 
 export class BotBrain {
@@ -59,19 +88,26 @@ export class BotBrain {
     this.detourT = 0;
     this.coverPos = null;
     this.coverT = 0;
-    this.healWaitT = 0;
     this.noEnemyT = 10;
     this.heardT = 0;
     this.heard = null;
     this.sprintPref = this.rng.chance(0.6);
     this.jumpCd = 0;
     this.slideCd = 0;
-    this.input = { mx: 0, mz: 0, yaw: 0, pitch: 0, jump: false, sprint: false, crouch: false, crouchPressed: false, ads: false, healing: false };
-    this.actions = { fire: false, reload: false, heal: false };
+    this.switchCd = 0;
+    this.lootTarget = null;
+    this.lootCd = this.rng.range(0, 1.5);
+    this.useCd = 0;
+    this.input = { mx: 0, mz: 0, yaw: 0, pitch: 0, jump: false, sprint: false, crouch: false, crouchPressed: false, ads: false, using: false };
+    this.actions = { fire: false, reload: false, select: -1, use: -1, interact: null };
   }
 
   eye(p) {
     return p.body.y + ((p.flags & (F.CROUCH | F.SLIDE)) ? EYE_CROUCH : EYE_STAND);
+  }
+
+  get item() {
+    return this.p.inv.slots[this.p.inv.sel];
   }
 
   // ---------------- Wahrnehmung ----------------
@@ -81,12 +117,16 @@ export class BotBrain {
     this.visible.length = 0;
     const cosHalf = Math.cos((BOT_FOV / 2) * DEG);
     const fx = -Math.sin(this.aimYaw), fz = -Math.cos(this.aimYaw);
+    const early = sim.matchTime < EARLY_LOOT;
     for (const o of sim.players) {
       if (o === me || !o.alive) continue;
       const dx = o.body.x - b.x, dz = o.body.z - b.z;
       const d = Math.hypot(dx, dz);
-      if (d > BOT_VIEW_DIST) continue;
       const recentlyHurtBy = me.lastDamagedBy === o.id && sim.time - me.lastDamageT < 2.5;
+      // Anfangsphase: Bots looten und greifen sich gegenseitig nicht an – nur nahe Menschen
+      // oder wer selbst angegriffen wird, wehrt sich
+      const sight = early ? (o.isBot ? 0 : EARLY_SIGHT) : o.isBot ? BOT_VS_BOT_DIST : BOT_VIEW_DIST;
+      if (d > (recentlyHurtBy ? BOT_VIEW_DIST : sight)) continue;
       if (d > 9 && !recentlyHurtBy) {
         const c = (dx * fx + dz * fz) / (d || 1);
         if (c < cosHalf) continue;
@@ -96,14 +136,13 @@ export class BotBrain {
       if (!vis) vis = sim.world.collision.lineOfSight(b.x, ey, b.z, o.body.x, chestY + 0.45, o.body.z);
       if (vis) this.visible.push({ o, d });
     }
-    // Ziel wählen
     let best = null;
     let bestScore = Infinity;
     for (const v of this.visible) {
       let score = v.d;
       if (this.target && v.o.id === this.target.id) score *= 0.5;
       if (me.lastDamagedBy === v.o.id && sim.time - me.lastDamageT < 3) score *= 0.4;
-      score *= 0.7 + (v.o.hp / MAX_HP) * 0.3;
+      score *= 0.7 + ((v.o.health + v.o.shield) / 200) * 0.3;
       if (score < bestScore) { bestScore = score; best = v.o; }
     }
     if (best && (!this.target || best.id !== this.target.id)) {
@@ -118,7 +157,6 @@ export class BotBrain {
       this.lastSeen = { x: best.body.x, y: best.body.y, z: best.body.z, t: sim.time };
       this.noEnemyT = 0;
     }
-    // Geräusche (Schüsse im Umkreis)
     if (!best) {
       for (const s of sim.recentShots) {
         if (s.id === me.id || s.t < sim.time - 0.6 || s.t <= this.heardT) continue;
@@ -128,7 +166,6 @@ export class BotBrain {
           this.heardT = s.t;
         }
       }
-      // wurde getroffen ohne Sicht: in Richtung Angreifer drehen
       if (me.lastDamagedBy && me.lastDamagedBy !== 'storm' && sim.time - me.lastDamageT < 0.5) {
         const a = sim.byId.get(me.lastDamagedBy);
         if (a) this.heard = { x: a.body.x, z: a.body.z, t: sim.time };
@@ -141,6 +178,93 @@ export class BotBrain {
     this.errTargetYaw = (this.rng.next() * 2 - 1) * e;
     this.errTargetPitch = (this.rng.next() * 2 - 1) * e * 0.6;
     this.errT = this.rng.range(0.25, 0.6);
+  }
+
+  // ---------------- Inventar ----------------
+  bestSlot(dist) {
+    const inv = this.p.inv;
+    let best = -1, bestS = 0;
+    for (let i = 0; i < 5; i++) {
+      const s = suitability(inv.slots[i], dist, inv.ammo);
+      if (s > bestS) { bestS = s; best = i; }
+    }
+    return { slot: best, score: bestS };
+  }
+
+  consumableSlot(type) {
+    const slots = this.p.inv.slots;
+    for (let i = 0; i < 5; i++) if (slots[i] && slots[i].k === 'c' && slots[i].c === type) return i;
+    return -1;
+  }
+
+  // Schild/Medikit, das jetzt sinnvoll wäre (Platz oder -1)
+  wantedConsumable() {
+    const me = this.p;
+    if (me.shield < 50) { const s = this.consumableSlot('mini'); if (s >= 0) return s; }
+    if (me.shield < 100) { const s = this.consumableSlot('big'); if (s >= 0) return s; }
+    if (me.health < 75) { const s = this.consumableSlot('medkit'); if (s >= 0) return s; }
+    return -1;
+  }
+
+  // Lohnt sich ein Gegenstand? swapSlot: Platz, der dafür getauscht würde (-1: freier Platz)
+  wantsItem(item) {
+    const inv = this.p.inv;
+    const free = inv.slots.indexOf(null);
+    if (item.k === 'a') {
+      for (const s of inv.slots) if (s && s.k === 'w' && WEAPONS[s.w].ammo === item.a && inv.ammo[item.a] < 40) return { ok: true, swap: -1 };
+      return { ok: false };
+    }
+    if (item.k === 'c') {
+      for (const s of inv.slots) if (s && s.k === 'c' && s.c === item.c && s.n < CONSUMABLES[s.c].stack) return { ok: true, swap: -1 };
+      return free >= 0 ? { ok: true, swap: -1 } : { ok: false };
+    }
+    // Waffe: gleiche Art mit gleicher/höherer Seltenheit → uninteressant
+    let worst = -1, worstScore = Infinity, same = -1;
+    for (let i = 0; i < 5; i++) {
+      const s = inv.slots[i];
+      if (s && s.k === 'w' && s.w === item.w) same = i;
+      const sc = s ? (s.k === 'w' ? weaponScore(s) : 40) : -1;
+      if (s && sc < worstScore) { worstScore = sc; worst = i; }
+    }
+    if (same >= 0) {
+      return item.r > inv.slots[same].r ? { ok: true, swap: same } : { ok: false };
+    }
+    if (free >= 0) return { ok: true, swap: -1 };
+    return weaponScore(item) > worstScore + 15 ? { ok: true, swap: worst } : { ok: false };
+  }
+
+  findLootTarget() {
+    const sim = this.sim, b = this.p.body;
+    let best = null, bestD = Infinity;
+    const claims = sim.botClaims || (sim.botClaims = new Map());
+    const reachable = (x, y, z) => !sim.nav || Math.abs(sim.nav.groundH(x, z) - y) < 1.3;
+    for (const c of sim.loot.chests) {
+      if (c.open || !reachable(c.x, c.y, c.z)) continue;
+      const owner = claims.get(c.id);
+      if (owner && owner !== this.p.id && sim.byId.get(owner)?.alive) continue;
+      const d = Math.hypot(c.x - b.x, c.z - b.z) + Math.abs(c.y - b.y) * 3;
+      if (d < 55 && d < bestD) { bestD = d; best = { kind: 'c', id: c.id, x: c.x, y: c.y, z: c.z }; }
+    }
+    for (const pk of sim.loot.pickups.values()) {
+      const d = Math.hypot(pk.x - b.x, pk.z - b.z) + Math.abs(pk.y - b.y) * 3;
+      if (d > 32 || d * 1.3 > bestD || !reachable(pk.x, pk.y, pk.z)) continue;
+      const w = this.wantsItem(pk.item);
+      if (!w.ok) continue;
+      bestD = d * 1.3;
+      best = { kind: 'l', id: pk.id, x: pk.x, y: pk.y, z: pk.z, swap: w.swap };
+    }
+    if (best && best.kind === 'c') claims.set(best.id, this.p.id);
+    return best;
+  }
+
+  lootTargetValid(t) {
+    const sim = this.sim;
+    if (t.kind === 'c') {
+      const c = sim.loot.chest(t.id);
+      return !!c && !c.open;
+    }
+    const pk = sim.loot.pickups.get(t.id);
+    return !!pk && this.wantsItem(pk.item).ok;
   }
 
   // ---------------- Navigation ----------------
@@ -176,20 +300,17 @@ export class BotBrain {
       this.detour = null;
       if (this.path && this.pathIdx < this.path.length) {
         [tx, tz] = this.path[this.pathIdx];
-        if (Math.hypot(tx - b.x, tz - b.z) < 1.6) {
+        if (Math.hypot(tx - b.x, tz - b.z) < 1.2) {
           this.pathIdx++;
           if (this.pathIdx >= this.path.length) {
-            if (!this.pathComplete) {
-              this.pathPending = true;
-            } else {
-              return false; // angekommen
-            }
+            if (!this.pathComplete) this.pathPending = true;
+            else return false; // angekommen
           }
           if (this.pathIdx < this.path.length) [tx, tz] = this.path[this.pathIdx];
         }
       } else {
         tx = this.dest.x; tz = this.dest.z;
-        if (Math.hypot(tx - b.x, tz - b.z) < 2) return false;
+        if (Math.hypot(tx - b.x, tz - b.z) < 1.2) return false;
       }
     }
     if (tx === undefined) return false;
@@ -218,25 +339,24 @@ export class BotBrain {
     this.stuckPos.x = b.x;
     this.stuckPos.z = b.z;
     this.stuckT = 0;
-    if (!wantsMove || this.p.healT >= 0) { this.stuckCount = 0; return; }
+    if (!wantsMove || this.p.useT >= 0) { this.stuckCount = 0; return; }
     if (moved < 0.7) {
       this.stuckCount++;
       if (this.stuckCount === 1) {
         this.wantJump = true;
       } else if (this.stuckCount <= 3) {
-        // Umweg zur Seite
         const a = this.rng.next() * Math.PI * 2;
-        const r = 4 + this.rng.next() * 5;
-        const x = b.x + Math.cos(a) * r, z = b.z + Math.sin(a) * r;
-        this.detour = { x, z };
+        const r = 3 + this.rng.next() * 4;
+        this.detour = { x: b.x + Math.cos(a) * r, z: b.z + Math.sin(a) * r };
         this.detourT = this.sim.time + 1.4;
         this.wantJump = this.rng.chance(0.5);
         this.pathPending = !!this.dest;
       } else {
-        // neues Ziel
         this.stuckCount = 0;
         this.dest = null;
         this.path = null;
+        this.lootTarget = null;
+        this.lootCd = 4;
         this.wantJump = true;
       }
     } else if (moved > 2) {
@@ -249,12 +369,15 @@ export class BotBrain {
     const sim = this.sim, me = this.p, b = me.body, d = this.d;
     const input = this.input;
     const act = this.actions;
-    input.mx = 0; input.mz = 0; input.jump = false; input.crouchPressed = false; input.ads = false; input.healing = me.healT >= 0;
+    input.mx = 0; input.mz = 0; input.jump = false; input.crouchPressed = false; input.ads = false; input.using = me.useT >= 0;
     input.sprint = false;
-    act.fire = false; act.reload = false; act.heal = false;
+    act.fire = false; act.reload = false; act.select = -1; act.use = -1; act.interact = null;
     this.wantJump = this.wantJump && this.jumpCd <= 0;
     this.jumpCd -= dt;
     this.slideCd -= dt;
+    this.switchCd -= dt;
+    this.lootCd -= dt;
+    this.useCd -= dt;
     this.noEnemyT += dt;
 
     if (sim.phase !== 'playing') {
@@ -274,20 +397,23 @@ export class BotBrain {
     let outsideNext = false;
     if (zoneOn && zone.next) {
       const dn = Math.hypot(b.x - zone.next.x, b.z - zone.next.z);
-      outsideNext = dn > zone.next.r * 0.92 && (zone.shrinking || zone.timeLeft < 28 || zone.phase >= 3);
-      if (zone.next.r < 1) outsideNext = dn > 6;
+      outsideNext = dn > zone.next.r * 0.92 && (zone.shrinking || zone.timeLeft < 20 || zone.phase >= 3);
+      if (zone.next.r < 1) outsideNext = dn > 5;
     }
 
     const tgt = this.target && this.target.alive ? this.target : null;
     if (!tgt) this.target = null;
     const seeTarget = tgt && this.visible.some((v) => v.o === tgt);
     const hasRecentContact = this.lastSeen && sim.time - this.lastSeen.t < 6 && tgt;
+    const tDist = tgt ? Math.hypot(tgt.body.x - b.x, tgt.body.z - b.z) : 999;
+    const ehp = me.health + me.shield + me.overshield;
+    const useSlot = this.wantedConsumable();
+    const lowHp = ehp < 70 && useSlot >= 0;
 
     // --- Zustand wählen ---
-    const lowHp = me.hp < d.heal && me.medkits > 0;
-    if (me.healT >= 0) this.state = 'heal';
+    if (me.useT >= 0) this.state = 'use';
     else if (seeTarget) {
-      if (lowHp && this.state !== 'cover' && !outsideNow) {
+      if (lowHp && this.state !== 'cover' && !outsideNow && tDist > 12) {
         this.state = 'cover';
         this.coverPos = sim.nav ? sim.nav.findCover(b.x, b.z, tgt.body.x, this.eye(tgt), tgt.body.z) : null;
         this.coverT = sim.time + 4;
@@ -295,46 +421,68 @@ export class BotBrain {
       } else if (this.state !== 'cover' || sim.time > this.coverT) {
         this.state = 'combat';
       }
-    } else if (lowHp && this.noEnemyT > 1.2 && !outsideNow) {
-      this.state = 'heal';
-    } else if (me.hp < 150 && me.medkits > 0 && this.noEnemyT > 6 && !outsideNow && !outsideNext) {
-      this.state = 'heal';
+    } else if (useSlot >= 0 && this.noEnemyT > 1.6 && !outsideNow && this.useCd <= 0 && (me.health < 75 || me.shield < 100)) {
+      this.state = 'use';
     } else if (outsideNow || outsideNext) {
       if (this.state !== 'storm') {
         this.state = 'storm';
         const nz = zone.next || zone;
-        const pt = sim.nav ? sim.nav.randomFree(this.rng, nz.x, nz.z, Math.max(4, nz.r * 0.55)) : null;
+        const pt = sim.nav ? sim.nav.randomFree(this.rng, nz.x, nz.z, Math.max(3, nz.r * 0.55)) : null;
         this.setDest(pt ? pt[0] : nz.x, pt ? pt[1] : nz.z);
       }
-    } else if (hasRecentContact && this.lastSeen && this.noEnemyT < 8) {
+    } else if (hasRecentContact && this.lastSeen && this.noEnemyT < 6) {
       if (this.state !== 'chase') {
         this.state = 'chase';
         this.setDest(this.lastSeen.x, this.lastSeen.z);
       }
-    } else if (this.heard && sim.time - this.heard.t < 5 && this.state !== 'investigate') {
+    } else if (this.heard && sim.time - this.heard.t < 4 && this.state !== 'investigate' && this.state !== 'loot') {
       this.state = 'investigate';
       this.investigateT = sim.time + 2.5;
-      if (this.rng.chance(0.55)) this.setDest(this.heard.x + this.rng.range(-10, 10), this.heard.z + this.rng.range(-10, 10));
-    } else if (this.state === 'combat' || this.state === 'cover' || (this.state === 'chase' && this.noEnemyT >= 8) || (this.state === 'heal' && !(me.healT >= 0))) {
+      if (this.rng.chance(0.5)) this.setDest(this.heard.x + this.rng.range(-8, 8), this.heard.z + this.rng.range(-8, 8));
+    } else if (this.state !== 'loot' && this.lootCd <= 0 && this.noEnemyT > 2) {
+      const t = this.findLootTarget();
+      this.lootCd = t ? 0 : 2.5;
+      if (t) {
+        this.lootTarget = { ...t, t0: sim.time };
+        this.state = 'loot';
+        this.setDest(t.x, t.z);
+      } else if (this.state !== 'roam' && this.state !== 'investigate') {
+        this.state = 'roam';
+        this.dest = null;
+      }
+    } else if (this.state === 'combat' || this.state === 'cover' || (this.state === 'chase' && this.noEnemyT >= 6) || (this.state === 'use' && me.useT < 0)) {
       this.state = 'roam';
       this.dest = null;
     }
 
-    // Nachladen außerhalb von Kämpfen
-    if (!seeTarget && me.weapon.mag < WEAPON.magSize * 0.5 && !me.weapon.reloading && me.healT < 0) act.reload = true;
-    if (me.weapon.mag === 0 && !me.weapon.reloading) act.reload = true;
+    // --- Waffe wählen ---
+    const item = this.item;
+    const engaged = this.state === 'combat' || this.state === 'cover';
+    if (this.state !== 'use' && this.switchCd <= 0) {
+      const pick = this.bestSlot(engaged ? tDist : 30);
+      const cur = suitability(item, engaged ? tDist : 30, me.inv.ammo);
+      if (pick.slot >= 0 && pick.slot !== me.inv.sel && (cur <= 0 || pick.score > cur * 1.35)) {
+        act.select = pick.slot;
+        this.switchCd = 0.8;
+      }
+    }
+    // Nachladen: leer, oder außerhalb von Kämpfen unter halb voll
+    if (item && item.k === 'w' && !me.wr.reloading && me.useT < 0) {
+      const def = WEAPONS[item.w];
+      if (item.mag === 0 && me.inv.ammo[def.ammo] > 0) act.reload = true;
+      else if (!seeTarget && item.mag < def.mag * 0.5 && me.inv.ammo[def.ammo] > 0) act.reload = true;
+    }
 
     let wantsMove = false;
     let desiredYaw = this.aimYaw;
     let desiredPitch = 0;
     let aimAtTarget = false;
+    const hw = item && item.k === 'w' ? item.w : 'pistol';
 
     switch (this.state) {
       case 'combat': {
         aimAtTarget = true;
-        const dx = tgt.body.x - b.x, dz = tgt.body.z - b.z;
-        const dist = Math.hypot(dx, dz);
-        // Distanz regeln + strafen
+        const dist = tDist;
         this.strafeT -= dt;
         if (this.strafeT <= 0) {
           this.strafeT = this.rng.range(0.45, 1.3);
@@ -342,29 +490,26 @@ export class BotBrain {
           this.crouchT = this.rng.chance(d.crouch) ? this.rng.range(0.6, 1.6) : 0;
           if (this.rng.chance(d.jump) && this.jumpCd <= 0) { this.wantJump = true; this.jumpCd = 1.2; }
         }
+        // Wunschabstand je Waffe
+        const want = hw === 'pump' || hw === 'tac' ? 5 : hw === 'sniper' ? 45 : hw === 'drum' ? 14 : 22;
         let fwd = 0;
-        if (dist > 55) fwd = 1;
-        else if (dist > 32) fwd = 0.5;
-        else if (dist < 9) fwd = -0.7;
+        if (dist > want * 2.2) fwd = 1;
+        else if (dist > want * 1.3) fwd = 0.6;
+        else if (dist < want * 0.5) fwd = -0.7;
         let side = this.strafeDir * d.strafe;
         if (this.crouchT > 0) { this.crouchT -= dt; side *= 0.2; input.crouch = true; }
         else input.crouch = false;
         if (outsideNow) {
-          // trotzdem Richtung Zone
-          const nz = zone;
-          this.moveToward(input, nz.x, nz.z);
+          this.moveToward(input, zone.x, zone.z);
           wantsMove = true;
-        } else if (dist > 70 && this.dest && Math.hypot(this.dest.x - tgt.body.x, this.dest.z - tgt.body.z) > 20) {
-          this.setDest(tgt.body.x, tgt.body.z);
-        } else if (dist > 70) {
-          if (!this.dest) this.setDest(tgt.body.x, tgt.body.z);
+        } else if (dist > ENGAGE[hw] * 0.9) {
+          if (!this.dest || Math.hypot(this.dest.x - tgt.body.x, this.dest.z - tgt.body.z) > 15) this.setDest(tgt.body.x, tgt.body.z);
           wantsMove = this.followPath(input);
-          if (dist > 90 && !input.crouch) input.sprint = this.sprintPref;
+          if (dist > 60 && !input.crouch) input.sprint = this.sprintPref;
         } else {
           input.mz = fwd;
           input.mx = side;
           wantsMove = Math.abs(fwd) + Math.abs(side) > 0.1;
-          // Slide beim Nachsetzen
           if (fwd > 0.4 && this.rng.chance(d.slide * dt) && this.slideCd <= 0) {
             input.sprint = true;
             this.slidePending = 0.35;
@@ -377,10 +522,8 @@ export class BotBrain {
           input.mz = 1;
           if (this.slidePending <= 0 && b.sprinting) input.crouchPressed = true;
         }
-        // ADS auf Distanz (wenn nicht gerade sprintend)
-        input.ads = dist > 22 && !input.sprint && !outsideNow;
-        // bei leerem Magazin: Deckung
-        if (me.weapon.reloading && dist < 40 && !this.coverPos && sim.nav && this.rng.chance(0.02)) {
+        input.ads = (hw === 'sniper' || dist > 20) && !input.sprint && !outsideNow && hw !== 'pump' && hw !== 'tac';
+        if (me.wr.reloading && dist < 40 && !this.coverPos && sim.nav && this.rng.chance(0.02)) {
           this.coverPos = sim.nav.findCover(b.x, b.z, tgt.body.x, this.eye(tgt), tgt.body.z, 12);
           if (this.coverPos) { this.state = 'cover'; this.coverT = sim.time + 3; this.setDest(this.coverPos[0], this.coverPos[1]); }
         }
@@ -391,22 +534,48 @@ export class BotBrain {
         input.sprint = true;
         wantsMove = this.followPath(input);
         if (!wantsMove) {
-          // in Deckung: ducken, nachladen, heilen
           input.crouch = true;
-          if (me.weapon.mag < WEAPON.magSize && !me.weapon.reloading) act.reload = true;
-          if (me.hp < d.heal && me.medkits > 0 && me.healT < 0) act.heal = true;
+          if (item && item.k === 'w' && item.mag < WEAPONS[item.w].mag && !me.wr.reloading) act.reload = true;
+          if (useSlot >= 0 && me.useT < 0) act.use = useSlot;
           if (sim.time > this.coverT) { this.state = 'combat'; this.coverPos = null; }
         }
-        if (me.healT < 0 && !lowHp && sim.time > this.coverT - 2) { this.state = 'combat'; this.coverPos = null; }
+        if (me.useT < 0 && !lowHp && sim.time > this.coverT - 2) { this.state = 'combat'; this.coverPos = null; }
         break;
       }
-      case 'heal': {
+      case 'use': {
         input.crouch = true;
-        if (me.healT < 0) {
-          if (me.hp < MAX_HP - 20 && me.medkits > 0) act.heal = true;
-          else this.state = 'roam';
+        if (me.useT < 0) {
+          if (useSlot >= 0 && this.useCd <= 0) {
+            act.use = useSlot;
+            this.useCd = 0.5;
+          } else this.state = 'roam';
         }
         desiredYaw = this.lookYaw;
+        break;
+      }
+      case 'loot': {
+        const t = this.lootTarget;
+        if (!t || !this.lootTargetValid(t) || sim.time - t.t0 > 14) {
+          this.lootTarget = null;
+          this.state = 'roam';
+          this.dest = null;
+          this.lootCd = 0.3;
+          break;
+        }
+        const dd = Math.hypot(t.x - b.x, t.z - b.z);
+        if (dd < INTERACT_RANGE - 0.7 && Math.abs(t.y - b.y) < 2) {
+          if (t.kind === 'l' && t.swap >= 0 && me.inv.sel !== t.swap) act.select = t.swap;
+          act.interact = t.kind === 'c' ? { c: t.id } : { l: t.id };
+          this.lootTarget = null;
+          this.state = 'roam';
+          this.dest = null;
+          this.lootCd = 0.4;
+          desiredYaw = Math.atan2(-(t.x - b.x), -(t.z - b.z));
+        } else {
+          input.sprint = dd > 12 && this.sprintPref;
+          wantsMove = this.followPath(input);
+          if (!wantsMove) this.moveToward(input, t.x, t.z, 0.6);
+        }
         break;
       }
       case 'storm': {
@@ -416,7 +585,7 @@ export class BotBrain {
         break;
       }
       case 'chase': {
-        input.sprint = this.lastSeen && Math.hypot(this.lastSeen.x - b.x, this.lastSeen.z - b.z) > 25;
+        input.sprint = this.lastSeen && Math.hypot(this.lastSeen.x - b.x, this.lastSeen.z - b.z) > 20;
         wantsMove = this.followPath(input);
         if (!wantsMove) { this.state = 'roam'; this.dest = null; this.target = null; }
         if (this.lastSeen) desiredYaw = Math.atan2(-(this.lastSeen.x - b.x), -(this.lastSeen.z - b.z));
@@ -429,30 +598,27 @@ export class BotBrain {
         break;
       }
       default: {
-        // roam
         if (!this.dest) {
           this.idleT -= dt;
           if (this.idleT <= 0) this.pickRoamDest();
           else {
-            // umsehen
             this.lookYaw += Math.sin(sim.time * 0.8 + me.id.length) * dt * 0.8;
             desiredYaw = this.lookYaw;
           }
         } else {
-          const far = Math.hypot(this.dest.x - b.x, this.dest.z - b.z) > 40;
+          const far = Math.hypot(this.dest.x - b.x, this.dest.z - b.z) > 25;
           input.sprint = far && this.sprintPref;
           wantsMove = this.followPath(input);
-          // gelegentlich beim Sprinten rutschen
           if (input.sprint && b.sprinting && this.slideCd <= 0 && this.rng.chance(d.slide * 0.25 * dt)) {
             input.crouchPressed = true;
             this.slideCd = 5;
           }
           if (!wantsMove) {
             this.dest = null;
-            this.idleT = this.rng.range(0.5, 2.5);
+            this.idleT = this.rng.range(0.4, 1.8);
             this.lookYaw = this.aimYaw;
           }
-          if (sim.time - this.destT > 60) this.dest = null;
+          if (sim.time - this.destT > 40) this.dest = null;
         }
       }
     }
@@ -460,8 +626,9 @@ export class BotBrain {
     // Blickrichtung
     if (aimAtTarget && tgt) {
       const ey = this.eye(me);
-      const aimY = tgt.body.y + (this.aimHead ? ((tgt.flags & (F.CROUCH | F.SLIDE)) ? 1.05 : 1.58) : ((tgt.flags & (F.CROUCH | F.SLIDE)) ? 0.78 : 1.18));
-      // Vorhalt
+      const low = (tgt.flags & (F.CROUCH | F.SLIDE));
+      const head = this.aimHead && hw !== 'pump' && hw !== 'tac';
+      const aimY = tgt.body.y + (head ? (low ? 1.05 : 1.58) : (low ? 0.78 : 1.18));
       const lead = d.lead * 0.08;
       const tx = tgt.body.x + tgt.body.vx * lead, tz = tgt.body.z + tgt.body.vz * lead;
       const dx = tx - b.x, dy = aimY - ey, dz = tz - b.z;
@@ -470,7 +637,6 @@ export class BotBrain {
       desiredYaw = ang.yaw;
       desiredPitch = ang.pitch;
       this.trackT += dt;
-      // Fehler wandert und wird mit der Zeit kleiner
       this.errT -= dt;
       if (this.errT <= 0) this.newError(0.35 + 0.65 * Math.exp(-this.trackT / d.settle));
       this.errYaw += (this.errTargetYaw - this.errYaw) * Math.min(1, dt * 3);
@@ -481,7 +647,6 @@ export class BotBrain {
       desiredYaw = this.moveYaw;
       desiredPitch = 0;
     }
-    // Rückstoß erholt sich / wird kompensiert
     this.recoilPitch *= Math.max(0, 1 - dt * (3 + d.recoilComp * 6));
 
     const maxTurn = d.turn * DEG * dt * (aimAtTarget ? 1 : 0.8);
@@ -491,36 +656,39 @@ export class BotBrain {
     const dp = desiredPitch - this.aimPitch;
     this.aimPitch += Math.max(-maxTurn, Math.min(maxTurn, dp * Math.min(1, dt * 9)));
 
-    // Bewegung relativ zur neuen Blickrichtung neu berechnen, wenn nur gelaufen wird
     if (!aimAtTarget && wantsMove && this.state !== 'combat') {
-      // Laufrichtung ≈ Blick → vorwärts
       const adiff = angDiff(this.moveYaw ?? this.aimYaw, this.aimYaw);
       input.mz = Math.cos(adiff);
       input.mx = -Math.sin(adiff);
     }
 
     // Schießen
-    if (aimAtTarget && tgt && seeTarget) {
+    if (aimAtTarget && tgt && seeTarget && item && item.k === 'w' && me.useT < 0) {
       if (this.reactT > 0) this.reactT -= dt;
       else {
-        const dist = Math.hypot(tgt.body.x - b.x, tgt.body.z - b.z);
-        const tol = Math.max(1.2, Math.atan2(0.55, dist) / DEG * 1.6 + 0.6);
+        const dist = tDist;
+        const def = WEAPONS[item.w];
+        const tol = Math.max(1.2, Math.atan2(0.55, dist) / DEG * 1.6 + 0.6) * (def.pellets > 1 ? 1.6 : 1);
         const offYaw = Math.abs(angDiff(desiredYaw, this.aimYaw)) / DEG;
         this.burstPauseT -= dt;
         if (this.burstLeft <= 0 && this.burstPauseT <= 0) {
-          this.burstLeft = dist > 90 ? 1 + Math.floor(this.rng.next() * 2) : this.rng.int(d.burst[0], d.burst[1]);
-          this.burstPauseT = this.rng.range(d.pause[0], d.pause[1]) * (dist > 90 ? 1.8 : 1);
+          if (def.auto) {
+            this.burstLeft = dist > 70 ? 1 + Math.floor(this.rng.next() * 2) : this.rng.int(d.burst[0], d.burst[1]);
+            this.burstPauseT = this.rng.range(d.pause[0], d.pause[1]) * (dist > 70 ? 1.8 : 1);
+          } else {
+            this.burstLeft = 1;
+            this.burstPauseT = this.rng.range(0.05, 0.25) + (item.w === 'pistol' ? 0.12 : 0);
+          }
         }
-        if (this.burstLeft > 0 && offYaw < tol && dist < d.engage && me.healT < 0 && !input.sprint) {
-          act.fire = true;
-        }
+        const steady = item.w !== 'sniper' || this.trackT > d.settle * 0.7;
+        if (this.burstLeft > 0 && offYaw < tol && dist < ENGAGE[item.w] && !input.sprint && steady && item.mag > 0) act.fire = true;
       }
     } else {
       this.burstLeft = 0;
     }
 
     if (this.wantJump && b.grounded) { input.jump = true; this.wantJump = false; this.jumpCd = 0.8; }
-    if (input.healing || act.heal) { input.sprint = false; }
+    if (input.using || act.use >= 0) input.sprint = false;
 
     this.checkStuck(dt, wantsMove);
     input.yaw = this.aimYaw;
@@ -528,17 +696,17 @@ export class BotBrain {
     return input;
   }
 
-  onShotFired() {
+  onShotFired(item) {
     this.burstLeft--;
-    this.recoilPitch += WEAPON.recoilUp * DEG * (1 - this.d.recoilComp * 0.8);
+    this.recoilPitch += WEAPONS[item.w].recoil.up * DEG * (1 - this.d.recoilComp * 0.8);
   }
 
   pickRoamDest() {
     const sim = this.sim, b = this.p.body;
     const z = sim.zone.state;
-    const safe = sim.zone.enabled && z.next ? z.next : { x: 0, z: 0, r: 50 };
+    const safe = sim.zone.enabled && z.next ? z.next : { x: 0, z: 0, r: 80 };
     let x, zz;
-    if (this.rng.chance(0.55)) {
+    if (this.rng.chance(0.5)) {
       const pois = sim.world.pois.filter((p) => Math.hypot(p.x - safe.x, p.z - safe.z) < safe.r * 0.9 + 10);
       if (pois.length) {
         const p = this.rng.pick(pois);
@@ -548,7 +716,7 @@ export class BotBrain {
     }
     if (x === undefined) {
       const a = this.rng.next() * Math.PI * 2;
-      const r = this.rng.range(10, 35);
+      const r = this.rng.range(12, 45);
       x = b.x + Math.cos(a) * r;
       zz = b.z + Math.sin(a) * r;
       if (Math.hypot(x - safe.x, zz - safe.z) > safe.r * 0.9) {
@@ -557,9 +725,10 @@ export class BotBrain {
       }
     }
     if (sim.nav) {
-      const pt = sim.nav.randomFree(this.rng, x, zz, 12);
+      const pt = sim.nav.randomFree(this.rng, x, zz, 10);
       if (pt) { x = pt[0]; zz = pt[1]; }
     }
     this.setDest(x, zz);
   }
 }
+

@@ -1,8 +1,12 @@
 // Match-Sitzungen mit gleicher Schnittstelle:
-//  - LocalSession: Solo, gemeinsame Simulation läuft im Browser (pausierbar)
+//  - LocalSession: Bot-Lobby ohne Server, gemeinsame Simulation läuft im Browser (pausierbar)
 //  - NetSession: Mehrspieler, Server ist autoritativ; Interpolation mit 100 ms Puffer
-import { SIM_DT, INTERP_DELAY, F, MEDKIT_START, MAX_HP } from '../../shared/constants.js';
+import { SIM_DT, INTERP_DELAY, F, MAX_HEALTH, START_OVERSHIELD } from '../../shared/constants.js';
+import { decodeItem } from '../../shared/items.js';
 import { Zone } from '../../shared/sim/zone.js';
+import { Loot } from '../../shared/sim/loot.js';
+import { createInventory } from '../../shared/sim/inventory.js';
+import { handCode } from '../../shared/sim/simulation.js';
 
 function lerpAngle(a, b, t) {
   let d = b - a;
@@ -11,13 +15,18 @@ function lerpAngle(a, b, t) {
   return a + d * t;
 }
 
+function newState(id) {
+  return { id, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, flags: 0, health: MAX_HEALTH, shield: 0, overshield: START_OVERSHIELD, alive: true, vx: 0, vz: 0, hand: 1 };
+}
+
 export class LocalSession {
   constructor(sim, youId) {
     this.isLocal = true;
     this.sim = sim;
     this.youId = youId;
-    this.players = sim.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, outfit: p.outfit, color: p.color, skin: p.skin, crownStyle: p.crownStyle, streak: p.streak }));
+    this.players = sim.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, outfit: p.outfit, color: p.color, crownStyle: p.crownStyle, streak: p.streak }));
     const me = sim.byId.get(youId);
+    this.me = me;
     this.spawn = { x: me.body.x, y: me.body.y, z: me.body.z, yaw: me.body.yaw };
     this.paused = false;
     this.acc = 0;
@@ -25,8 +34,8 @@ export class LocalSession {
     this.prev = new Map();
     this.ping = 0;
     this.zoneObj = sim.zone;
-    this.infiniteAmmo = sim.opts.infiniteAmmo;
-    this.stateList = sim.players.map((p) => ({ id: p.id, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, flags: 0, hp: MAX_HP, alive: true, vx: 0, vz: 0 }));
+    this.loot = sim.loot;
+    this.stateList = sim.players.map((p) => newState(p.id));
     this.capturePrev();
   }
 
@@ -69,21 +78,32 @@ export class LocalSession {
       }
       s.pitch = p.pitch;
       s.flags = p.alive ? p.flags : F.DEAD;
-      s.hp = p.hp;
+      s.health = p.health;
+      s.shield = p.shield;
+      s.overshield = p.overshield;
       s.alive = p.alive;
       s.vx = b.vx;
       s.vz = b.vz;
+      s.hand = p.alive ? handCode(p.inv.slots[p.inv.sel]) : 0;
     });
     return list;
   }
 
   self() {
-    const p = this.sim.byId.get(this.youId);
-    return { hp: p.hp, medkits: p.medkits, alive: p.alive, kills: p.kills, damage: p.damage, headshots: p.headshots, healing: p.healT >= 0, placement: p.placement };
+    const p = this.me;
+    return {
+      health: p.health, shield: p.shield, overshield: p.overshield, alive: p.alive, kills: p.kills, damage: Math.round(p.damage),
+      headshots: p.headshots, useT: p.useT, placement: p.placement,
+    };
+  }
+
+  // autoritatives Inventar (nicht verändern – der Controller arbeitet mit einer Kopie)
+  inventory() {
+    return this.me.inv;
   }
 
   scores() {
-    return this.sim.players.map((p) => ({ id: p.id, kills: p.kills, damage: p.damage, alive: p.alive, placement: p.placement, ping: 0 }));
+    return this.sim.players.map((p) => ({ id: p.id, kills: p.kills, damage: Math.round(p.damage), alive: p.alive, placement: p.placement, ping: 0 }));
   }
 
   get phase() { return this.sim.phase; }
@@ -99,8 +119,10 @@ export class LocalSession {
   fire(shot) { this.sim.humanFire(this.youId, { ...shot, rewind: 0 }); }
   reload() { this.sim.humanReload(this.youId); }
   cancelReload() { this.sim.humanCancelReload(this.youId); }
-  heal() { this.sim.humanHeal(this.youId); }
-  cancelHeal() { this.sim.humanCancelHeal(this.youId); }
+  select(slot) { this.sim.humanSelect(this.youId, slot); }
+  interact(target) { this.sim.humanInteract(this.youId, target); }
+  use(slot) { this.sim.humanUse(this.youId, slot); }
+  cancelUse() { this.sim.humanCancelUse(this.youId); }
 
   drainEvents() {
     const e = this.events;
@@ -141,7 +163,7 @@ export class LocalSession {
 }
 
 export class NetSession {
-  constructor(net, start, terrain) {
+  constructor(net, start, map) {
     this.isLocal = false;
     this.net = net;
     this.matchId = start.matchId;
@@ -149,21 +171,23 @@ export class NetSession {
     this.players = start.players;
     const me = start.spawns[this.youId];
     this.spawn = { x: me[0], y: me[1], z: me[2], yaw: me[3] };
-    this.zoneObj = new Zone(start.seed, terrain, start.storm !== false);
-    this.infiniteAmmo = start.infiniteAmmo !== false;
+    this.zoneObj = new Zone(start.seed, map.terrain, true);
+    // Startbeute ist deterministisch aus Seed + Karte; danach kommen Änderungen als Ereignisse
+    this.loot = new Loot(map, start.seed);
+    this.inv = createInventory();
+    this.useT = -1;
+    this.useRecv = 0;
     this.snaps = [];
     this.events = [];
     this.offset = null;
     this.latest = null;
-    this.medkits = MEDKIT_START;
     this.kills = 0;
     this.damage = 0;
     this.headshots = 0;
-    this.healing = false;
     this.ended = false;
     this.final = null;
     this.winner = null;
-    this.stateList = this.players.map((p) => ({ id: p.id, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, flags: 0, hp: MAX_HP, alive: true, vx: 0, vz: 0 }));
+    this.stateList = this.players.map((p) => newState(p.id));
     this.scoreMap = new Map(this.players.map((p) => [p.id, { id: p.id, kills: 0, damage: 0, alive: true, placement: 0, ping: 0 }]));
     this.unsub = net.on((msg) => this.onMsg(msg));
   }
@@ -185,7 +209,12 @@ export class NetSession {
       if (this.snaps.length > 40) this.snaps.shift();
       this.latest = snap;
       if (m.me) {
-        this.medkits = m.me.mk;
+        this.useT = m.me.u;
+        this.useRecv = now;
+        if (m.me.inv) {
+          const i = m.me.inv;
+          this.inv = { slots: i.s.map((e) => (e ? decodeItem(e) : null)), sel: i.sel, ammo: { ...i.a }, rev: i.rev };
+        }
       }
       if (m.sc) for (const [id, k, d, pg] of m.sc) {
         const s = this.scoreMap.get(id);
@@ -193,12 +222,9 @@ export class NetSession {
       }
     } else if (m.t === 'ev') {
       for (const e of m.e) {
+        this.applyLootEvent(e);
         this.events.push(e);
-        if (e.t === 'medkit' && e.id === this.youId) this.medkits = e.n;
-        if (e.t === 'heal' && e.id === this.youId) { this.medkits = e.mk; this.healing = false; }
-        if (e.t === 'healStart' && e.id === this.youId) this.healing = true;
-        if (e.t === 'healCancel' && e.id === this.youId) this.healing = false;
-        if (e.t === 'hit' && e.a === this.youId) { this.damage += Math.min(e.d, e.d); if (e.p === 'h') this.headshots++; }
+        if (e.t === 'hit' && e.a === this.youId) { this.damage += e.d; if (e.p === 'h') this.headshots++; }
         if (e.t === 'kill') {
           const s = this.scoreMap.get(e.v);
           if (s) { s.alive = false; s.placement = e.place; }
@@ -210,6 +236,21 @@ export class NetSession {
       this.ended = true;
       this.final = m.results;
       this.winner = m.winner;
+    }
+  }
+
+  // Beute-Zustand aus Ereignissen nachführen
+  applyLootEvent(e) {
+    const L = this.loot;
+    if (e.t === 'loot') {
+      for (const [id, enc, x, y, z] of e.a) L.pickups.set(id, { id, item: decodeItem(enc), x, y, z });
+    } else if (e.t === 'unloot') L.pickups.delete(e.id);
+    else if (e.t === 'lootn') {
+      const pk = L.pickups.get(e.id);
+      if (pk) pk.item = decodeItem(e.it);
+    } else if (e.t === 'chest') {
+      const c = L.chest(e.id);
+      if (c) c.open = true;
     }
   }
 
@@ -248,13 +289,16 @@ export class NetSession {
       } else {
         s.x = ra[1]; s.y = ra[2]; s.z = ra[3]; s.yaw = ra[4]; s.pitch = ra[5];
       }
-      const latest = this.latest.p.get(p.id);
+      const latest = this.latest.p.get(p.id) || ra;
       s.flags = (rb || ra)[6];
-      s.hp = latest ? latest[7] : ra[7];
-      s.alive = !(latest ? latest[6] & F.DEAD : ra[6] & F.DEAD);
+      s.health = latest[7];
+      s.shield = latest[8];
+      s.overshield = latest[9];
+      s.alive = !(latest[6] & F.DEAD);
       if (!s.alive) s.flags |= F.DEAD;
-      s.vx = (rb || ra)[8];
-      s.vz = (rb || ra)[9];
+      s.vx = (rb || ra)[10];
+      s.vz = (rb || ra)[11];
+      s.hand = latest[12];
     });
     return list;
   }
@@ -262,7 +306,15 @@ export class NetSession {
   self() {
     const r = this.latest ? this.latest.p.get(this.youId) : null;
     const alive = r ? !(r[6] & F.DEAD) : true;
-    return { hp: r ? r[7] : MAX_HP, medkits: this.medkits, alive, kills: this.kills, damage: this.damage, headshots: this.headshots, healing: this.healing };
+    const useT = this.useT >= 0 ? this.useT + (performance.now() / 1000 - this.useRecv) : -1;
+    return {
+      health: r ? r[7] : MAX_HEALTH, shield: r ? r[8] : 0, overshield: r ? r[9] : START_OVERSHIELD, alive,
+      kills: this.kills, damage: Math.round(this.damage), headshots: this.headshots, useT,
+    };
+  }
+
+  inventory() {
+    return this.inv;
   }
 
   scores() {
@@ -291,13 +343,16 @@ export class NetSession {
 
   fire(shot) {
     const rewind = INTERP_DELAY + (this.net.ping || 0) / 2000;
-    this.net.send({ t: 'fire', ox: shot.ox, oy: shot.oy, oz: shot.oz, dx: shot.dx, dy: shot.dy, dz: shot.dz, rw: +rewind.toFixed(3) });
+    const r4 = (v) => Math.round(v * 10000) / 10000;
+    this.net.send({ t: 'fire', s: shot.s, o: [r4(shot.ox), r4(shot.oy), r4(shot.oz)], d: shot.dirs.map((d) => [r4(d.x), r4(d.y), r4(d.z)]), rw: +rewind.toFixed(3) });
   }
 
   reload() { this.net.send({ t: 'reload' }); }
   cancelReload() { this.net.send({ t: 'reloadCancel' }); }
-  heal() { this.net.send({ t: 'heal' }); }
-  cancelHeal() { this.net.send({ t: 'healCancel' }); }
+  select(slot) { this.net.send({ t: 'sel', s: slot }); }
+  interact(target) { this.net.send({ t: 'int', ...target }); }
+  use(slot) { this.net.send({ t: 'use', s: slot }); }
+  cancelUse() { this.net.send({ t: 'useCancel' }); }
 
   drainEvents() {
     const e = this.events;

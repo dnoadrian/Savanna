@@ -24,8 +24,19 @@ export const ICON = {
   locker: `<svg viewBox="0 0 32 32" class="ico"><path d="M8 6c0-2 2-3 4-3h8c2 0 4 1 4 3v4l4 3v15H4V13l4-3z" fill="currentColor"/><path d="M12 3c0 3 1 5 4 5s4-2 4-5" fill="none" stroke="#222" stroke-width="2"/></svg>`,
   plus: `<svg viewBox="0 0 32 32" class="ico"><path d="M13 4h6v9h9v6h-9v9h-6v-9H4v-6h9z" fill="currentColor"/></svg>`,
   heart: `<svg viewBox="0 0 32 32" class="ico"><path d="M13 3h6v10h10v6H19v10h-6V19H3v-6h10z" fill="currentColor"/></svg>`,
+  shield: `<svg viewBox="0 0 32 32" class="ico"><path d="M16 2l12 5v8c0 8-5 13-12 15C9 28 4 23 4 15V7z" fill="currentColor"/></svg>`,
+  cross2: `<svg viewBox="0 0 32 32" class="ico"><path d="M12 3h8v9h9v8h-9v9h-8v-9H3v-8h9z" fill="currentColor"/></svg>`,
+  chest: `<svg viewBox="0 0 32 32" class="ico"><path d="M4 13h24v14H4z" fill="#b8742f"/><path d="M4 13c0-6 5-9 12-9s12 3 12 9z" fill="#d18a3a"/><path d="M4 13h24v3H4z" fill="#f2c230"/><rect x="13" y="12" width="6" height="7" rx="1" fill="#f2c230"/></svg>`,
   copy: `<svg viewBox="0 0 32 32" class="ico"><rect x="10" y="10" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="3"/><path d="M6 22V6h16" fill="none" stroke="currentColor" stroke-width="3"/></svg>`,
 };
+
+// Schriftzug „SHOWDOWN BAY“
+export function logo(size = 'big') {
+  const el = document.createElement('div');
+  el.className = 'logo ' + size;
+  el.innerHTML = '<span class="logo-a">SHOWDOWN</span><span class="logo-b">BAY<svg viewBox="0 0 120 16" class="logo-wave"><path d="M2 10c10-8 18-8 28 0s18 8 28 0 18-8 28 0 18 8 30-2" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg></span>';
+  return el;
+}
 
 export function icon(name, cls = '') {
   return `<span class="icon ${cls}">${ICON[name] || ''}</span>`;

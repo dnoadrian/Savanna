@@ -1,18 +1,16 @@
-// Lobby-Oberfläche: Kopfzeile (Name, Level, XP, Siege, Kronen, Kills), Spind, Party + Chat,
-// Modus-Auswahl (Offline = immer mit Bots, Online = mit Freunden, mit oder ohne Bots),
-// SPIELEN-Button mit Matchmaking-Status, Hamburger-Menü.
+// Lobby: schlichte Kopfzeile (Logo, Spielerkarte, Freunde/Einstellungen), 3D-Figur in der Mitte,
+// Party + Chat links, rechts der Modus mit Kartenvorschau und der große BEREIT-Knopf.
+// BEREIT = 15 s Warteschlange, danach geht es immer in eine Lobby mit Bots (freie Plätze).
 import { h, esc } from './dom.js';
-import { ICON, icon } from './icons.js';
+import { ICON, logo } from './icons.js';
 import { t } from '../i18n.js';
-import { OUTFITS, OUTFIT_COLORS, WEAPON_SKINS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, xpForLevel } from '../../shared/constants.js';
-import { SKIN_COLORS } from '../render/rifle.js';
+import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, QUEUE_WAIT, xpForLevel } from '../../shared/constants.js';
 
 export class LobbyScreen {
   constructor(ui) {
     this.ui = ui;
     this.app = ui.app;
     this.el = null;
-    this.mode = localStorage.getItem('savanna.mode') || 'solo';
     this.chatLog = [];
     this.lockerOpen = false;
     this.menuOpen = false;
@@ -22,35 +20,35 @@ export class LobbyScreen {
     this.hide();
     const app = this.app;
     this.el = h('div', { class: 'screen lobby-screen' });
-    // Kopfzeile
-    this.nameBtn = h('button', { class: 'lobby-name', title: t('clickName'), onclick: () => { app.audio.uiClick(); this.ui.renameDialog(); } });
-    this.levelEl = h('div', { class: 'level-badge' });
+    // ---- Kopfzeile ----
+    this.nameBtn = h('button', { class: 'pc-name', title: t('clickName'), onclick: () => { app.audio.uiClick(); this.ui.renameDialog(); } });
+    this.levelEl = h('div', { class: 'pc-level' });
     this.xpFill = h('div', { class: 'xp-fill' });
-    this.xpText = h('div', { class: 'xp-text' });
-    this.statsEl = h('div', { class: 'lobby-stats' });
-    const left = h('div', { class: 'lobby-top-left' },
-      h('div', { class: 'logo small' }, h('div', { class: 'logo-top' }, 'SAVANNA'), h('div', { class: 'logo-bottom' }, 'ROYALE')),
-      h('div', { class: 'player-card' }, this.levelEl, h('div', { class: 'pc-main' }, this.nameBtn, h('div', { class: 'xp-bar' }, this.xpFill, this.xpText))),
-      this.statsEl);
-    this.serverDot = h('div', { class: 'server-dot' });
-    this.friendsBtn = h('button', { class: 'icon-btn', title: t('menuFriends'), html: ICON.friends, onclick: () => { app.audio.uiClick(); this.ui.openFriends(); } });
+    this.xpText = h('div', { class: 'pc-xp' });
+    const card = h('div', { class: 'player-card' }, this.levelEl,
+      h('div', { class: 'pc-main' }, this.nameBtn, h('div', { class: 'xp-bar' }, this.xpFill), this.xpText));
+    this.serverDot = h('button', { class: 'server-pill' });
+    this.serverDot.addEventListener('click', () => { app.audio.uiClick(); this.ui.openHost(); });
     this.friendsBadge = h('span', { class: 'badge hidden' });
+    const iconBtn = (ic, title, fn, extra = null) => h('button', { class: 'icon-btn', title, html: ICON[ic], onclick: (e) => { e.stopPropagation(); app.audio.uiClick(); fn(); }, onmouseenter: () => app.audio.uiHover() }, extra);
+    this.friendsBtn = iconBtn('friends', t('menuFriends'), () => this.ui.openFriends());
     this.friendsBtn.appendChild(this.friendsBadge);
-    const fsBtn = h('button', { class: 'icon-btn', title: t('fullscreen'), html: ICON.fullscreen, onclick: () => { app.audio.uiClick(); this.ui.toggleFullscreen(); } });
-    this.menuBtn = h('button', { class: 'icon-btn menu-btn', title: 'Menü', html: ICON.menu, onclick: (e) => { e.stopPropagation(); app.audio.uiClick(); this.toggleMenu(); } });
     this.menuEl = h('div', { class: 'dropdown hidden' },
-      this.menuItem('friends', t('menuFriends'), () => this.ui.openFriends()),
-      this.menuItem('gear', t('menuSettings'), () => this.ui.openSettings()),
       this.menuItem('chart', t('menuStats'), () => this.ui.openStats()),
       this.menuItem('globe', app.net.staticSite ? t('menuServer') : t('menuHost'), () => this.ui.openHost()),
       this.menuItem('info', t('menuCredits'), () => this.ui.openCredits()),
       this.menuItem('exit', t('menuQuit'), () => this.ui.quitGame()));
-    this.serverDot.addEventListener('click', () => { if (app.net.staticSite) { app.audio.uiClick(); this.ui.openHost(); } });
-    const right = h('div', { class: 'lobby-top-right' }, this.serverDot, fsBtn, this.friendsBtn, this.menuBtn, this.menuEl);
-    // Spind
-    this.lockerBtn = h('button', { class: 'locker-btn', onclick: () => { app.audio.uiClick(); this.toggleLocker(); } }, h('span', { class: 'icon', html: ICON.locker }), h('span', {}, t('locker')));
-    this.lockerEl = h('div', { class: 'locker hidden' });
-    // Party + Chat
+    const nav = h('nav', { class: 'top-nav' },
+      this.navBtn('play', t('navPlay'), () => this.toggleLocker(false)),
+      this.navBtn('locker', t('locker'), () => this.toggleLocker(true)),
+      this.navBtn('stats', t('menuStats'), () => this.ui.openStats()));
+    const top = h('header', { class: 'topbar' },
+      h('div', { class: 'tb-left' }, logo('small'), nav),
+      h('div', { class: 'tb-right' }, this.serverDot, this.friendsBtn,
+        iconBtn('gear', t('menuSettings'), () => this.ui.openSettings()),
+        iconBtn('fullscreen', t('fullscreen'), () => this.ui.toggleFullscreen()),
+        iconBtn('menu', t('menu'), () => this.toggleMenu()), this.menuEl));
+    // ---- links: Spielerkarte, Party, Chat ----
     this.partyEl = h('div', { class: 'party-panel' });
     this.chatLogEl = h('div', { class: 'chat-log' });
     this.chatInput = h('input', { type: 'text', maxlength: 140, placeholder: t('chatPlaceholder') });
@@ -58,43 +56,51 @@ export class LobbyScreen {
       if (e.key === 'Enter') this.sendChat();
       else if (e.key.length === 1) app.audio.uiType();
     });
-    this.chatEl = h('div', { class: 'chat hidden' }, h('div', { class: 'chat-title' }, t('partyChat')), this.chatLogEl,
+    this.chatEl = h('div', { class: 'chat panel hidden' }, h('div', { class: 'panel-title' }, t('partyChat')), this.chatLogEl,
       h('div', { class: 'chat-row' }, this.chatInput, h('button', { class: 'btn small', onclick: () => this.sendChat() }, t('send'))));
-    const bottomLeft = h('div', { class: 'lobby-bottom-left' }, this.partyEl, this.chatEl);
-    // Spielen
-    this.modeSolo = this.modeCard('solo', t('modeSolo'), t('modeSoloDesc'));
-    this.modeParty = this.modeCard('party', t('modeParty'), t('modePartyDesc'));
-    this.countEl = h('div', { class: 'player-count' });
-    this.readyBtn = h('button', { class: 'btn ready-btn hidden', onclick: () => this.toggleReady() });
-    this.playBtn = h('button', { class: 'btn yellow play-btn', onclick: () => this.play(), onmouseenter: () => app.audio.uiHover() }, t('play'));
+    this.statsEl = h('div', { class: 'stat-chips' });
+    const left = h('div', { class: 'lobby-left' }, card, this.statsEl, this.partyEl, this.chatEl);
+    // ---- rechts: Modus + BEREIT ----
+    this.mapThumb = h('canvas', { class: 'mode-map', width: 240, height: 240 });
+    this.countEl = h('div', { class: 'mode-count' });
+    const mode = h('div', { class: 'mode-card' },
+      this.mapThumb,
+      h('div', { class: 'mode-info' },
+        h('div', { class: 'mode-kicker' }, t('modeKicker')),
+        h('div', { class: 'mode-title' }, 'SHOWDOWN BAY'),
+        this.countEl));
     this.queueEl = h('div', { class: 'queue-box hidden' });
-    const br = h('div', { class: 'lobby-bottom-right' }, h('div', { class: 'mode-select' }, this.modeSolo, this.modeParty), this.countEl, this.queueEl, h('div', { class: 'play-row' }, this.readyBtn, this.playBtn));
+    this.readyBtn = h('button', { class: 'ready-btn', onclick: () => this.onReady(), onmouseenter: () => app.audio.uiHover() });
+    const right = h('div', { class: 'lobby-right' }, mode, this.queueEl, this.readyBtn,
+      h('div', { class: 'ready-hint' }, t('readyHint')));
+    // ---- Spind ----
+    this.lockerEl = h('div', { class: 'locker panel hidden' });
     // Namen über den Figuren
     this.labelsEl = h('div', { class: 'member-labels' });
-    this.el.append(this.labelsEl, left, right, this.lockerBtn, this.lockerEl, bottomLeft, br);
+    this.el.append(this.labelsEl, top, left, right, this.lockerEl);
     this.ui.screenRoot.appendChild(this.el);
     this.closeMenuFn = () => this.toggleMenu(false);
     document.addEventListener('click', this.closeMenuFn);
+    this.navSel = 'play';
     this.refresh();
     this.renderChat();
   }
 
-  menuItem(ic, label, fn) {
-    return h('button', { class: 'dd-item', onclick: () => { this.app.audio.uiClick(); this.toggleMenu(false); fn(); }, onmouseenter: () => this.app.audio.uiHover() }, h('span', { class: 'icon', html: ICON[ic] }), label);
+  navBtn(id, label, fn) {
+    return h('button', {
+      class: 'nav-btn', 'data-nav': id,
+      onclick: () => { this.app.audio.uiClick(); if (id !== 'stats') this.navSel = id; fn(); this.updateNav(); },
+      onmouseenter: () => this.app.audio.uiHover(),
+    }, label);
   }
 
-  modeCard(mode, title, desc) {
-    return h('button', {
-      class: 'mode-card',
-      'data-mode': mode,
-      onclick: () => {
-        this.app.audio.uiClick();
-        this.mode = mode;
-        localStorage.setItem('savanna.mode', mode);
-        this.refresh();
-      },
-      onmouseenter: () => this.app.audio.uiHover(),
-    }, h('div', { class: 'mc-title' }, title), h('div', { class: 'mc-desc' }, desc));
+  updateNav() {
+    if (!this.el) return;
+    for (const b of this.el.querySelectorAll('.nav-btn')) b.classList.toggle('sel', b.dataset.nav === (this.lockerOpen ? 'locker' : 'play'));
+  }
+
+  menuItem(ic, label, fn) {
+    return h('button', { class: 'dd-item', onclick: () => { this.app.audio.uiClick(); this.toggleMenu(false); fn(); }, onmouseenter: () => this.app.audio.uiHover() }, h('span', { class: 'icon', html: ICON[ic] }), label);
   }
 
   toggleMenu(v) {
@@ -123,65 +129,89 @@ export class LobbyScreen {
     this.xpFill.style.width = Math.min(100, (st.xp / need) * 100) + '%';
     this.xpText.textContent = `${st.xp} / ${need} XP`;
     this.statsEl.innerHTML = `
-      <div class="stat-chip">${ICON.star}<b>${st.wins}</b><small>${t('wins')}</small></div>
-      <div class="stat-chip">${ICON.crown}<b>${st.crownWins}</b><small>${t('crowns')}</small></div>
-      <div class="stat-chip">${ICON.skull}<b>${st.kills}</b><small>${t('kills')}</small></div>
-      ${prof.winStreak > 0 ? `<div class="stat-chip streak">${ICON.crown}<b>${prof.winStreak}</b><small>${t('streak')}</small></div>` : ''}`;
+      <div class="stat-chip"><b>${st.wins}</b><small>${t('wins')}</small></div>
+      <div class="stat-chip"><b>${st.kills}</b><small>${t('kills')}</small></div>
+      <div class="stat-chip"><b>${st.matches}</b><small>${t('st_matches')}</small></div>
+      ${prof.winStreak > 0 ? `<div class="stat-chip streak"><b>${prof.winStreak}</b><small>${t('streak')}</small></div>` : ''}`;
+    // Server
     const net = app.net;
-    this.serverDot.className = 'server-dot ' + (net.connected ? 'on' : net.staticSite && !net.enabled ? 'solo' : 'off');
-    if (net.connected) this.serverDot.textContent = net.serverUrl ? t('connectedTo', { host: net.serverHost }) : t('serverOnline');
-    else if (net.failed) this.serverDot.textContent = t('serverFailed');
-    else if (net.staticSite && !net.enabled) this.serverDot.textContent = t('serverStatic');
-    else this.serverDot.textContent = net.enabled ? t('connecting') : t('serverOffline');
+    let srv;
+    if (net.connected) srv = net.serverUrl ? t('connectedTo', { host: net.serverHost }) : t('serverOnline');
+    else if (net.failed) srv = t('serverFailed');
+    else if (net.staticSite && !net.enabled) srv = t('serverStatic');
+    else srv = net.enabled ? t('connecting') : t('serverOffline');
+    this.serverDot.className = 'server-pill ' + (net.connected ? 'on' : net.staticSite && !net.enabled ? 'solo' : 'off');
+    this.serverDot.innerHTML = `<i></i><span>${esc(srv)}</span>`;
     const reqs = app.social.incoming.length;
     this.friendsBadge.textContent = reqs;
     this.friendsBadge.classList.toggle('hidden', reqs === 0);
-    // Modus
+    // Kartenvorschau
+    this.drawMapThumb();
+    // Spielerzahl
     const party = app.party;
     const inParty = party && party.members.length > 1;
-    if (inParty && this.mode !== 'party') this.mode = 'party';
-    this.modeSolo.classList.toggle('sel', this.mode === 'solo');
-    this.modeParty.classList.toggle('sel', this.mode === 'party');
-    this.modeSolo.disabled = !!inParty;
-    this.modeParty.classList.toggle('disabled', !app.net.connected);
-    // Spielerzahl
-    const humans = this.mode === 'solo' ? 1 : Math.max(1, party ? party.members.length : 1);
     const q = app.queue;
-    const hh = q ? q.humans : humans;
-    const hw = hh === 1 ? t('human') : t('humans');
-    if (this.mode === 'solo' || (q && !q.noBots)) this.countEl.textContent = t('playersCount', { h: hh, hw, b: MATCH_SIZE - hh });
-    else if (q) this.countEl.textContent = t('queueInfoNoBots', { h: hh, hw });
-    else this.countEl.textContent = t('playersCountOnline', { h: hh, hw });
-    // Bereit / Leader
+    const humans = q ? q.humans : Math.max(1, inParty ? party.members.length : 1);
+    this.countEl.textContent = t('playersCount', { n: MATCH_SIZE, h: humans, b: MATCH_SIZE - humans });
+    // BEREIT-Knopf
     const myId = prof.id;
     const leader = party ? party.leader === myId : true;
     const me = party ? party.members.find((m) => m.id === myId) : null;
-    if (inParty && !leader) {
-      this.readyBtn.classList.remove('hidden');
-      this.readyBtn.textContent = me && me.ready ? '✓ ' + t('ready') : t('ready') + '?';
-      this.readyBtn.classList.toggle('on', !!(me && me.ready));
-      this.playBtn.disabled = true;
-      this.playBtn.textContent = t('onlyLeader');
-      this.playBtn.classList.add('wait');
+    const rb = this.readyBtn;
+    rb.disabled = false;
+    rb.className = 'ready-btn';
+    if (q) {
+      rb.classList.add('queued');
+      rb.innerHTML = `<span class="rb-main">${t('queueCancel')}</span>`;
+      rb.disabled = !!(party && !leader && !q.local);
+    } else if (inParty && !leader) {
+      const on = !!(me && me.ready);
+      rb.classList.toggle('on', on);
+      rb.innerHTML = `<span class="rb-main">${on ? t('readyOn') : t('readyBtn')}</span><span class="rb-sub">${t('onlyLeader')}</span>`;
     } else {
-      this.readyBtn.classList.add('hidden');
       const notReady = inParty ? party.members.filter((m) => m.id !== party.leader && !m.ready) : [];
-      this.playBtn.disabled = notReady.length > 0 || !!q;
-      this.playBtn.classList.toggle('wait', notReady.length > 0);
-      this.playBtn.textContent = notReady.length > 0 ? t('waitReady') : t('play');
+      rb.disabled = notReady.length > 0;
+      rb.innerHTML = `<span class="rb-main">${t('readyBtn')}</span>${notReady.length ? `<span class="rb-sub">${t('waitReady')}</span>` : ''}`;
     }
     // Warteschlange
     if (q) {
       this.queueEl.classList.remove('hidden');
-      const qhw = q.humans === 1 ? t('human') : t('humans');
-      const title = q.noBots && q.secs <= 0 ? t('queueNeedPlayers') : t('queueWaiting', { s: Math.max(0, Math.ceil(q.secs)) });
-      const info = q.noBots ? t('queueInfoNoBots', { h: q.humans, hw: qhw }) : t('queueInfo', { h: q.humans, hw: qhw, b: MATCH_SIZE - q.humans });
-      this.queueEl.innerHTML = `<div class="q-title">${esc(title)}</div><div class="q-info">${esc(info)}</div>`;
-      const cb = h('button', { class: 'btn small ghost', onclick: () => { this.app.audio.uiClick(); this.app.cancelQueue(); } }, t('queueCancel'));
-      if (!party || leader) this.queueEl.appendChild(cb);
+      const secs = Math.max(0, Math.ceil(q.secs));
+      const pct = Math.max(0, Math.min(100, (1 - q.secs / QUEUE_WAIT) * 100));
+      this.queueEl.innerHTML = `<div class="q-top"><span class="q-spin"></span><b>${esc(t('queueSearching'))}</b><span class="q-secs">${secs}s</span></div>
+        <div class="q-bar"><div style="width:${pct}%"></div></div>
+        <div class="q-info">${esc(t('queueInfo', { h: q.humans, b: MATCH_SIZE - q.humans }))}</div>`;
     } else this.queueEl.classList.add('hidden');
     this.renderParty();
     if (this.lockerOpen) this.renderLocker();
+    this.updateNav();
+  }
+
+  drawMapThumb() {
+    const data = this.app.mapData;
+    if (!data || this.thumbDone === data) return;
+    this.thumbDone = data;
+    const g = this.mapThumb.getContext('2d');
+    g.drawImage(data.mapImage, 0, 0, 240, 240);
+  }
+
+  onReady() {
+    const app = this.app;
+    const party = app.party;
+    const inParty = party && party.members.length > 1;
+    if (app.queue) {
+      app.audio.uiClick();
+      app.cancelQueue();
+      return;
+    }
+    if (inParty && party.leader !== app.profile.id) {
+      const me = party.members.find((m) => m.id === app.profile.id);
+      app.audio.uiClick();
+      app.net.send({ t: 'partyReady', ready: !(me && me.ready) });
+      return;
+    }
+    app.audio.uiConfirm();
+    app.ready();
   }
 
   renderParty() {
@@ -191,10 +221,12 @@ export class LobbyScreen {
     const el = this.partyEl;
     el.innerHTML = '';
     const inParty = party && party.members.length > 1;
-    this.chatEl.classList.toggle('hidden', !party);
-    if (!party) return;
+    this.chatEl.classList.toggle('hidden', !inParty);
+    el.classList.toggle('hidden', !inParty);
+    if (!inParty) return;
+    el.classList.add('panel');
     const leader = party.leader === myId;
-    el.appendChild(h('div', { class: 'pp-title' }, `Party ${party.members.length}/${PARTY_MAX}`));
+    el.appendChild(h('div', { class: 'panel-title' }, `${t('party')} ${party.members.length}/${PARTY_MAX}`));
     for (const m of party.members) {
       const row = h('div', { class: 'pp-row' + (m.id === myId ? ' me' : '') },
         m.id === party.leader ? h('span', { class: 'leader-star', title: t('leader'), html: ICON.star }) : h('span', { class: 'leader-star empty' }),
@@ -206,36 +238,7 @@ export class LobbyScreen {
       }
       el.appendChild(row);
     }
-    if (inParty) el.appendChild(h('button', { class: 'btn small ghost', onclick: () => { this.app.audio.uiClick(); this.app.net.send({ t: 'partyLeave' }); } }, t('partyLeave')));
-  }
-
-  toggleReady() {
-    const app = this.app;
-    const me = app.party && app.party.members.find((m) => m.id === app.profile.id);
-    app.audio.uiClick();
-    app.net.send({ t: 'partyReady', ready: !(me && me.ready) });
-  }
-
-  play() {
-    const app = this.app;
-    app.audio.uiConfirm();
-    if (this.mode === 'solo') app.playSolo();
-    else if (!app.net.connected) app.playOnline(true);
-    else this.askBots();
-  }
-
-  // Online: vor dem Start fragen, ob freie Plätze mit Bots aufgefüllt werden
-  askBots() {
-    const app = this.app;
-    const pick = (bots) => {
-      app.audio.uiConfirm();
-      this.ui.closeModal();
-      app.playOnline(bots);
-    };
-    const card = (bots, title, desc) => h('button', { class: 'mode-card bots-card', onclick: () => pick(bots), onmouseenter: () => app.audio.uiHover() },
-      h('div', { class: 'mc-title' }, title), h('div', { class: 'mc-desc' }, desc));
-    const body = h('div', { class: 'bots-choice' }, card(true, t('withBots'), t('withBotsDesc')), card(false, t('withoutBots'), t('withoutBotsDesc')));
-    this.ui.openModal(t('botsQuestion'), body, { cls: 'small' });
+    el.appendChild(h('button', { class: 'btn small ghost', onclick: () => { this.app.audio.uiClick(); this.app.net.send({ t: 'partyLeave' }); } }, t('partyLeave')));
   }
 
   // ---------------- Chat ----------------
@@ -259,10 +262,12 @@ export class LobbyScreen {
   }
 
   // ---------------- Spind ----------------
-  toggleLocker() {
-    this.lockerOpen = !this.lockerOpen;
+  toggleLocker(v) {
+    this.lockerOpen = v === undefined ? !this.lockerOpen : v;
     this.lockerEl.classList.toggle('hidden', !this.lockerOpen);
+    this.el.classList.toggle('locker-open', this.lockerOpen);
     if (this.lockerOpen) this.renderLocker();
+    this.updateNav();
   }
 
   renderLocker() {
@@ -277,7 +282,7 @@ export class LobbyScreen {
     };
     const el = this.lockerEl;
     el.innerHTML = '';
-    el.appendChild(h('div', { class: 'locker-title' }, t('locker'), h('button', { class: 'close-x', onclick: () => this.toggleLocker() }, '✕')));
+    el.appendChild(h('div', { class: 'panel-title' }, t('locker'), h('button', { class: 'close-x', onclick: () => { app.audio.uiClick(); this.toggleLocker(false); } }, '✕')));
     el.appendChild(h('div', { class: 'lbl' }, t('outfit')));
     const grid = h('div', { class: 'outfit-grid' });
     for (const o of OUTFITS) grid.appendChild(h('button', { class: 'outfit-btn' + (prof.outfit === o ? ' sel' : ''), onclick: () => set('outfit', o), onmouseenter: () => app.audio.uiHover() }, t('outfit_' + o)));
@@ -286,22 +291,11 @@ export class LobbyScreen {
     const colors = h('div', { class: 'color-row' });
     OUTFIT_COLORS.forEach((c, i) => colors.appendChild(h('button', { class: 'swatch' + (prof.color === i ? ' sel' : ''), style: { background: c }, onclick: () => set('color', i) })));
     el.appendChild(colors);
-    el.appendChild(h('div', { class: 'lbl' }, t('weaponSkin')));
-    const skins = h('div', { class: 'skin-row' });
-    for (const s of WEAPON_SKINS) {
-      const c = SKIN_COLORS[s];
-      skins.appendChild(h('button', {
-        class: 'skin-btn' + (prof.weaponSkin === s ? ' sel' : ''),
-        style: { background: `linear-gradient(135deg, #${c.a.toString(16).padStart(6, '0')} 55%, #${c.b.toString(16).padStart(6, '0')} 55%)` },
-        onclick: () => set('weaponSkin', s),
-      }, h('span', {}, t('skin_' + s))));
-    }
-    el.appendChild(skins);
     el.appendChild(h('div', { class: 'lbl' }, t('crownStyle')));
-    const crowns = h('div', { class: 'skin-row' });
+    const crowns = h('div', { class: 'color-row' });
     const cc = { gold: '#f2c230', ruby: '#ff2255', emerald: '#2ecc71', diamond: '#7fdbff' };
     for (const s of CROWN_STYLES) {
-      crowns.appendChild(h('button', { class: 'skin-btn crown-btn' + (prof.crownStyle === s ? ' sel' : ''), style: { background: cc[s] }, onclick: () => set('crownStyle', s) }, h('span', {}, t('crown_' + s))));
+      crowns.appendChild(h('button', { class: 'chip-btn' + (prof.crownStyle === s ? ' sel' : ''), onclick: () => set('crownStyle', s) }, h('i', { style: { background: cc[s] } }), t('crown_' + s)));
     }
     el.appendChild(crowns);
   }

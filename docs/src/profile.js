@@ -1,14 +1,14 @@
 // Spielerprofil im localStorage: Name, Spieler-ID (UUID), Spind, Statistik, Krone.
 import { xpForLevel } from '../shared/constants.js';
 
-const BASE_KEY = 'savanna.profile.v1';
+const BASE_KEY = 'showdown.profile.v1';
 
 // Profil-Slots pro Tab: Ist ein Profil bereits in einem anderen offenen Tab aktiv, bekommt
 // dieser Tab ein eigenes Profil (z. B. zum Testen von Freunden/Party mit zwei Tabs).
 const TOKEN = Math.random().toString(36).slice(2);
 function slotAlive(n) {
   try {
-    const raw = localStorage.getItem('savanna.slot.' + n);
+    const raw = localStorage.getItem('showdown.slot.' + n);
     if (!raw) return false;
     const { t, token } = JSON.parse(raw);
     return token !== TOKEN && Date.now() - t < 2500;
@@ -19,21 +19,21 @@ function slotAlive(n) {
 function pickSlot() {
   let slot = null;
   try {
-    const s = sessionStorage.getItem('savanna.slot');
+    const s = sessionStorage.getItem('showdown.slot');
     if (s !== null) slot = Number(s);
   } catch { /* ignorieren */ }
   if (slot === null || slotAlive(slot)) {
     slot = 0;
     while (slotAlive(slot) && slot < 16) slot++;
   }
-  try { sessionStorage.setItem('savanna.slot', String(slot)); } catch { /* ignorieren */ }
+  try { sessionStorage.setItem('showdown.slot', String(slot)); } catch { /* ignorieren */ }
   const beat = () => {
-    try { localStorage.setItem('savanna.slot.' + slot, JSON.stringify({ t: Date.now(), token: TOKEN })); } catch { /* ignorieren */ }
+    try { localStorage.setItem('showdown.slot.' + slot, JSON.stringify({ t: Date.now(), token: TOKEN })); } catch { /* ignorieren */ }
   };
   beat();
   setInterval(beat, 1000);
   window.addEventListener('beforeunload', () => {
-    try { localStorage.removeItem('savanna.slot.' + slot); } catch { /* ignorieren */ }
+    try { localStorage.removeItem('showdown.slot.' + slot); } catch { /* ignorieren */ }
   });
   return slot;
 }
@@ -84,7 +84,6 @@ export class Profile {
       name,
       outfit: 'cowboy',
       color: Math.floor(Math.random() * 8),
-      weaponSkin: 'gold',
       crownStyle: 'gold',
       winStreak: 0,
       soloChampion: null,
@@ -124,7 +123,6 @@ export class Profile {
       name: d.name,
       outfit: d.outfit,
       color: d.color,
-      skin: d.weaponSkin,
       crownStyle: d.crownStyle,
       streak: d.winStreak,
       level: d.stats.level,

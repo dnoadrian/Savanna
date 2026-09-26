@@ -11,9 +11,12 @@ export const DEFAULT_KEYS = {
   fire: 'Mouse0',
   ads: 'Mouse2',
   reload: 'KeyR',
-  heal: 'KeyF',
+  interact: 'KeyF',
   slot1: 'Digit1',
   slot2: 'Digit2',
+  slot3: 'Digit3',
+  slot4: 'Digit4',
+  slot5: 'Digit5',
   scoreboard: 'Tab',
   map: 'KeyM',
   view: 'KeyV',
@@ -23,7 +26,8 @@ export const DEFAULT_KEYS = {
 export const KEY_ACTIONS = Object.keys(DEFAULT_KEYS);
 
 export const DEFAULTS = {
-  // Grafik
+  // Grafik (alle Stufen mit 100 % 3D-Auflösung)
+  renderMode: 'quality',
   quality: 'auto',
   resolution: 100,
   shadows: 'high',
@@ -51,10 +55,11 @@ export const DEFAULTS = {
   sensX: 1.0,
   sensY: 1.0,
   adsSens: 0.7,
+  scopeSens: 0.6,
   invertY: false,
   sprintMode: 'hold',
   crouchMode: 'hold',
-  aimAssist: 'strong',
+  aimAssist: 'on',
   // Audio
   volMaster: 80,
   volSfx: 90,
@@ -65,7 +70,7 @@ export const DEFAULTS = {
   language: 'de',
 };
 
-const STORAGE_KEY = 'savanna.settings.v1';
+const STORAGE_KEY = 'showdown.settings.v1';
 
 export class Settings {
   constructor() {
@@ -77,8 +82,10 @@ export class Settings {
         const saved = JSON.parse(raw);
         for (const k of Object.keys(DEFAULTS)) {
           if (saved[k] === undefined) continue;
-          if (k === 'keys') this.values.keys = { ...DEFAULT_KEYS, ...saved.keys };
-          else this.values[k] = saved[k];
+          if (k === 'keys') {
+            this.values.keys = { ...DEFAULT_KEYS };
+            for (const a of KEY_ACTIONS) if (saved.keys[a]) this.values.keys[a] = saved.keys[a];
+          } else this.values[k] = saved[k];
         }
       } else {
         // Sprache aus dem Browser übernehmen
@@ -88,6 +95,8 @@ export class Settings {
     } catch {
       /* Standardwerte */
     }
+    this.values.resolution = 100;
+    if (this.values.aimAssist !== 'on' && this.values.aimAssist !== 'off') this.values.aimAssist = 'on';
   }
 
   get(k) {

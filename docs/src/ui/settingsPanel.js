@@ -6,7 +6,7 @@ import { QUALITY_PRESETS } from '../render/renderer.js';
 
 const TABS = ['account', 'graphics', 'hud', 'controls', 'mouse', 'audio'];
 const TAB_LABEL = { account: 'tabAccount', graphics: 'tabGraphics', hud: 'tabHud', controls: 'tabControls', mouse: 'tabMouse', audio: 'tabAudio' };
-const GFX_KEYS = ['resolution', 'shadows', 'viewDistance', 'grass', 'antialias', 'post'];
+const GFX_KEYS = ['shadows', 'viewDistance', 'grass', 'antialias', 'post'];
 
 export class SettingsPanel {
   constructor(ui) {
@@ -104,6 +104,15 @@ export class SettingsPanel {
     }, h('span', { class: 'knob' }), h('span', { class: 'tl' }, v ? t('on') : t('off')));
   }
 
+  // Schalter für Werte 'on' / 'off'
+  toggle2(key) {
+    const v = this.s.get(key) === 'on';
+    return h('button', {
+      class: 'toggle' + (v ? ' on' : ''),
+      onclick: () => { this.app.audio.uiClick(); this.s.set(key, v ? 'off' : 'on'); },
+    }, h('span', { class: 'knob' }), h('span', { class: 'tl' }, v ? t('on') : t('off')));
+  }
+
   slider(key, min, max, step, fmt = (v) => v, onSet) {
     const v = this.s.get(key);
     const out = h('span', { class: 'slider-val' }, fmt(v));
@@ -159,18 +168,22 @@ export class SettingsPanel {
   tab_graphics() {
     const s = this.s;
     this.section(t('tabGraphics'));
+    const perf = s.get('renderMode') === 'performance';
+    this.row(t('sRenderMode'), this.seg('renderMode', ['quality', 'performance'], (o) => t('rm_' + o)), perf ? t('rm_performanceHint') : t('rm_qualityHint'));
     const q = s.get('quality');
     const presetSeg = this.seg('quality', ['low', 'medium', 'high', 'epic', 'auto'], (o) => t('q_' + o), (o) => {
       if (o === 'auto') s.set('quality', 'auto');
       else s.setMany({ quality: o, ...QUALITY_PRESETS[o] });
     });
-    this.row(t('sQuality'), presetSeg, q === 'custom' ? t('q_custom') : q === 'auto' ? `→ ${t('q_' + this.app.autoLevel)}` : null);
-    this.row(t('sResolution'), this.slider('resolution', 50, 100, 5, (v) => v + ' %', (v) => this.setGfx('resolution', v)));
-    this.row(t('sShadows'), this.seg('shadows', ['off', 'low', 'high'], (o) => t('sh_' + o), (o) => this.setGfx('shadows', o)));
-    this.row(t('sViewDistance'), this.seg('viewDistance', ['near', 'medium', 'far', 'epic'], (o) => t('vd_' + o), (o) => this.setGfx('viewDistance', o)));
-    this.row(t('sGrass'), this.seg('grass', ['off', 'low', 'medium', 'high'], (o) => t('gr_' + o), (o) => this.setGfx('grass', o)));
-    this.row(t('sAA'), this.toggle('antialias', (v) => this.setGfx('antialias', v)));
-    this.row(t('sPost'), this.toggle('post', (v) => this.setGfx('post', v)));
+    const rows = [];
+    rows.push(this.row(t('sQuality'), presetSeg, q === 'custom' ? t('q_custom') : q === 'auto' ? `→ ${t('q_' + this.app.autoLevel)}` : null));
+    rows.push(this.row(t('sResolution'), h('b', { class: 'fixed-val' }, '100 %'), t('sResolutionFixed')));
+    rows.push(this.row(t('sShadows'), this.seg('shadows', ['off', 'low', 'high'], (o) => t('sh_' + o), (o) => this.setGfx('shadows', o))));
+    rows.push(this.row(t('sViewDistance'), this.seg('viewDistance', ['near', 'medium', 'far', 'epic'], (o) => t('vd_' + o), (o) => this.setGfx('viewDistance', o))));
+    rows.push(this.row(t('sGrass'), this.seg('grass', ['off', 'low', 'medium', 'high'], (o) => t('gr_' + o), (o) => this.setGfx('grass', o))));
+    rows.push(this.row(t('sAA'), this.toggle('antialias', (v) => this.setGfx('antialias', v))));
+    rows.push(this.row(t('sPost'), this.toggle('post', (v) => this.setGfx('post', v))));
+    if (perf) for (const r of rows) r.classList.add('disabled');
     this.row(t('sFpsLimit'), this.seg('fpsLimit', ['30', '60', '120', '144', '240', 'unlimited'], (o) => (o === 'unlimited' ? t('unlimited') : o)));
     this.row(t('sVsync'), this.toggle('vsync'));
     this.row(t('sFov'), this.slider('fov', 70, 110, 1, (v) => v + '°'));
@@ -250,10 +263,11 @@ export class SettingsPanel {
     this.row(t('sSensX'), this.slider('sensX', 0.1, 3, 0.05, (v) => Number(v).toFixed(2)));
     this.row(t('sSensY'), this.slider('sensY', 0.1, 3, 0.05, (v) => Number(v).toFixed(2)));
     this.row(t('sAdsSens'), this.slider('adsSens', 0.2, 1.5, 0.05, (v) => Number(v).toFixed(2)));
+    this.row(t('sScopeSens'), this.slider('scopeSens', 0.2, 1.5, 0.05, (v) => Number(v).toFixed(2)));
     this.row(t('sInvertY'), this.toggle('invertY'));
     this.row(t('sSprintMode'), this.seg('sprintMode', ['hold', 'toggle'], (o) => t('mode_' + o)));
     this.row(t('sCrouchMode'), this.seg('crouchMode', ['hold', 'toggle'], (o) => t('mode_' + o)));
-    this.row(t('sAimAssist'), this.seg('aimAssist', ['off', 'weak', 'medium', 'strong'], (o) => t('aa_' + o)));
+    this.row(t('sAimAssist'), this.toggle2('aimAssist'), t('sAimAssistHint'));
   }
 
   tab_audio() {

@@ -1,6 +1,6 @@
 // Gemeinsame Bewegungsphysik: lokaler Spieler (Client) und Bots (Simulation).
 import {
-  WALK_SPEED, SPRINT_MULT, CROUCH_MULT, ADS_MULT, HEAL_MOVE_MULT, SLIDE_START_MULT, SLIDE_TIME,
+  WALK_SPEED, SPRINT_MULT, CROUCH_MULT, ADS_MULT, USE_MOVE_MULT, SLIDE_START_MULT, SLIDE_TIME,
   SLIDE_MAX_TIME, SLIDE_COOLDOWN, GRAVITY, JUMP_SPEED, STEP_HEIGHT, PLAYER_RADIUS, STAND_HEIGHT,
   CROUCH_HEIGHT, SLIDE_HEIGHT, EYE_STAND, EYE_CROUCH, EYE_SLIDE, MAX_WALK_SLOPE, DEEP_WATER,
   BOUNDARY_RADIUS, SEA_LEVEL, F,
@@ -59,7 +59,7 @@ function canStand(b, world, height) {
 
 /**
  * input: { mx, mz (-1..1 lokal: mz>0 = vorwärts, mx>0 = rechts), yaw, jump, sprint, crouch,
- *          crouchPressed, ads, healing }
+ *          crouchPressed, ads, using, fly, flyUp, flyDown }
  */
 export function stepMovement(b, input, dt, world) {
   b.landed = 0;
@@ -75,7 +75,44 @@ export function stepMovement(b, input, dt, world) {
   for (let s = 0; s < n; s++) subStep(b, input, h, world, s === 0);
 }
 
+// Admin-Fliegen: keine Schwerkraft, Leertaste hoch, Ducken runter, Wände bleiben fest
+function flyStep(b, inp, h, world) {
+  const terrain = world.terrain;
+  const col = world.collision;
+  b.yaw = inp.yaw;
+  const sin = Math.sin(b.yaw), cos = Math.cos(b.yaw);
+  let mx = inp.mx || 0, mz = inp.mz || 0;
+  const ml = Math.hypot(mx, mz);
+  if (ml > 1) { mx /= ml; mz /= ml; }
+  const speed = WALK_SPEED * (inp.sprint ? 3.2 : 2);
+  const tx = (-sin * mz + cos * mx) * speed;
+  const tz = (-cos * mz - sin * mx) * speed;
+  const ty = ((inp.flyUp ? 1 : 0) - (inp.flyDown ? 1 : 0)) * speed * 0.8;
+  const k = Math.min(1, 10 * h);
+  b.vx += (tx - b.vx) * k;
+  b.vz += (tz - b.vz) * k;
+  b.vy += (ty - b.vy) * k;
+  tmpPos.x = b.x + b.vx * h;
+  tmpPos.z = b.z + b.vz * h;
+  col.resolveCircle(tmpPos, PLAYER_RADIUS, b.y + 0.1, b.y + STAND_HEIGHT);
+  const r = Math.hypot(tmpPos.x, tmpPos.z);
+  if (r > BOUNDARY_RADIUS) { tmpPos.x *= BOUNDARY_RADIUS / r; tmpPos.z *= BOUNDARY_RADIUS / r; }
+  b.x = tmpPos.x;
+  b.z = tmpPos.z;
+  const ground = Math.max(terrain.heightAt(b.x, b.z), col.groundAt(b.x, b.z, PLAYER_RADIUS * 0.7, b.y + STEP_HEIGHT));
+  b.y = Math.min(120, Math.max(ground, b.y + b.vy * h));
+  b.grounded = b.y <= ground + 0.01;
+  b.stance = 'stand';
+  b.sprinting = false;
+  b.airTime = 0;
+  b.waterDepth = Math.max(0, terrain.waterLevelAt(b.x, b.z) - b.y);
+}
+
 function subStep(b, inp, h, world, first) {
+  if (inp.fly) {
+    flyStep(b, inp, h, world);
+    return;
+  }
   const terrain = world.terrain;
   const col = world.collision;
   b.yaw = inp.yaw;
@@ -95,7 +132,7 @@ function subStep(b, inp, h, world, first) {
   // --- Haltung ---
   const horizSpeed = Math.hypot(b.vx, b.vz);
   if (b.stance !== 'slide') {
-    const wantSprint = inp.sprint && moving && mz > -0.2 && !inp.ads && !inp.healing;
+    const wantSprint = inp.sprint && moving && mz > -0.2 && !inp.ads && !inp.using;
     // Slide: Ducken-Taste während des Sprints
     if (first && inp.crouchPressed && b.sprinting && b.grounded && b.slideCd <= 0 && horizSpeed > WALK_SPEED * 1.15) {
       b.stance = 'slide';
@@ -151,7 +188,7 @@ function subStep(b, inp, h, world, first) {
     if (b.sprinting) speed *= SPRINT_MULT;
     if (b.stance === 'crouch') speed *= CROUCH_MULT;
     if (inp.ads) speed *= ADS_MULT;
-    if (inp.healing) speed *= HEAL_MOVE_MULT;
+    if (inp.using) speed *= USE_MOVE_MULT;
     if (b.waterDepth > 0.3) speed *= Math.max(0.5, 1 - (b.waterDepth - 0.3) * 0.55);
     const tx = wishX * speed;
     const tz = wishZ * speed;

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { surfaceColor } from './terrainMesh.js';
 import { PROP_TYPES } from '../../shared/map/props.js';
 
-export const MAP_EXTENT = 72; // Karte zeigt -72..72 (ganze Insel)
+export const MAP_EXTENT = 112; // Karte zeigt die ganze Bucht bis zu den Canyonwänden
 
 export function renderMapImage(map, size = 1024) {
   const c = document.createElement('canvas');
@@ -22,12 +22,13 @@ export function renderMapImage(map, size = 1024) {
       const wl = t.waterLevelAt(x, z);
       let r, gg, b;
       if (h < wl) {
+        // türkises Flachwasser
         const depth = wl - h;
-        const k = Math.min(1, depth / 6);
-        r = 90 * (1 - k) + 30 * k;
-        gg = 200 * (1 - k) + 120 * k;
-        b = 210 * (1 - k) + 200 * k;
-        if (depth < 0.5) { r = 190; gg = 235; b = 235; }
+        const k = Math.min(1, depth / 1.1);
+        r = 130 * (1 - k) + 40 * k;
+        gg = 232 * (1 - k) + 190 * k;
+        b = 222 * (1 - k) + 214 * k;
+        if (depth < 0.08) { r = 225; gg = 250; b = 245; }
       } else {
         col.set(surfaceColor(t.surfaceAt(x, z)));
         col.convertLinearToSRGB();
@@ -49,20 +50,20 @@ export function renderMapImage(map, size = 1024) {
   const toPx = (x) => ((x + MAP_EXTENT) / (MAP_EXTENT * 2)) * size;
   const shade = new THREE.Color();
   // Bäume und Felsen in echter Größe
-  const CANOPY = { acacia: 3.2, baobab: 3.8, palm_s: 2.2, rock_l: 2.2, rock_m: 1.0 };
+  const CANOPY = { palm: 2.6, palm_s: 2.0, bush: 1.0, rock_l: 2.0, rock_m: 1.0 };
   for (const p of map.props) {
     const n = PROP_TYPES[p.t];
     const r = CANOPY[n];
     if (!r) continue;
-    g.fillStyle = n.startsWith('rock') ? 'rgba(120,100,90,0.8)' : 'rgba(60,110,40,0.7)';
+    g.fillStyle = n.startsWith('rock') ? 'rgba(150,70,45,0.85)' : 'rgba(50,140,50,0.75)';
     g.beginPath();
     g.arc(toPx(p.x), toPx(p.z), (r * p.s) / scale, 0, Math.PI * 2);
     g.fill();
   }
   // Gebäude/Strukturen (Dächer zuletzt, sie verdecken Boden und Wände)
   for (const p of map.parts) {
-    if (p.inv || (!p.col && p.s !== 'prism')) continue;
-    if (p.s !== 'box' && p.s !== 'cyl' && p.s !== 'prism') continue;
+    if (p.inv || (!p.col && p.s !== 'prism' && p.s !== 'slab')) continue;
+    if (p.s !== 'box' && p.s !== 'cyl' && p.s !== 'prism' && p.s !== 'slab') continue;
     const w = (p.s === 'cyl' ? p.r * 2 : p.w) / scale;
     const d = (p.s === 'cyl' ? p.r * 2 : p.d) / scale;
     if (w * d < 0.5) continue;

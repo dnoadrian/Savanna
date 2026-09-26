@@ -8,9 +8,9 @@ varying vec3 vWorld;
 varying float vWave;
 void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
-  float w = sin(wp.x * 0.045 + uTime * 0.9) * 0.22
-          + sin(wp.z * 0.06 - uTime * 1.2) * 0.18
-          + sin((wp.x + wp.z) * 0.11 + uTime * 1.7) * 0.08;
+  float w = sin(wp.x * 0.09 + uTime * 0.9) * 0.05
+          + sin(wp.z * 0.12 - uTime * 1.2) * 0.04
+          + sin((wp.x + wp.z) * 0.22 + uTime * 1.7) * 0.02;
   wp.y = uLevel + w;
   vWave = w;
   vWorld = wp.xyz;
@@ -47,7 +47,7 @@ void main() {
   float ground = texture2D(uHeight, uv).r;
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) ground = -20.0;
   float depth = uLevel - ground;
-  float dk = smoothstep(0.0, 6.0, depth);
+  float dk = smoothstep(0.05, 1.1, depth);
   vec3 col = mix(uShallow, uDeep, dk);
   float diff = clamp(dot(n, normalize(uSunDir)), 0.0, 1.0);
   col *= 0.72 + 0.4 * diff;
@@ -58,12 +58,12 @@ void main() {
   col += vec3(1.0, 0.95, 0.8) * spec * 0.55;
   // Schaum am Strand + auf Wellenkämmen
   float fn = vnoise(vWorld.xz * 0.35 + vec2(uTime * 0.3, uTime * 0.2));
-  float shoreFoam = smoothstep(0.75, 0.05, depth + fn * 0.35 - 0.12 * sin(uTime * 1.6 + vWorld.x * 0.08));
-  float band = smoothstep(0.1, 0.0, abs(depth - 1.0 - 0.3 * sin(uTime * 1.1 + vWorld.z * 0.05)) - 0.08) * 0.5;
-  float crest = smoothstep(0.34, 0.46, vWave + fn * 0.1) * (1.0 - dk * 0.5);
+  float shoreFoam = smoothstep(0.22, 0.02, depth + fn * 0.12 - 0.05 * sin(uTime * 1.6 + vWorld.x * 0.08));
+  float band = smoothstep(0.1, 0.0, abs(depth - 0.35 - 0.08 * sin(uTime * 1.1 + vWorld.z * 0.05)) - 0.05) * 0.35;
+  float crest = smoothstep(0.085, 0.11, vWave + fn * 0.03) * 0.5;
   float foam = clamp(max(shoreFoam, band * (1.0 - dk)) + crest * 0.6, 0.0, 1.0);
   col = mix(col, vec3(1.0), foam * 0.85);
-  float alpha = mix(0.45, 0.94, smoothstep(0.0, 2.5, depth));
+  float alpha = mix(0.5, 0.86, smoothstep(0.0, 1.0, depth));
   alpha = max(alpha, foam);
   // Nebel
   float dist = length(cameraPosition - vWorld);
@@ -75,15 +75,15 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-export function createWater(heightTex, half, level = 0, size = 1500, segments = 150) {
+export function createWater(heightTex, half, level = 0, size = 320, segments = 128) {
   const uniforms = {
     uTime: { value: 0 },
     uLevel: { value: level },
     uHeight: { value: heightTex },
     uHalf: { value: half },
     uSunDir: { value: new THREE.Vector3(0.5, 0.8, 0.3) },
-    uShallow: { value: new THREE.Color(0x4fd6d0) },
-    uDeep: { value: new THREE.Color(0x1f78c8) },
+    uShallow: { value: new THREE.Color(0x7de8e0) },
+    uDeep: { value: new THREE.Color(0x1fb5cf) },
     uFogColor: { value: new THREE.Color(0xcfe8f5) },
     uFogNear: { value: 200 },
     uFogFar: { value: 600 },

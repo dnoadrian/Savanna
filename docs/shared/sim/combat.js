@@ -1,9 +1,9 @@
-// Trefferzonen, Hitscan gegen Spieler und Schadensberechnung.
-import { WEAPON, F } from '../constants.js';
+// Trefferzonen und Hitscan gegen Spieler (Schaden je Waffe: shared/items.js).
+import { F } from '../constants.js';
 
 // Lokale Hitboxen (stehend, Füße bei y=0, Blick nach -Z).
 // part: 'h' Kopf, 'b' Körper, 'l' Arme/Beine
-const PARTS = [
+export const PARTS = [
   { part: 'h', sphere: true, x: 0, y: 1.6, z: -0.02, r: 0.2 },
   { part: 'b', x: 0, y: 1.17, z: 0, hx: 0.27, hy: 0.3, hz: 0.17 },
   { part: 'l', x: 0.37, y: 1.2, z: -0.12, hx: 0.1, hy: 0.28, hz: 0.2 },
@@ -78,21 +78,6 @@ function slab(ox, oy, oz, dx, dy, dz, hx, hy, hz, maxT) {
     if (tmin > tmax) return -1;
   }
   return tmin;
-}
-
-export function baseDamage(part) {
-  return part === 'h' ? WEAPON.damageHead : part === 'b' ? WEAPON.damageBody : WEAPON.damageLimb;
-}
-
-export function falloff(dist) {
-  if (dist <= WEAPON.falloffStart) return 1;
-  if (dist >= WEAPON.falloffEnd) return WEAPON.falloffMin;
-  const t = (dist - WEAPON.falloffStart) / (WEAPON.falloffEnd - WEAPON.falloffStart);
-  return 1 - t * (1 - WEAPON.falloffMin);
-}
-
-export function computeDamage(part, dist) {
-  return Math.max(1, Math.round(baseDamage(part) * falloff(dist)));
 }
 
 // Richtungsvektor aus Yaw/Pitch (yaw 0 = -Z, pitch >0 = nach oben)

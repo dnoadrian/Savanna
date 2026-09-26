@@ -1,9 +1,9 @@
 // Zentrale Spielkonstanten – Server und Client verwenden exakt dieselben Werte.
 
-export const MATCH_SIZE = 12; // mit Bots: immer genau 12 Spieler
-export const MIN_HUMANS_NO_BOTS = 2; // Online ohne Bots: mindestens 2 Menschen
+export const GAME_NAME = 'SHOWDOWN BAY';
+export const MATCH_SIZE = 12; // jedes Match: 12 Spieler, freie Plätze füllen Bots
 export const PARTY_MAX = 4;
-export const MAP_SEED = 424242; // Insel ist immer gleich (Ranch handplatziert, Deko per Seed)
+export const MAP_SEED = 20260926; // Karte ist immer gleich (Orte handplatziert, Deko per Seed)
 export const SERVER_PORT = 4242;
 
 export const SIM_HZ = 30;
@@ -14,20 +14,25 @@ export const INTERP_DELAY = 0.1; // 100 ms Interpolationspuffer
 export const MAX_REWIND = 0.3; // Lag-Kompensation max. 300 ms
 
 export const COUNTDOWN = 3.6; // 3-2-1-GO
-export const QUEUE_WAIT = 10; // Sekunden Wartezeit auf weitere Menschen
+export const QUEUE_WAIT = 15; // Warteschlange: immer 15 s warten, dann mit Bots auffüllen
 export const INVITE_TTL = 60;
 
-// Welt: kleine Insel (~120 m) mit einem einzigen Ort (Old Ranch)
-export const ISLAND_RADIUS = 60; // Küstenlinie ungefähr hier
-export const WORLD_HALF = 96; // Terrain reicht von -96..96
-export const GRID_CELL = 1; // Terrain-Auflösung in Metern
+// Welt: Bucht im Canyon (Wasser, Stege, Inseln, drei Orte)
+export const WORLD_HALF = 150; // Terrain reicht von -150..150
+export const GRID_CELL = 1.25; // Terrain-Auflösung in Metern
+export const PLAY_RADIUS = 100; // ab hier beginnen die Canyonwände
 export const SEA_LEVEL = 0;
-export const DEEP_WATER = 1.25; // ab dieser Tiefe (Füße unter Wasser) treibt es zurück
-export const BOUNDARY_RADIUS = 88;
-export const SPAWN_MIN_DIST = 16;
+export const DEEP_WATER = 1.25; // tieferes Wasser gibt es in der Bucht nicht
+export const BOUNDARY_RADIUS = 104;
+export const SPAWN_MIN_DIST = 32;
+
+// Leben: 100 Gesundheit (grün) + 100 Schild (blau); Start mit 50 Überschild, der nicht zurückkommt
+export const MAX_HEALTH = 100;
+export const MAX_SHIELD = 100;
+export const START_OVERSHIELD = 50;
+export const SIPHON = 50; // pro Eliminierung: erst Gesundheit, Rest als Schild
 
 // Spieler
-export const MAX_HP = 200;
 export const PLAYER_RADIUS = 0.38;
 export const STAND_HEIGHT = 1.8;
 export const CROUCH_HEIGHT = 1.2;
@@ -43,62 +48,31 @@ export const WALK_SPEED = 5.4;
 export const SPRINT_MULT = 1.5;
 export const CROUCH_MULT = 0.5;
 export const ADS_MULT = 0.65;
-export const HEAL_MOVE_MULT = 0.5;
+export const USE_MOVE_MULT = 0.5; // Bewegung beim Benutzen von Schilden/Medikits
 export const SLIDE_START_MULT = 1.8;
 export const SLIDE_TIME = 1.0;
 export const SLIDE_MAX_TIME = 2.2;
 export const SLIDE_COOLDOWN = 0.8;
 export const MAX_WALK_SLOPE = 0.72; // Normal-Y unter diesem Wert ist zu steil (~44°)
 
-// Waffe: Sturmgewehr
-export const WEAPON = {
-  id: 'ar',
-  magSize: 30,
-  reserve: 180,
-  fireRate: 9,
-  damageBody: 19,
-  damageHead: 26,
-  damageLimb: 16,
-  falloffStart: 50,
-  falloffEnd: 100,
-  falloffMin: 0.7,
-  range: 400,
-  reloadTactical: 1.9,
-  reloadEmpty: 2.4,
-  // Streuung in Grad
-  spreadBase: 1.1,
-  spreadMove: 2.2,
-  spreadAir: 4.5,
-  spreadPerShot: 0.22,
-  spreadMaxBloom: 2.4,
-  spreadRecover: 7,
-  crouchMult: 0.6,
-  adsMult: 0.35,
-  // Rückstoß in Grad
-  recoilUp: 0.5,
-  recoilSide: 0.28,
-};
+// Reichweiten für Truhen und Gegenstände
+export const INTERACT_RANGE = 2.6;
+export const AUTO_PICKUP_RANGE = 1.3; // Munition wird beim Drüberlaufen eingesammelt
 
-// Medkits
-export const MEDKIT_START = 1;
-export const MEDKIT_MAX = 5;
-export const MEDKIT_HEAL = 75;
-export const MEDKIT_TIME = 1.0;
-
-// Sturm – 5 Phasen, Start nach 35 s (kleine Insel: schnelle Runden)
+// Sturm – 5 Phasen, Start nach 45 s, eine Runde dauert höchstens ca. 4 Minuten
 export const STORM_PHASES = [
-  { wait: 35, shrink: 20, radius: 58, dps: 1 },
-  { wait: 25, shrink: 15, radius: 38, dps: 1 },
-  { wait: 20, shrink: 15, radius: 22, dps: 2 },
-  { wait: 15, shrink: 12, radius: 10, dps: 5 },
-  { wait: 15, shrink: 12, radius: 0, dps: 10 },
+  { wait: 45, shrink: 30, radius: 76, dps: 1 },
+  { wait: 30, shrink: 25, radius: 50, dps: 1 },
+  { wait: 25, shrink: 20, radius: 29, dps: 2 },
+  { wait: 20, shrink: 15, radius: 12, dps: 5 },
+  { wait: 15, shrink: 15, radius: 0, dps: 10 },
 ];
-export const STORM_START_RADIUS = 92;
+export const STORM_START_RADIUS = 150;
 
 // Sichtbarkeit/Wahrnehmung der Bots
 export const BOT_FOV = 120;
-export const BOT_VIEW_DIST = 140;
-export const BOT_HEAR_DIST = 90;
+export const BOT_VIEW_DIST = 85;
+export const BOT_HEAR_DIST = 45;
 
 // Spielerflags für Animation/Netzwerk (Bitmaske)
 export const F = {
@@ -109,17 +83,14 @@ export const F = {
   AIR: 16,
   ADS: 32,
   RELOAD: 64,
-  HEAL: 128,
+  USING: 128,
   FIRING: 256,
   DEAD: 512,
   WATER: 1024,
 };
 
-export const BOT_DIFFICULTIES = ['easy', 'normal', 'hard', 'pro'];
-
 export const OUTFITS = ['cowboy', 'ranger', 'ninja', 'soldier', 'dancer', 'pirate', 'chef', 'astronaut'];
 export const OUTFIT_COLORS = ['#e63946', '#2a9df4', '#43aa5b', '#f4a261', '#9b5de5', '#f15bb5', '#222831', '#f1faee'];
-export const WEAPON_SKINS = ['grey', 'green', 'blue', 'purple', 'gold'];
 export const CROWN_STYLES = ['gold', 'ruby', 'emerald', 'diamond'];
 
 export function xpForLevel(level) {

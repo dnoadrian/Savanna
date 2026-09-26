@@ -46,6 +46,25 @@ export const C = {
   JEEP: 0x7d8f4a,
   JEEP2: 0xd9b25b,
   WATER: 0x3aa3c8,
+  // Bucht im Canyon
+  SAND: 0xf2b886,
+  CLIFF_BASE: 0xa9492f,
+  CLIFF_RED: 0xc65a36,
+  CLIFF_ORANGE: 0xdc7a45,
+  CLIFF_LIGHT: 0xeaa06a,
+  CLIFF_TOP: 0xd98752,
+  STACK: 0xc9c7cf,
+  STACK_DARK: 0xa9a6b2,
+  TIN: 0xb6bac2,
+  TIN_DARK: 0x8f949e,
+  HOUSE_BLUE: 0x5ea8cf,
+  HOUSE_BLUE_DARK: 0x3f7fa6,
+  LIGHT_RED: 0xd23c3c,
+  LAMP: 0xfff1a8,
+  BOARD: 0x9a6a44,
+  BOARD_LIGHT: 0xb68254,
+  BOARD_DARK: 0x6e4a31,
+  BUOY: 0xf5c518,
 };
 
 export class Builder {
@@ -242,40 +261,59 @@ export class Builder {
     return this.railing(x1, z1, x2, z2, 0, 1.1, c);
   }
 
-  haybale(lx, lz, ry = 0, ly = 0) {
-    this.cyl(lx, ly, lz, 0.75, 1.5, C.HAY, { rz: Math.PI / 2, ry, seg: 10, col: false });
-    this.blocker(lx, ly, lz, 1.5, 1.45, 1.4, { ry, m: MAT.PLANT });
-    this.parts[this.parts.length - 1].m = MAT.PLANT;
+  // massive Treppe: Stufen steigen Richtung lokales -Z an (Unterkante ly)
+  stairs(lx, lz, width, rise, run, steps, c = C.WOOD, ry = 0, ly = 0) {
+    const b = this.sub(lx, lz, ry, ly);
+    for (let i = 0; i < steps; i++) b.box(0, 0, -i * run, width, (i + 1) * rise, run, c, { m: MAT.WOOD });
+    return b;
+  }
+
+  // Felsblock (achteckig abgeschrägt, oben schmaler) – Canyonwände und Felsen; ly = Unterkante
+  slab(lx, ly, lz, w, h, d, c, o = {}) {
+    this.parts.push({
+      s: 'slab',
+      x: this.wx(lx, lz), y: this.oy + ly + h / 2, z: this.wz(lx, lz),
+      w, h, d,
+      ry: this.rot + (o.ry || 0),
+      c,
+      taper: o.taper ?? 0.9,
+      col: o.col !== false,
+      m: o.m ?? MAT.STONE,
+    });
     return this;
   }
 
-  windmill(lx, lz, grpKey, ry = 0, height = 11) {
-    const b = this.sub(lx, lz, ry);
-    const legs = [[-1.4, -1.4], [1.4, -1.4], [1.4, 1.4], [-1.4, 1.4]];
-    for (const [x, z] of legs) {
-      b.box(x * 0.62, 0, z * 0.62, 0.18, height, 0.18, C.METAL, { rx: -z * 0.07, rz: x * 0.07, col: false, m: MAT.METAL });
-      b.cyl(x * 0.9, 0, z * 0.9, 0.12, 2.2, C.METAL, { col: true, m: MAT.METAL, seg: 5 });
-      b.parts[b.parts.length - 1].inv = true;
-    }
-    for (let y = 2; y < height; y += 2.5) {
-      const s = 1.4 - (y / height) * 0.55;
-      b.box(0, y, s, s * 2, 0.08, 0.08, C.METAL, { col: false });
-      b.box(0, y, -s, s * 2, 0.08, 0.08, C.METAL, { col: false });
-      b.box(s, y, 0, 0.08, 0.08, s * 2, C.METAL, { col: false });
-      b.box(-s, y, 0, 0.08, 0.08, s * 2, C.METAL, { col: false });
-    }
-    b.box(0, height, 0, 0.6, 0.6, 1.4, C.METAL_DARK, { col: false });
-    b.box(0, height + 0.2, -1.6, 0.05, 1.0, 1.6, C.WALL_WHITE, { col: false });
-    // Rotor (animiert)
-    const pivot = { x: b.wx(0, 0.9), y: b.oy + height + 0.3, z: b.wz(0, 0.9) };
-    if (this.groups) this.groups[grpKey] = { pivot, axis: 'z', ry: b.rot, speed: 1.6 };
-    for (let k = 0; k < 12; k++) {
-      const a = (k / 12) * Math.PI * 2;
-      const bx = Math.cos(a) * 1.3, by = Math.sin(a) * 1.3;
-      b.box(bx, height + 0.3 + by - 0.6, 0.9, 0.35, 1.2, 0.04, k % 2 ? C.WALL_WHITE : C.RED, { rz: a - Math.PI / 2, col: false, grp: grpKey });
-    }
-    b.cyl(0, height + 0.3, 0.95, 0.25, 0.2, C.METAL_DARK, { rx: Math.PI / 2, col: false, grp: grpKey });
+  // Ruderboot (schwimmt knapp über dem Wasser)
+  boat(lx, lz, ry = 0, c = C.WALL_BLUE, ly = 0) {
+    const b = this.sub(lx, lz, ry, ly);
+    b.box(0, 0, 0, 1.5, 0.5, 3.6, c, { m: MAT.WOOD });
+    b.box(0, 0.12, 0, 1.2, 0.4, 3.2, C.WOOD_DARK, { col: false });
+    b.box(0, 0.3, 0.1, 1.3, 0.08, 0.35, C.WOOD_LIGHT, { col: false });
+    b.box(0, 0, -1.95, 0.9, 0.42, 0.5, c, { col: false, rx: -0.5 });
+    b.box(0.55, 0.52, 0.8, 0.06, 0.06, 1.8, C.WOOD_LIGHT, { col: false, ry: 0.3, rz: 0.3 });
     return b;
+  }
+
+  // Wellblechdach (Pultdach, Rippen quer zur Neigung). Unterkante ly, Neigung Richtung +Z
+  tinRoof(lx, ly, lz, w, d, rise, c = C.TIN) {
+    const slope = Math.atan2(rise, d);
+    const len = Math.hypot(d, rise);
+    this.box(lx, ly, lz, w, 0.12, len, c, { rx: slope, col: false });
+    const n = Math.max(3, Math.round(w / 0.45));
+    for (let i = 0; i <= n; i++) {
+      const x = lx - w / 2 + (i / n) * w;
+      this.box(x, ly + 0.07, lz, 0.1, 0.07, len, i % 2 ? C.TIN_DARK : c, { rx: slope, col: false });
+    }
+    this.blocker(lx, ly - 0.05, lz, w, rise * 0.5 + 0.2, d);
+    return this;
+  }
+
+  // Laterne auf Pfahl
+  lamppost(lx, lz, h = 2.6, ly = 0) {
+    this.cyl(lx, ly, lz, 0.08, h, C.WOOD_DARK, { seg: 5 });
+    this.box(lx, ly + h, lz, 0.32, 0.4, 0.32, C.LAMP, { col: false });
+    this.box(lx, ly + h + 0.4, lz, 0.42, 0.08, 0.42, C.METAL_DARK, { col: false });
+    return this;
   }
 
   watertower(lx, lz, ry = 0, h = 7, c = C.WOOD) {

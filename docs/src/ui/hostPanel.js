@@ -134,7 +134,7 @@ export class HostPanel {
     }, h('span', { class: 'icon', html: ICON.copy }), ' ', t('copy'));
     const row = h('div', { class: 'link-box' + (small ? ' small' : '') }, input, copy);
     if (!small && navigator.share) {
-      row.appendChild(h('button', { class: 'btn small ghost', onclick: () => navigator.share({ title: 'SAVANNA ROYALE', text: 'Spiel mit mir SAVANNA ROYALE!', url }).catch(() => {}) }, t('hostShare')));
+      row.appendChild(h('button', { class: 'btn small ghost', onclick: () => navigator.share({ title: 'SHOWDOWN BAY', text: 'Spiel mit mir SHOWDOWN BAY!', url }).catch(() => {}) }, t('hostShare')));
     }
     return row;
   }

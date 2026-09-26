@@ -1,8 +1,9 @@
-// Navigationsgitter (1 m) mit A*-Wegfindung für Bots.
+// Navigationsgitter (1 m) mit A*-Wegfindung für Bots. Begehbare Flächen sind Terrain oder
+// niedrige Collider-Oberseiten (Stege, Böden); zu hohe Stufen (z. B. aus dem Wasser auf einen Steg) sind gesperrt.
 import { MAX_WALK_SLOPE } from '../constants.js';
 import { CollisionWorld } from '../physics/collision.js';
 
-const HALF = 64;
+const HALF = 104;
 const CELL = 1;
 const N = (HALF * 2) / CELL;
 const SQ2 = Math.SQRT2;
@@ -38,10 +39,13 @@ export class NavGrid {
       for (let i = 0; i < N; i++) {
         const x = this.cellX(i);
         const idx = j * N + i;
-        const h = t.heightAt(x, z);
+        const tH = t.heightAt(x, z);
+        const gH = this.collision.groundAt(x, z, 0.3, Math.max(tH, 0) + 1.3);
+        const h = Math.max(tH, gH);
         this.h[idx] = h;
         const wl = t.waterLevelAt(x, z);
         if (wl - h > 0.85) { this.walk[idx] = BLOCKED; continue; }
+        if (gH > tH + 0.05) { this.walk[idx] = FREE; continue; }
         t.normalAt(x, z, nrm);
         this.walk[idx] = nrm.y < MAX_WALK_SLOPE ? STEEP : FREE;
       }
@@ -100,8 +104,17 @@ export class NavGrid {
   canStep(from, to) {
     const w = this.walk[to];
     if (w === BLOCKED) return false;
-    if (w === STEEP) return this.h[to] < this.h[from] - 0.2;
+    const dh = this.h[to] - this.h[from];
+    if (dh > 0.6) return false; // zu hohe Stufe
+    if (w === STEEP) return dh < -0.2;
     return true;
+  }
+
+  // Höhe der begehbaren Fläche an (x, z) (für Erreichbarkeit von Truhen)
+  groundH(x, z) {
+    const i = this.toCell(x), j = this.toCell(z);
+    if (i < 0 || j < 0 || i >= N || j >= N) return -99;
+    return this.h[j * N + i];
   }
 
   heapPush(idx, size) {
