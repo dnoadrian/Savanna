@@ -406,6 +406,8 @@ export class UI {
     const app = this.app;
     if (app.match) app.match.hud.bigMsgEl.classList.remove('show');
     const el = h('div', { class: 'game-overlay victory' },
+      h('div', { class: 'vic-flash' }),
+      h('div', { class: 'vic-rays' }),
       h('div', { class: 'victory-banner' },
         h('div', { class: 'vb-crown', html: ICON.crown }),
         h('div', { class: 'vb-main' }, t('victory')),
@@ -419,6 +421,8 @@ export class UI {
       h('button', { class: 'btn yellow big', onclick: () => { app.audio.uiClick(); this.closeGameOverlay(); onContinue(); } }, t('continue')));
     this.setGameOverlay('victory', el);
     this.confettiBurst(260, true);
+    // zweite Konfetti-Welle
+    setTimeout(() => { if (this.gameOverlay && this.gameOverlay.kind === 'victory') this.confettiBurst(180, true); }, 1600);
   }
 
   showMatchOver({ winner, onContinue }) {

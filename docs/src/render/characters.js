@@ -221,10 +221,32 @@ function buildCrownGeo(style) {
 }
 
 let crownMat = null;
+const glowMats = {};
+function crownGlowMat(style) {
+  if (glowMats[style]) return glowMats[style];
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grd.addColorStop(0.4, 'rgba(255,255,255,0.35)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  const col = { gold: 0xffd23f, ruby: 0xff4466, emerald: 0x4dff9a, diamond: 0x9fe8ff }[style] || 0xffd23f;
+  glowMats[style] = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), color: col, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8 });
+  return glowMats[style];
+}
 export function createCrownMesh(style = 'gold') {
-  crownMat = crownMat || new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0x6b4a00, emissiveIntensity: 0.6 });
+  crownMat = crownMat || new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0x8a6200, emissiveIntensity: 0.9 });
   const m = new THREE.Mesh(buildCrownGeo(style).toGeometry(), crownMat);
   m.castShadow = false;
+  // größer + Leuchten, damit man die Krone auch aus der Entfernung sieht
+  m.scale.setScalar(1.45);
+  const glow = new THREE.Sprite(crownGlowMat(style));
+  glow.scale.set(0.95, 0.75, 1);
+  glow.position.y = 0.1;
+  m.add(glow);
   return m;
 }
 
@@ -446,6 +468,14 @@ export class Character {
       (hipPos[2] * (1 - this.adsK) + adsPos[2] * this.adsK) * aim + sprPos[2] * this.sprintK + this.recoil * 0.05 + heal * 0.12,
     );
     gr.set(pitch * 0.75 * aim - this.sprintK * 0.55 - heal * 0.9 + this.recoil * 0.08, this.sprintK * 0.9 + heal * 0.5, 0);
+    // Siegesjubel: Waffe hochgereckt, Hüpfen
+    if (this.celebrate) {
+      const j = Math.abs(Math.sin(t * 5.5));
+      this.hips.position.y += j * 0.14;
+      this.torso.rotation.x = -0.12;
+      gp.set(0.2, 0.92 + j * 0.05, -0.02);
+      gr.set(1.35, 0, 0.25 + Math.sin(t * 5.5) * 0.15);
+    }
     // Nachladen: Waffe kippen
     let leftTarget = null;
     if (this.reloadT >= 0) {
@@ -471,13 +501,14 @@ export class Character {
     this.solveArm(this.arms[1], grip, 1);
     let lt;
     if (holding) lt = _v2.copy(this.medkit.position).add(_v3.set(0.1, 0.05, 0));
+    else if (this.celebrate) lt = _v2.set(-0.3 + Math.sin(t * 9) * 0.08, 0.98, -0.06);
     else if (leftTarget) lt = _v2.copy(leftTarget).applyMatrix4(this.gun.matrix);
     else lt = _v2.set(0, 0.0, -0.4).applyMatrix4(this.gun.matrix);
     this.solveArm(this.arms[0], lt, -1);
     // Krone schwebt
     if (this.crown) {
       this.crown.rotation.y += dt * 0.8;
-      this.crown.position.y = (this.def.hatTop ?? 0.3) + 0.14 + Math.sin(t * 2) * 0.02;
+      this.crown.position.y = (this.def.hatTop ?? 0.3) + 0.2 + Math.sin(t * 2) * 0.03;
     }
   }
 

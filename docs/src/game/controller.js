@@ -570,6 +570,19 @@ export class LocalPlayer {
       cam.updateProjectionMatrix();
     }
     cam.rotation.order = 'YXZ';
+    // Siegerkamera: fährt langsam um die jubelnde Figur, leicht von unten (heldenhaft)
+    if (this.victoryCam) {
+      const v = this.victoryCam;
+      v.t += dt;
+      const a = v.yaw + v.t * 0.35;
+      const dist = Math.max(3.2, 5.5 - v.t * 0.6);
+      const px = b.x - Math.sin(a) * dist, pz = b.z - Math.cos(a) * dist;
+      const py = b.y + 1.1 + Math.min(0.6, v.t * 0.15);
+      cam.position.set(px, py, pz);
+      cam.lookAt(b.x, b.y + 1.35, b.z);
+      cam.updateMatrixWorld();
+      return;
+    }
     const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw);
     if (!this.thirdPerson) {
       cam.position.set(b.x + rx * bobX, this.camY + bobY - dip, b.z + rz * bobX);

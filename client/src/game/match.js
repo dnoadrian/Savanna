@@ -708,7 +708,14 @@ export class MatchClient {
     this.app.input.unlock();
     const me = s.youId;
     const mine = s.self();
+    // Sieger jubelt (auch für Zuschauer sichtbar)
+    const wc = this.chars.get(winner);
+    if (wc) wc.celebrate = true;
     if (winner === me) {
+      // Siegerkamera: dritte Person, langsame Fahrt um die eigene Figur
+      this.player.thirdPerson = true;
+      this.player.victoryCam = { t: 0, yaw: this.player.yaw + Math.PI };
+      this.effects.chestBurst(_v.set(this.player.body.x, this.player.body.y + 1.6, this.player.body.z));
       this.app.audio.victory();
       this.app.ui.showVictory({ stats: mine, time: s.matchTime, onContinue: () => this.finish() });
     } else {
