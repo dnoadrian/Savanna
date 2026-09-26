@@ -14,3 +14,6 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # Anzeige in der Lobby unten links
+      - key: SHOWDOWN_REGION
+        value: "Frankfurt (EU)"

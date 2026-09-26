@@ -35,6 +35,13 @@ export class GameServer {
     this.tunnel.on('change', (st) => this.broadcastHost(st));
     this.beacon = new Beacon(this.tunnel);
     this.admin = new AdminAuth(this.store);
+    // Angaben für die Lobby-Anzeige „Server“ (Name, Standort, Spieler online)
+    this.info = {
+      name: process.env.SHOWDOWN_SERVER_NAME || process.env.RENDER_SERVICE_NAME || null,
+      region: process.env.SHOWDOWN_REGION || (process.env.RENDER ? 'Render' : null),
+      cloud: !!process.env.RENDER || !!process.env.SHOWDOWN_REGION,
+    };
+    setInterval(() => this.broadcastServerInfo(), 5000);
     setInterval(() => this.tickQueue(), 250);
     setInterval(() => this.tickInvites(), 1000);
     // Partys ohne Mitglieder aufräumen
@@ -218,7 +225,7 @@ export class GameServer {
     c.pid = id;
     this.byPid.set(id, c);
     this.store.save();
-    this.send(c, { t: 'welcome', name: p.name, isHost: c.isHost });
+    this.send(c, { t: 'welcome', name: p.name, isHost: c.isHost, srv: this.serverInfo() });
     this.sendSocial(id);
     const party = this.partyOf(id);
     this.send(c, { t: 'party', party: party ? this.partyView(party) : null });
@@ -773,6 +780,18 @@ export class GameServer {
 
   sendHost(c) {
     this.send(c, { t: 'host', status: { ...this.hostStatus(), isHostClient: c.isHost } });
+  }
+
+  serverInfo() {
+    return { ...this.info, online: this.byPid.size, matches: this.matches.size };
+  }
+
+  // Spielerzahl für die Lobby-Anzeige (nur an Spieler in der Lobby)
+  broadcastServerInfo() {
+    const info = this.serverInfo();
+    if (this.lastInfo && this.lastInfo.online === info.online && this.lastInfo.matches === info.matches) return;
+    this.lastInfo = info;
+    for (const c of this.clients) if (c.pid && !c.matchId) this.send(c, { t: 'srv', srv: info });
   }
 
   broadcastHost() {

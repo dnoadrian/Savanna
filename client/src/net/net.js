@@ -138,7 +138,8 @@ export class NetClient {
       }
       if (m.t === 'pong') {
         const rtt = performance.now() - m.c;
-        this.ping = this.ping ? this.ping * 0.7 + rtt * 0.3 : rtt;
+        // geglättet; nach unten schneller (erste Messung fällt oft in die Ladezeit)
+        this.ping = !this.ping ? rtt : rtt < this.ping ? this.ping * 0.3 + rtt * 0.7 : this.ping * 0.7 + rtt * 0.3;
         return;
       }
       if (m.rid && this.pending.has(m.rid)) {

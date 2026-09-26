@@ -247,6 +247,7 @@ class App {
   onNet(m) {
     switch (m.t) {
       case 'welcome':
+        this.serverInfo = m.srv || null;
         this.registered = true;
         this.isHost = !!m.isHost;
         if (m.name && m.name !== this.profile.name) this.profile.set('name', m.name);
@@ -293,6 +294,10 @@ class App {
         break;
       case 'matchStart':
         this.startNetMatch(m);
+        break;
+      case 'srv':
+        this.serverInfo = m.srv;
+        this.ui.lobby.updateServerBox?.();
         break;
       case 'coins':
         // Geschenk vom Admin

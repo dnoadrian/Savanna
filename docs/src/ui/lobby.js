@@ -80,7 +80,11 @@ export class LobbyScreen {
     this.lockerEl = h('div', { class: 'locker panel hidden' });
     // Namen über den Figuren
     this.labelsEl = h('div', { class: 'member-labels' });
-    this.el.append(this.labelsEl, top, left, right, this.lockerEl);
+    // unten links: mit welchem Server man verbunden ist
+    this.serverBox = h('div', { class: 'lobby-server' });
+    this.el.append(this.labelsEl, top, left, right, this.lockerEl, this.serverBox);
+    clearInterval(this.serverTimer);
+    this.serverTimer = setInterval(() => this.updateServerBox(), 1000);
     this.ui.screenRoot.appendChild(this.el);
     this.closeMenuFn = () => this.toggleMenu(false);
     document.addEventListener('click', this.closeMenuFn);
@@ -112,11 +116,52 @@ export class LobbyScreen {
   }
 
   hide() {
+    clearInterval(this.serverTimer);
     if (this.el) {
       this.el.remove();
       document.removeEventListener('click', this.closeMenuFn);
     }
     this.el = null;
+  }
+
+  // Server-Anzeige unten links: Name/Standort, Adresse, Ping, Spieler online
+  updateServerBox() {
+    if (!this.serverBox) return;
+    const app = this.app;
+    const net = app.net;
+    const info = app.serverInfo;
+    let title, sub = '', state = 'off';
+    if (net.connected) {
+      state = 'on';
+      const host = net.serverHost || location.host;
+      const local = /^(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
+      if (info && info.region) title = info.region;
+      else if (/trycloudflare\.com$/i.test(host)) title = t('srvTunnel');
+      else if (local) title = app.isHost ? t('srvLocalHost') : t('srvLan');
+      else title = t('srvOnline');
+      const parts = [info && info.name ? info.name : host];
+      if (net.ping) parts.push(Math.round(net.ping) + ' ms');
+      if (info && info.online) parts.push(t('srvPlayers', { n: info.online }));
+      sub = parts.join(' · ');
+    } else if (net.waking) {
+      state = 'wait';
+      title = t('serverWaking');
+      sub = net.serverHost || '';
+    } else if (net.enabled && !net.failed) {
+      state = 'wait';
+      title = t('connecting');
+      sub = net.serverHost || '';
+    } else {
+      title = t('srvOffline');
+      sub = net.failed ? t('serverFailed') : t('srvOfflineSub');
+    }
+    const ping = net.connected && net.ping ? Math.round(net.ping) : null;
+    const q = ping === null ? '' : ping < 60 ? 'good' : ping < 120 ? 'ok' : 'bad';
+    const key = [state, title, sub, q].join('|');
+    if (this.serverBox._k === key) return;
+    this.serverBox._k = key;
+    this.serverBox.className = 'lobby-server ' + state + (q ? ' ping-' + q : '');
+    this.serverBox.innerHTML = `<span class="icon">${ICON.globe}</span><div><small>${esc(t('srvLabel'))}</small><b>${esc(title)}</b><span>${esc(sub)}</span></div>`;
   }
 
   // ---------------- Aktualisieren ----------------
@@ -192,6 +237,7 @@ export class LobbyScreen {
     this.updateCoins();
     if (this.lockerOpen) this.renderPanel();
     this.updateNav();
+    this.updateServerBox();
   }
 
   drawMapThumb() {

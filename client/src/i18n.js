@@ -170,6 +170,7 @@ const DE = {
   // Webseite / Server verbinden
   menuServer: 'Server / Online spielen',
   serverStatic: 'Offline-Version (Webseite)',
+  srvLabel: 'Server', srvTunnel: 'Online-Host (Tunnel)', srvLocalHost: 'Lokal (dein PC)', srvLan: 'Heimnetz (LAN)', srvOnline: 'Online-Server', srvPlayers: '{n} online', srvOffline: 'Offline – nur Bots', srvOfflineSub: 'Kein Server verbunden',
   serverFailed: 'Server nicht erreichbar', serverWaking: 'Server startet … (bis zu 1 Minute)',
   connectTitle: 'Mit Freunden online spielen',
   connectDesc: 'Offline gegen Bots funktioniert auf dieser Webseite sofort. Für Online mit Freunden braucht es einen Spielserver: Jemand startet ihn auf seinem PC mit „npm run online“ und teilt den Einladungslink. Trage den Link hier ein – oder öffne direkt den geteilten Webseiten-Link.',
@@ -264,7 +265,7 @@ const EN = {
   crownHolder: 'Crown holder', matchSummary: 'Match summary', bigMap: 'Map', mapClose: 'M to close', finishingMatch: 'Finishing the round in the background…',
   statsTitle: 'Statistics', st_matches: 'Matches', st_wins: 'Wins', st_crownWins: 'Crown wins', st_kills: 'Kills', st_deaths: 'Deaths', st_damage: 'Total damage', st_headshots: 'Headshots',
   st_best: 'Best placement', st_time: 'Play time', st_kd: 'K/D', st_bestStreak: 'Longest win streak', st_level: 'Level', creditsTitle: 'Credits',
-  menuServer: 'Server / play online', serverStatic: 'Offline version (website)', serverFailed: 'Server unreachable', serverWaking: 'Server is starting … (up to 1 minute)',
+  menuServer: 'Server / play online', serverStatic: 'Offline version (website)', srvLabel: 'Server', srvTunnel: 'Online host (tunnel)', srvLocalHost: 'Local (your PC)', srvLan: 'Home network (LAN)', srvOnline: 'Online server', srvPlayers: '{n} online', srvOffline: 'Offline – bots only', srvOfflineSub: 'No server connected', serverFailed: 'Server unreachable', serverWaking: 'Server is starting … (up to 1 minute)',
   connectTitle: 'Play online with friends',
   connectDesc: 'Offline vs. bots works on this website right away. Playing online with friends needs a game server: someone starts it on their PC with “npm run online” and shares the invite link. Paste the link here – or simply open the shared website link.',
   serverAddress: 'Invite link / server address', connect: 'Connect', disconnect: 'Disconnect', connectedTo: 'Connected to {host}',

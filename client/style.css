@@ -710,3 +710,16 @@ body.menu #wallpaper { display: block; }
 .acc-row.used .acc-uses { color: #ff8a95; }
 .acc-row .close-x.small { width: 26px; height: 26px; font-size: 13px; }
 .modal.admin { max-height: calc(100vh - 40px); overflow-y: auto; }
+/* Lobby unten links: verbundener Server */
+.lobby-server { position: absolute; left: 22px; bottom: 22px; display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 10px; border-radius: 10px; background: rgba(8, 24, 88, 0.6); box-shadow: inset 0 0 0 1px var(--line); pointer-events: auto; max-width: 360px; }
+.lobby-server .icon { width: 26px; height: 26px; flex: none; color: #ff9f43; }
+.lobby-server .icon svg { width: 100%; height: 100%; }
+.lobby-server.on .icon { color: var(--ok); }
+.lobby-server.wait .icon { color: #ffd23f; animation: srv-pulse 1s ease-in-out infinite alternate; }
+@keyframes srv-pulse { to { opacity: 0.4; } }
+.lobby-server small { display: block; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.65; }
+.lobby-server b { display: block; font-size: 18px; font-weight: 900; font-style: italic; line-height: 1.1; }
+.lobby-server span:not(.icon) { display: block; font-size: 13px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lobby-server.ping-good span:not(.icon) { color: #9ff29a; }
+.lobby-server.ping-ok span:not(.icon) { color: #ffe07a; }
+.lobby-server.ping-bad span:not(.icon) { color: #ff9a8a; }
