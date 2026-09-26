@@ -7,6 +7,9 @@ import { SIM_DT, SIM_HZ, SNAPSHOT_HZ, MATCH_SIZE, MAX_REWIND } from '../shared/c
 
 let nextMatch = 1;
 
+
+// Extra-Simulationsschritte pro Tick, wenn keine Menschen mehr im Match sind (SHOWDOWN_FAST_STEPS)
+const FAST_STEPS = Math.max(0, Math.min(20, Number(process.env.SHOWDOWN_FAST_STEPS ?? 2)));
 export class ServerMatch {
   constructor(gs, clients) {
     this.gs = gs;
@@ -153,9 +156,11 @@ export class ServerMatch {
     this.gs.onClientLeftMatch(c);
   }
 
+  // Nur noch Bots übrig: Runde zügig, aber schonend zu Ende rechnen (für den Kronen-Sieger).
+  // Wenige Extra-Schritte pro Tick statt voller CPU-Last – sonst ruckeln auf kleinen Servern
+  // (z. B. Render Gratis mit 0,1 CPU) alle anderen Matches und der Ping steigt.
   fastForward() {
-    const t0 = Date.now();
-    while (this.sim.phase !== 'ended' && Date.now() - t0 < 25 && this.sim.matchTime < 1200) {
+    for (let i = 0; i < FAST_STEPS && this.sim.phase !== 'ended' && this.sim.matchTime < 1200; i++) {
       this.sim.step(SIM_DT);
       this.sim.drainEvents();
     }

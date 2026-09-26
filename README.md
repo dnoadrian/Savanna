@@ -133,10 +133,10 @@ Ziel: Wer **https://dnoadrian.github.io/Savanna/** öffnet (nicht die Code-Seite
 
 **Weg A – Render (gratis, empfohlen)**
 1. Auf [render.com](https://render.com) mit dem GitHub-Konto anmelden.
-2. [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dnoadrian/Savanna) klicken (oder *New → Blueprint* → Repository `dnoadrian/Savanna`) → **Apply**. Nach ein paar Minuten läuft der Server unter einer Adresse wie `https://showdown-bay-xxxx.onrender.com` (die Datei `render.yaml` ist schon fertig).
+2. [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dnoadrian/Savanna) klicken (oder *New → Blueprint* → Repository `dnoadrian/Savanna`) → **Apply**. Nach ein paar Minuten läuft der Server unter einer Adresse wie `https://showdown-bay-eu.onrender.com` (die Datei `render.yaml` ist schon fertig, Region **Frankfurt** für kurzen Ping in Europa).
 3. **Adresse eintragen**, damit die Webseite sich automatisch verbindet – eine der beiden Möglichkeiten:
    - GitHub → Repository → *Settings → Secrets and variables → Actions → Variables* → **New repository variable** `SHOWDOWN_SERVER_URL` = deine Render-Adresse (wirkt, wenn *Settings → Pages → Source* auf **GitHub Actions** steht), **oder**
-   - in `package.json` eintragen: `"showdown": { "server": "https://showdown-bay-xxxx.onrender.com" }`, dann `npm run build:pages` und committen (für *Deploy from a branch → /docs*).
+   - in `package.json` eintragen: `"showdown": { "server": "https://showdown-bay-eu.onrender.com" }`, dann `npm run build:pages` und committen (für *Deploy from a branch → /docs*).
 4. **Wach halten:** Der Workflow *„Server wach halten“* (`.github/workflows/keepalive.yml`) ruft den Server alle 10 Minuten auf, damit er im Gratis-Tarif nicht einschläft. Unter *Actions* ggf. einmal aktivieren.
 
 Gut zu wissen beim Gratis-Tarif von Render:

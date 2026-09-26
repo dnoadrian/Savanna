@@ -1,9 +1,12 @@
 # Optional: kompletter Spielserver (inkl. Freunde, Party, Mehrspieler) als Webseite bei Render.
 # README → "Deploy to Render" oder im Render-Dashboard "New → Blueprint" mit diesem Repository.
+# Region Frankfurt: kurzer Ping für Spieler in Europa (Oregon/USA wären ca. 170–200 ms).
+# Die Region eines Dienstes lässt sich nachträglich nicht ändern – deshalb eigener Name.
 services:
   - type: web
-    name: showdown-bay
+    name: showdown-bay-eu
     runtime: node
+    region: frankfurt
     plan: free
     buildCommand: npm ci
     startCommand: node server/index.js
