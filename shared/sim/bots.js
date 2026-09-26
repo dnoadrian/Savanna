@@ -260,13 +260,23 @@ export class BotBrain {
     return weaponScore(item) > worstScore + 15 ? { ok: true, swap: worst } : { ok: false };
   }
 
+  // unerreichbares Ziel eine Weile meiden (sonst läuft der Bot immer wieder gegen dieselbe Kante)
+  avoidTarget(t) {
+    (this.badTargets || (this.badTargets = new Map())).set(t.kind + t.id, this.sim.time + 45);
+  }
+
+  isAvoided(kind, id) {
+    const until = this.badTargets && this.badTargets.get(kind + id);
+    return until !== undefined && until > this.sim.time;
+  }
+
   findLootTarget() {
     const sim = this.sim, b = this.p.body;
     let best = null, bestD = Infinity;
     const claims = sim.botClaims || (sim.botClaims = new Map());
     const reachable = (x, y, z) => !sim.nav || Math.abs(sim.nav.groundH(x, z) - y) < 1.3;
     for (const c of sim.loot.chests) {
-      if (c.open || !reachable(c.x, c.y, c.z)) continue;
+      if (c.open || this.isAvoided('c', c.id) || !reachable(c.x, c.y, c.z)) continue;
       const owner = claims.get(c.id);
       if (owner && owner !== this.p.id && sim.byId.get(owner)?.alive) continue;
       const d = Math.hypot(c.x - b.x, c.z - b.z) + Math.abs(c.y - b.y) * 3;
@@ -274,7 +284,7 @@ export class BotBrain {
     }
     for (const pk of sim.loot.pickups.values()) {
       const d = Math.hypot(pk.x - b.x, pk.z - b.z) + Math.abs(pk.y - b.y) * 3;
-      if (d > 32 || d * 1.3 > bestD || !reachable(pk.x, pk.y, pk.z)) continue;
+      if (d > 32 || d * 1.3 > bestD || this.isAvoided('l', pk.id) || !reachable(pk.x, pk.y, pk.z)) continue;
       const w = this.wantsItem(pk.item);
       if (!w.ok) continue;
       bestD = d * 1.3;
@@ -382,6 +392,7 @@ export class BotBrain {
         this.stuckCount = 0;
         this.dest = null;
         this.path = null;
+        if (this.lootTarget) this.avoidTarget(this.lootTarget);
         this.lootTarget = null;
         this.lootCd = 4;
         this.wantJump = true;
@@ -605,6 +616,7 @@ export class BotBrain {
       case 'loot': {
         const t = this.lootTarget;
         if (!t || !this.lootTargetValid(t) || sim.time - t.t0 > 14) {
+          if (t && sim.time - t.t0 > 14) this.avoidTarget(t);
           this.lootTarget = null;
           this.state = 'roam';
           this.dest = null;

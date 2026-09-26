@@ -307,7 +307,6 @@ export class Effects {
       this.glow(pos.x + Math.cos(a) * r, pos.y + Math.random() * (own ? 0.9 : 1.8), pos.z + Math.sin(a) * r, 0, own ? 0.6 + Math.random() * 0.5 : 1 + Math.random(), 0, i % 2 ? 0x5dff8a : 0x6fd0ff, 0.9, own ? 0.7 : 1.2, -0.3);
     }
   }
-  }
 
   // Rauch (Kamin): große, langsam steigende graue Partikel
   smoke(x, y, z) {

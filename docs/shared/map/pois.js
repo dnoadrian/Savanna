@@ -271,3 +271,40 @@ export function buildSeaStack(B, h, r) {
   }
   B.sph(0, y + r * 0.2, 0, r * 1.25, C.STACK, { sy: 0.5, sx: 1.1, detail: 1, col: false });
 }
+
+// ---------------------------------------------------------------------------
+// Nahkampf-Deckung an langen Stegen (für Pump & Co.): seitlich angebaute Plattform mit
+// Fischerhütte (Tür zum Steg, Fenster) oder Kistenlager. Lokal: Steg läuft entlang z bei x = 0
+// (Breite 3), side = Seite der Plattform (−1/+1), v = Variante.
+export function buildCoverDeck(B, out, side, v) {
+  const cx = side * 5.1;
+  // Plattform schließt lückenlos an den Steg an (Innenkante bei |x| = 1.3)
+  deck(B, side * 4.75, 0, 6.9, 7.4, 0, 'z');
+  posts(B, cx - 3, cx + 3, -3.6, 3.6, 3, 1.7);
+  if (v % 2 === 0) {
+    // Fischerhütte: Vorderseite (+z im Unterrahmen) zeigt zum Steg
+    const H = B.sub(cx, 0, -side * Math.PI / 2, 0);
+    const wc = v % 4 === 0 ? C.HOUSE_BLUE : C.WALL_TEAL;
+    H.wall(-2.2, 1.9, 2.2, 1.9, 2.6, 0.22, wc, [{ at: 2.2, w: 1.3, y0: 0, y1: 2.15 }]);
+    H.wall(2.2, -1.9, -2.2, -1.9, 3.1, 0.22, wc, [{ at: 2.2, w: 1.2, y0: 1.05, y1: 1.95 }]);
+    H.wall(-2.2, -1.9, -2.2, 1.9, 2.6, 0.22, wc, [{ at: 1.9, w: 1.0, y0: 1.05, y1: 1.9 }]);
+    H.wall(2.2, 1.9, 2.2, -1.9, 2.6, 0.22, wc);
+    H.tinRoof(0, 3.0, 0, 5.0, 4.4, 0.6);
+    H.crate(1.2, 0, -1.1, 0.9, 0.3);
+    floor(out, H, -1.0, 0, -0.6);
+    // Kiste neben der Hütte zum Anlaufen
+    B.crate(cx + side * 0.2, 0, 3.0, 1.1, 0.2);
+    B.barrel(cx - side * 2.3, 0, 3.1, C.RUST);
+  } else {
+    // Kistenlager: versetzte Stapel, niedrige Bretterwand zum Ducken
+    B.crate(cx - side * 1.2, 0, -1.6, 1.2, 0.1);
+    B.crate(cx - side * 1.2, 0, -0.35, 1.2, -0.05);
+    B.crate(cx - side * 1.2, 1.2, -1.0, 1.1, 0.3);
+    B.crate(cx + side * 1.6, 0, 1.5, 1.2, 0.4);
+    B.crate(cx + side * 1.6, 1.2, 1.5, 1.0, -0.2);
+    B.barrel(cx + side * 2.2, 0, -2.4, C.RUST);
+    B.barrel(cx + side * 1.4, 0, -2.9, C.BOARD_DARK);
+    B.box(cx - side * 0.2, 0, 2.9, 2.6, 1.1, 0.25, C.BOARD_DARK, { m: MAT.WOOD });
+    floor(out, B, cx + side * 0.6, 0, -0.4);
+  }
+}

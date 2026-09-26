@@ -12,6 +12,7 @@ import { createWeaponRuntime, equipWeapon, canFire, fireWeapon, updateWeapon } f
 import { createInventory, addItem, SLOTS } from '../shared/sim/inventory.js';
 import { createBody, stepMovement } from '../shared/sim/movement.js';
 import { PT, propColliders } from '../shared/map/props.js';
+import { CollisionWorld } from '../shared/physics/collision.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
 import { generateMap } from '../shared/map/mapgen.js';
@@ -157,6 +158,30 @@ test('Sprint-Ausdauer: leert sich beim Sprinten, erholt sich danach', () => {
   inp.sprint = false; inp.mz = 0;
   for (let t = 0; t < 5; t += SIM_DT) stepMovement(b, inp, SIM_DT, world);
   assert.ok(b.stamina > 0.99 && !b.exhausted, 'Ausdauer erholt');
+});
+
+test('Unter einen Steg gerutscht: man kann herauskriechen und bleibt nicht stecken', () => {
+  const map = generateMap();
+  const world = { terrain: map.terrain, collision: map.collision };
+  // Stelle unter dem Hafen-Deck von Tin Roof Wharf
+  const b = createBody(-9.4, map.terrain.heightAt(-9.4, 49.2), 49.2);
+  b.stance = 'slide'; b.slideT = 5; b.vx = 0; b.vz = 0;
+  for (let t = 0; t < 3; t += SIM_DT) stepMovement(b, { mx: 0, mz: 1, yaw: Math.PI / 2, pitch: 0 }, SIM_DT, world);
+  assert.ok(Math.hypot(b.x + 9.4, b.z - 49.2) > 2, 'eingeklemmt: ' + b.x.toFixed(2) + ' ' + b.z.toFixed(2));
+});
+
+test('Kugeln gehen knapp an Felskanten vorbei (Kanten-Toleranz), Bewegung bleibt blockiert', () => {
+  const rock = map.collision.cols.find((c) => c.soft && c.kind === 1 && c.r > 0.8);
+  assert.ok(rock, 'kein Felsen');
+  const y = (rock.minY + rock.maxY) / 2 - 0.2;
+  const ox = rock.x + rock.r - 0.06, oz = rock.z - 20;
+  const n = { nx: 0, ny: 0, nz: 0 };
+  const tMove = CollisionWorld.rayCollider(rock, ox, y, oz, 0, 0, 1, 40, n, 0);
+  const tBullet = CollisionWorld.rayCollider(rock, ox, y, oz, 0, 0, 1, 40, n, 0.14);
+  assert.ok(tMove > 0, 'Strahl ohne Toleranz trifft den Felsen');
+  assert.ok(tBullet < 0, 'Kugel streift vorbei');
+  // mitten drauf trifft auch die Kugel
+  assert.ok(CollisionWorld.rayCollider(rock, rock.x, y, oz, 0, 0, 1, 40, n, 0.14) > 0);
 });
 
 test('Objekt-Hitboxen folgen den Modellen (geneigte Palme, Felsplatten)', () => {
@@ -347,6 +372,24 @@ test('Komplettes Bot-Match: Sieger, Plätze 1..12, Truhen geöffnet, Beute, Heil
   assert.ok(r.stats.siphons > 0, 'kein Siphon');
   assert.ok(r.stuckMax < 8, 'Bots stecken fest');
   console.log(`    Sieger: ${r.winner.name} nach ${r.sim.matchTime.toFixed(0)} s · Truhen ${r.stats.chests} · Aufgehoben ${r.stats.pickups} · Heilungen ${r.stats.heals} · Waffen ${JSON.stringify(r.stats.weapons)}`);
+});
+
+test('Alle JavaScript-Dateien sind syntaktisch korrekt (Client, Server, Shared)', () => {
+  const files = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith('.js')) files.push(p);
+    }
+  };
+  for (const d of ['client/src', 'shared', 'server']) walk(path.join(ROOT, d));
+  const bad = [];
+  for (const f of files) {
+    try { execFileSync(process.execPath, ['--check', f], { stdio: 'pipe' }); } catch (e) { bad.push(path.relative(ROOT, f) + ': ' + String(e.stderr).split('\n').slice(0, 5).join(' ')); }
+  }
+  assert.deepEqual(bad, [], bad.join('\n'));
+  assert.ok(files.length > 40);
 });
 
 test('Webseiten-Version (docs/) ist aktuell', () => {

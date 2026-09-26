@@ -9,7 +9,7 @@ import { CollisionWorld, MAT } from '../physics/collision.js';
 import { Builder, C } from './builder.js';
 import { PT, propColliders, propRadius } from './props.js';
 import {
-  POIS as POI_DEFS, DECK_Y, buildSaloon, buildLighthouse, buildWharf, buildHut, buildWatchtower, buildSeaStack,
+  POIS as POI_DEFS, DECK_Y, buildSaloon, buildLighthouse, buildWharf, buildHut, buildWatchtower, buildSeaStack, buildCoverDeck,
 } from './pois.js';
 
 const SEABED = -0.62; // flaches Wasser: überall durchwatbar
@@ -150,6 +150,7 @@ export function generateMap(seed = MAP_SEED, onProgress = null) {
 
   // Stege
   const rng = new RNG(seed ^ 0x51a9);
+  let coverN = 0;
   for (const w of WALKS) {
     for (let k = 0; k < w.pts.length - 1; k++) {
       const [x1, z1] = w.pts[k], [x2, z2] = w.pts[k + 1];
@@ -173,6 +174,20 @@ export function generateMap(seed = MAP_SEED, onProgress = null) {
       }
       if (w.rail) B.railing(w.rail * 1.4, -len / 2 + 0.5, w.rail * 1.4, len / 2 - 0.5, 0, 0.95, C.BOARD_DARK);
       if (rng.chance(0.35)) out.floorLoot.push({ x: B.wx(-w.rail * 0.6, 0), y: DECK_Y, z: B.wz(-w.rail * 0.6, 0) });
+      // Deckung für Nahkämpfe: seitliche Plattform mit Hütte/Kistenlager in der Mitte langer Stege
+      const side = w.rail ? -w.rail : (coverN % 2 ? 1 : -1);
+      if (len > 15) {
+        const px = B.wx(side * 5.1, 0), pz = B.wz(side * 5.1, 0);
+        const clear = hAt(px, pz) < DECK_Y - 0.7 &&
+          POI_DEFS.every((p) => Math.hypot(p.x - px, p.z - pz) > p.r + 2) &&
+          STACKS.every(([sx, sz, , sr]) => Math.hypot(sx - px, sz - pz) > sr + 6);
+        if (clear) buildCoverDeck(B, out, side, coverN++);
+      }
+      // einzelne Kisten am Stegrand (Deckung unterwegs), Steg bleibt 2 m breit
+      for (let q = -len / 2 + 5; q < len / 2 - 4; q += 11) {
+        if (Math.abs(q) < 5 && len > 15) continue;
+        B.crate(side * 0.95, 0, q, 1.0, rng.range(-0.15, 0.15));
+      }
     }
   }
   // Steg-Truhen

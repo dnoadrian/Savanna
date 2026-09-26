@@ -196,6 +196,10 @@ function subStep(b, inp, h, world, first) {
       if (b.stance === 'stand' && !canStand(b, world, STAND_HEIGHT)) b.stance = 'crouch';
       b.slideCd = SLIDE_COOLDOWN;
       b.slideEnded = true;
+    } else if (done && !canStand(b, world, CROUCH_HEIGHT)) {
+      // unter etwas eingeklemmt (z. B. unter einen Steg gerutscht): liegend herauskriechen
+      b.vx = wishX * WALK_SPEED * CROUCH_MULT;
+      b.vz = wishZ * WALK_SPEED * CROUCH_MULT;
     }
   } else {
     // Zielgeschwindigkeit
