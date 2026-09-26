@@ -3,6 +3,7 @@ import { h, esc } from './dom.js';
 import { t } from '../i18n.js';
 import { KEY_ACTIONS, keyLabel } from '../settings.js';
 import { QUALITY_PRESETS } from '../render/renderer.js';
+import { QUEUE_WAIT_MIN, QUEUE_WAIT_MAX } from '../../shared/constants.js';
 
 const TABS = ['account', 'graphics', 'hud', 'controls', 'mouse', 'audio'];
 const TAB_LABEL = { account: 'tabAccount', graphics: 'tabGraphics', hud: 'tabHud', controls: 'tabControls', mouse: 'tabMouse', audio: 'tabAudio' };
@@ -163,6 +164,8 @@ export class SettingsPanel {
         });
       },
     }, t('sReset')));
+    this.section(t('sQueue'));
+    this.row(t('sQueueWait'), this.slider('queueWait', QUEUE_WAIT_MIN, QUEUE_WAIT_MAX, 5, (v) => v + ' s'), t('sQueueWaitHint'));
   }
 
   tab_graphics() {

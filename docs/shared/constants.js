@@ -14,7 +14,14 @@ export const INTERP_DELAY = 0.1; // 100 ms Interpolationspuffer
 export const MAX_REWIND = 0.3; // Lag-Kompensation max. 300 ms
 
 export const COUNTDOWN = 3.6; // 3-2-1-GO
-export const QUEUE_WAIT = 15; // Warteschlange: immer 15 s warten, dann mit Bots auffüllen
+// Warteschlange: so lange wird auf echte Spieler gewartet, dann füllen Bots auf (einstellbar)
+export const QUEUE_WAIT = 15;
+export const QUEUE_WAIT_MIN = 10;
+export const QUEUE_WAIT_MAX = 120;
+export function clampQueueWait(v) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.max(QUEUE_WAIT_MIN, Math.min(QUEUE_WAIT_MAX, n)) : QUEUE_WAIT;
+}
 export const INVITE_TTL = 60;
 
 // Welt: Bucht im Canyon (Wasser, Stege, Inseln, drei Orte)

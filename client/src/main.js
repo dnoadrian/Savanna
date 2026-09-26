@@ -20,7 +20,7 @@ import { generateMap } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
-import { MAP_SEED, MATCH_SIZE, QUEUE_WAIT } from '../shared/constants.js';
+import { MAP_SEED, MATCH_SIZE, clampQueueWait } from '../shared/constants.js';
 
 const QUALITY_ORDER = ['low', 'medium', 'high', 'epic'];
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -165,6 +165,7 @@ class App {
 
   onSettingChanged(k) {
     if (['renderMode', 'quality', 'shadows', 'viewDistance', 'grass', 'antialias', 'post'].includes(k)) this.applyGraphics();
+    if (k === 'queueWait') this.ui.onQueue();
     if (k === 'language') {
       setLanguage(this.settings.get('language'));
       this.ui.rebuild();
@@ -331,23 +332,24 @@ class App {
   }
 
   // ---------------- Warteschlange ----------------
-  // BEREIT: mit Server → 15 s Warteschlange dort (danach Bots für freie Plätze);
-  // ohne Server (Webseite) → dieselben 15 s lokal, dann eine Bot-Lobby im Browser.
+  // BEREIT: mit Server → Warteschlange dort (Standard 15 s, einstellbar 10–120 s), danach Bots
+  // für freie Plätze; ohne Server (Webseite) → dieselbe Wartezeit lokal, dann eine Bot-Lobby.
   ready() {
     if (this.queue) return;
     this.prepareMap().catch(() => {});
+    const wait = clampQueueWait(this.settings.get('queueWait'));
     if (this.net.connected) {
-      this.net.send({ t: 'queue' });
+      this.net.send({ t: 'queue', wait });
       return;
     }
-    this.localQueue = { start: performance.now() };
-    this.queue = { state: 'waiting', secs: QUEUE_WAIT, humans: 1, bots: MATCH_SIZE - 1, local: true };
+    this.localQueue = { start: performance.now(), wait };
+    this.queue = { state: 'waiting', secs: wait, wait, humans: 1, bots: MATCH_SIZE - 1, local: true };
     this.ui.onQueue();
   }
 
   tickLocalQueue() {
     const q = this.localQueue;
-    const secs = Math.max(0, QUEUE_WAIT - (performance.now() - q.start) / 1000);
+    const secs = Math.max(0, q.wait - (performance.now() - q.start) / 1000);
     if (Math.ceil(secs) !== Math.ceil(this.queue.secs)) {
       this.queue.secs = secs;
       this.ui.onQueue();

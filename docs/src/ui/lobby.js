@@ -4,7 +4,7 @@
 import { h, esc } from './dom.js';
 import { ICON, logo } from './icons.js';
 import { t } from '../i18n.js';
-import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, QUEUE_WAIT, xpForLevel } from '../../shared/constants.js';
+import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, xpForLevel, clampQueueWait } from '../../shared/constants.js';
 
 export class LobbyScreen {
   constructor(ui) {
@@ -71,8 +71,8 @@ export class LobbyScreen {
         this.countEl));
     this.queueEl = h('div', { class: 'queue-box hidden' });
     this.readyBtn = h('button', { class: 'ready-btn', onclick: () => this.onReady(), onmouseenter: () => app.audio.uiHover() });
-    const right = h('div', { class: 'lobby-right' }, mode, this.queueEl, this.readyBtn,
-      h('div', { class: 'ready-hint' }, t('readyHint')));
+    this.readyHint = h('div', { class: 'ready-hint' });
+    const right = h('div', { class: 'lobby-right' }, mode, this.queueEl, this.readyBtn, this.readyHint);
     // ---- Spind ----
     this.lockerEl = h('div', { class: 'locker panel hidden' });
     // Namen über den Figuren
@@ -173,11 +173,13 @@ export class LobbyScreen {
       rb.disabled = notReady.length > 0;
       rb.innerHTML = `<span class="rb-main">${t('readyBtn')}</span>${notReady.length ? `<span class="rb-sub">${t('waitReady')}</span>` : ''}`;
     }
-    // Warteschlange
+    // Warteschlange (eigene Wartezeit aus den Einstellungen)
+    const myWait = clampQueueWait(app.settings.get('queueWait'));
+    this.readyHint.textContent = t('readyHint', { s: q && q.wait ? q.wait : myWait });
     if (q) {
       this.queueEl.classList.remove('hidden');
       const secs = Math.max(0, Math.ceil(q.secs));
-      const pct = Math.max(0, Math.min(100, (1 - q.secs / QUEUE_WAIT) * 100));
+      const pct = Math.max(0, Math.min(100, (1 - q.secs / (q.wait || myWait)) * 100));
       this.queueEl.innerHTML = `<div class="q-top"><span class="q-spin"></span><b>${esc(t('queueSearching'))}</b><span class="q-secs">${secs}s</span></div>
         <div class="q-bar"><div style="width:${pct}%"></div></div>
         <div class="q-info">${esc(t('queueInfo', { h: q.humans, b: MATCH_SIZE - q.humans }))}</div>`;

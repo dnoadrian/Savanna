@@ -77,17 +77,20 @@ export async function runServerTest() {
   B.msg({ t: 'partyChat', text: 'Hallo!' });
   assert.equal(A.last('chat').text, 'Hallo!');
   const ageQueue = () => {
-    for (const tk of gs.queue) tk.created -= (QUEUE_WAIT + 1) * 1000;
+    for (const tk of gs.queue) tk.created -= (tk.wait + 1) * 1000;
     gs.tickQueue();
   };
   A.msg({ t: 'queue' });
   assert.equal(A.last('queue').state, 'waiting');
   assert.equal(A.last('queue').humans, 2);
   assert.equal(A.last('queue').bots, 10);
+  assert.equal(A.last('queue').wait, QUEUE_WAIT, 'Standard-Wartezeit 15 s');
   // ein weiterer Spieler kommt dazu: trotzdem die vollen 15 s warten
   const C = connect();
   C.msg({ t: 'hello', id: 'cccc-3', name: 'Charlie' });
-  C.msg({ t: 'queue' });
+  C.msg({ t: 'queue', wait: 500 });
+  assert.equal(gs.queue.find((tk) => tk.leader === 'cccc-3').wait, 120, 'Wartezeit max. 120 s');
+  assert.equal(C.last('queue').wait, QUEUE_WAIT, 'es gilt die Wartezeit des ältesten Tickets');
   gs.tickQueue();
   assert.ok(!A.last('matchStart'), 'Match darf erst nach 15 s starten');
   assert.equal(C.last('queue').humans, 3);

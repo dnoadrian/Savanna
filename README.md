@@ -15,7 +15,7 @@ Ein Low-Poly-Battle-Royale für den Browser. **12 Spieler** landen in einer Hafe
 ## 🎮 So spielt man
 
 1. Namen wählen (🎲 = Zufallsname), optional Outfit.
-2. In der Lobby **BEREIT** drücken. Die Warteschlange dauert **immer 15 Sekunden** – auch wenn jemand dazukommt. Danach startet das Match, freie Plätze füllen Bots (immer 12 Spieler).
+2. In der Lobby **BEREIT** drücken. Die Warteschlange wartet auf echte Spieler – **Standard 15 Sekunden**, einstellbar in *Einstellungen → Konto → Warteschlange* von **10 bis 120 Sekunden**. Die Zeit läuft immer voll ab, auch wenn jemand dazukommt. Danach startet das Match, freie Plätze füllen Bots (immer 12 Spieler).
 3. Ins Bild klicken (Mausfang), am besten **Vollbild** nutzen.
 
 | Taste | Aktion |
@@ -83,6 +83,7 @@ Alle Tasten lassen sich in *Einstellungen → Steuerung* neu belegen.
 
 - **Grafik wie in Fortnite:** Rendermodus *Qualität* oder *Leistung*, Stufen *Niedrig / Mittel / Hoch / Episch / Auto*. **Alle Stufen rendern mit 100 % 3D-Auflösung.**
 - **Aim-Assist: An / Aus.** „An“ bremst das Fadenkreuz am Gegner leicht ab und zieht ein wenig mit, wenn du dich bewegst oder zielst – es ist bewusst kein Aimbot.
+- **Wartezeit auf echte Spieler:** 10–120 s (Standard 15 s)
 - Maus-, ADS- und Zielfernrohr-Empfindlichkeit, FOV, FPS-Limit, V-Sync, HUD-Größe, Fadenkreuz, Farbenblind-Modus, Lautstärken, Sprache (Deutsch/English)
 
 ## 🛠️ Admin-Panel

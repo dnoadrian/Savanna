@@ -6,7 +6,7 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { validateName, suggestAlternatives, randomName } from '../shared/names.js';
-import { MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, MATCH_SIZE, SIM_DT } from '../shared/constants.js';
+import { MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, MATCH_SIZE, SIM_DT, QUEUE_WAIT, clampQueueWait } from '../shared/constants.js';
 import { WEAPONS, CONSUMABLES, weaponItem, consumableItem, ammoItem, weaponDamage, rollWeapon, decodeItem } from '../shared/items.js';
 import { createWeaponRuntime, equipWeapon, canFire, fireWeapon, updateWeapon } from '../shared/sim/weapon.js';
 import { createInventory, addItem, SLOTS } from '../shared/sim/inventory.js';
@@ -230,6 +230,15 @@ test('Schilde & Heilung: Mini bis 50, Schildtrank bis 100, Medikit bis 100 Leben
   for (let i = 0; i < 10.2 * 30; i++) sim.step(SIM_DT);
   assert.equal(a.health, 100);
   assert.equal(a.inv.slots[2], null);
+});
+
+test('Warteschlange: Wartezeit einstellbar, Standard 15 s, 10 bis 120 s', () => {
+  assert.equal(QUEUE_WAIT, 15);
+  assert.equal(clampQueueWait(undefined), 15);
+  assert.equal(clampQueueWait('abc'), 15);
+  assert.equal(clampQueueWait(3), 10);
+  assert.equal(clampQueueWait(45), 45);
+  assert.equal(clampQueueWait(500), 120);
 });
 
 test('Immer genau 12 Spieler (1..12 Menschen, Rest Bots)', () => {

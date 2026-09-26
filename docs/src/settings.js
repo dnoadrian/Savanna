@@ -1,4 +1,5 @@
 // Einstellungen: im localStorage gespeichert, Änderungen werden sofort an Abonnenten gemeldet.
+import { QUEUE_WAIT, clampQueueWait } from '../shared/constants.js';
 
 export const DEFAULT_KEYS = {
   forward: 'KeyW',
@@ -66,8 +67,9 @@ export const DEFAULTS = {
   volMusic: 55,
   volUi: 80,
   lobbyMusic: true,
-  // Konto
+  // Konto / Warteschlange
   language: 'de',
+  queueWait: QUEUE_WAIT, // Sekunden, die auf echte Spieler gewartet wird (10–120)
 };
 
 const STORAGE_KEY = 'showdown.settings.v1';
@@ -96,6 +98,7 @@ export class Settings {
       /* Standardwerte */
     }
     this.values.resolution = 100;
+    this.values.queueWait = clampQueueWait(this.values.queueWait);
     if (this.values.aimAssist !== 'on' && this.values.aimAssist !== 'off') this.values.aimAssist = 'on';
   }
 

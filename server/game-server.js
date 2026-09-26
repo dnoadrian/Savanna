@@ -7,7 +7,7 @@ import { TunnelManager } from './tunnel.js';
 import { validateName, suggestAlternatives } from '../shared/names.js';
 import { generateMap } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
-import { MAP_SEED, MATCH_SIZE, PARTY_MAX, QUEUE_WAIT, INVITE_TTL, SERVER_PORT } from '../shared/constants.js';
+import { MAP_SEED, MATCH_SIZE, PARTY_MAX, INVITE_TTL, SERVER_PORT, clampQueueWait } from '../shared/constants.js';
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const PROXY_HEADERS = ['x-forwarded-for', 'cf-connecting-ip', 'x-real-ip', 'forwarded', 'cf-ray'];
@@ -148,7 +148,7 @@ export class GameServer {
       case 'partyPromote': return this.onPartyPromote(c, m.id);
       case 'partyReady': return this.onPartyReady(c, !!m.ready);
       case 'partyChat': return this.onPartyChat(c, m.text);
-      case 'queue': return this.onQueue(c);
+      case 'queue': return this.onQueue(c, m);
       case 'queueCancel': return this.onQueueCancel(c);
       case 'hostStatus': return this.sendHost(c);
       case 'hostStart':
@@ -594,7 +594,8 @@ export class GameServer {
   }
 
   // ---------------- Matchmaking ----------------
-  onQueue(c) {
+  // m.wait: gewünschte Wartezeit auf echte Spieler (10–120 s, Standard 15)
+  onQueue(c, m = {}) {
     if (c.matchId) return;
     const party = this.partyOf(c.pid);
     let members = [c.pid];
@@ -605,7 +606,7 @@ export class GameServer {
       members = party.members.filter((id) => this.byPid.has(id) && !this.byPid.get(id).matchId);
     }
     if (this.queue.some((tk) => tk.members.includes(c.pid))) return;
-    const ticket = { leader: c.pid, members, created: Date.now() };
+    const ticket = { leader: c.pid, members, created: Date.now(), wait: clampQueueWait(m.wait) };
     this.queue.push(ticket);
     this.tickQueue();
   }
@@ -648,17 +649,19 @@ export class GameServer {
         humans += tk.members.length;
       }
     }
-    // immer die vollen 15 s warten (auch wenn jemand dazukommt), dann mit Bots auffüllen
-    const waited = (Date.now() - this.queue[0].created) / 1000;
-    if (humans >= MATCH_SIZE || waited >= QUEUE_WAIT) {
+    // immer die volle Wartezeit des ältesten Tickets abwarten (auch wenn jemand dazukommt),
+    // dann mit Bots auffüllen
+    const first = this.queue[0];
+    const waited = (Date.now() - first.created) / 1000;
+    if (humans >= MATCH_SIZE || waited >= first.wait) {
       this.queue = this.queue.filter((tk) => !pick.includes(tk));
       this.startMatch(pick);
       return;
     }
-    const secs = Math.max(0, QUEUE_WAIT - waited);
+    const secs = Math.max(0, first.wait - waited);
     for (const tk of this.queue) {
       const n = pick.includes(tk) ? humans : tk.members.length;
-      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs, humans: n, bots: MATCH_SIZE - n });
+      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs, wait: first.wait, humans: n, bots: MATCH_SIZE - n });
     }
   }
 
