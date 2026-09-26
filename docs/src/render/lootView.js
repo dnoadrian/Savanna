@@ -119,8 +119,9 @@ export class LootView {
     this.pickups.delete(id);
   }
 
-  update(dt, time, target) {
+  update(dt, time, target, cam = null) {
     const loot = this.loot;
+    const far2 = 75 * 75;
     // Bodenbeute abgleichen
     for (const [id, v] of this.pickups) {
       const pk = loot.pickups.get(id);
@@ -128,6 +129,12 @@ export class LootView {
     }
     for (const pk of loot.pickups.values()) if (!this.pickups.has(pk.id)) this.addPickup(pk);
     for (const [id, v] of this.pickups) {
+      // weit entfernte Beute nicht zeichnen (spart Draw-Calls)
+      if (cam && !this.spawnFrom.has(id)) {
+        const dx = v.x - cam.x, dz = v.z - cam.z;
+        v.root.visible = dx * dx + dz * dz < far2;
+        if (!v.root.visible) continue;
+      }
       let x = v.x, y = v.y, z = v.z;
       const arc = this.spawnFrom.get(id);
       if (arc) {
@@ -145,6 +152,11 @@ export class LootView {
     }
     // Truhen
     for (const v of this.chests.values()) {
+      if (cam) {
+        const dx = v.c.x - cam.x, dz = v.c.z - cam.z;
+        v.root.visible = dx * dx + dz * dz < far2 * 1.5;
+        if (!v.root.visible) continue;
+      }
       if (v.c.open && v.openT < 1) v.openT = Math.min(1, v.openT + dt * 3.2);
       const a = v.openT;
       v.lidPivot.rotation.x = -1.9 * (1 - Math.pow(1 - a, 3)) - (a > 0 && a < 1 ? Math.sin(a * Math.PI) * 0.2 : 0);

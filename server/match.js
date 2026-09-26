@@ -34,7 +34,7 @@ export class ServerMatch {
       gs.send(c, { t: 'matchStart', matchId: this.id, seed: this.seed, players: this.players, spawns, you: c.pid });
     }
     this.timer = setInterval(() => this.update(), 1000 / SIM_HZ);
-    console.log(`Match ${this.id} gestartet: ${humans.length} Menschen + ${this.sim.players.length - humans.length} Bots = ${this.sim.players.length}`);
+    console.log(`Match ${this.id} gestartet: ${humans.length} ${humans.length === 1 ? 'Mensch' : 'Menschen'} + ${this.sim.players.length - humans.length} Bots = ${this.sim.players.length}`);
   }
 
   humanCount() {

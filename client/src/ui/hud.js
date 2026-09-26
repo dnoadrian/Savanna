@@ -34,6 +34,13 @@ export class HUD {
     this.build();
     this.applySettings();
     settings.onChange(() => this.applySettings());
+    window.addEventListener('resize', () => this.applyScale());
+  }
+
+  // HUD-Größe aus Einstellung × Fenstergröße (kleine Fenster: alles etwas kleiner, nichts überlappt)
+  applyScale() {
+    const auto = Math.max(0.55, Math.min(1, window.innerWidth / 1500, window.innerHeight / 820));
+    this.root.style.setProperty('--hud-scale', (this.settings.get('hudScale') / 100) * auto);
   }
 
   build() {
@@ -90,21 +97,20 @@ export class HUD {
     this.numsEl = h('div', { class: 'dmg-numbers' });
     this.tagsEl = h('div', { class: 'name-tags' });
     this.floatEl = h('div', { class: 'heal-float' });
-    this.fsHint = h('div', { class: 'fs-hint' }, t('fullscreenHint'));
     this.specEl = h('div', { class: 'spectate-bar hidden' });
     this.scoreEl = h('div', { class: 'scoreboard hidden' });
     this.bigMap = h('div', { class: 'bigmap hidden' });
     this.bigMapCanvas = h('canvas', { width: 900, height: 900 });
     this.bigMap.appendChild(h('div', { class: 'bigmap-inner' }, h('div', { class: 'bigmap-title' }, t('bigMap'), h('small', {}, ' · ' + t('mapClose'))), this.bigMapCanvas));
     r.append(this.scope, this.stormTint, this.vignette, this.tagsEl, this.numsEl, this.indEl, tl, tr, bl, br, this.center, this.prompt,
-      this.msgEl, this.bigMsgEl, this.countEl, this.pickEl, this.floatEl, this.fsHint, this.specEl, this.scoreEl, this.bigMap);
+      this.msgEl, this.bigMsgEl, this.countEl, this.pickEl, this.floatEl, this.specEl, this.scoreEl, this.bigMap);
     this.buildCrosshair();
     this.cache = {};
   }
 
   applySettings() {
     const s = this.settings;
-    this.root.style.setProperty('--hud-scale', s.get('hudScale') / 100);
+    this.applyScale();
     this.root.classList.toggle('no-minimap', !s.get('minimap'));
     this.root.dataset.cb = s.get('colorblind');
     const keys = s.get('keys');
@@ -217,8 +223,6 @@ export class HUD {
     } else this.useLabel.classList.add('hidden');
     // F-Hinweis
     this.updatePrompt(d.target);
-    // Vollbild-Hinweis
-    this.fsHint.classList.toggle('hidden', !!document.fullscreenElement || d.phase !== 'countdown');
     // Meldungen
     if (this.msgTimer > 0) {
       this.msgTimer -= dt;
@@ -234,7 +238,14 @@ export class HUD {
     }
     // Karten
     if (s.get('minimap')) this.drawMinimap(d);
-    if (this.bigMapOpen) this.drawBigMap(d);
+    if (this.bigMapOpen) {
+      // große Karte reicht mit ~15 Bildern/s (spart Zeichenarbeit)
+      this.bigMapT = (this.bigMapT || 0) - dt;
+      if (this.bigMapT <= 0) {
+        this.bigMapT = 1 / 15;
+        this.drawBigMap(d);
+      }
+    }
     // Schadensindikatoren
     for (const ind of this.indicators) {
       ind.t -= dt;
@@ -572,6 +583,7 @@ export class HUD {
 
   toggleBigMap(show) {
     this.bigMapOpen = show;
+    this.bigMapT = 0;
     this.bigMap.classList.toggle('hidden', !show);
   }
 

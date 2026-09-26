@@ -16,11 +16,11 @@ const WOOD_DARK = 0x6a3c22;
 
 // Metadaten für Egoperspektive/Figuren je Waffe
 export const WEAPON_META = {
-  pistol: { sightY: 0.075, muzzle: [0, 0.05, -0.2], eject: [0.03, 0.06, -0.03], mag: [0, -0.06, 0.02], fore: null, hip: [0.2, -0.2, -0.42], adsZ: -0.38, scale: 1.0 },
-  ar: { sightY: 0.13, muzzle: [0, 0.036, -0.7], eject: [0.045, 0.055, -0.06], mag: [0, -0.04, -0.13], fore: [0, -0.01, -0.36], hip: [0.2, -0.215, -0.5], adsZ: -0.46, scale: 1.0 },
-  drum: { sightY: 0.12, muzzle: [0, 0.03, -0.62], eject: [0.04, 0.05, -0.08], mag: [0, -0.06, -0.14], fore: [0, -0.1, -0.3], hip: [0.2, -0.22, -0.5], adsZ: -0.44, scale: 1.0 },
-  tac: { sightY: 0.11, muzzle: [0, 0.03, -0.66], eject: [0.05, 0.05, -0.05], mag: null, fore: [0, -0.03, -0.38], hip: [0.2, -0.22, -0.5], adsZ: -0.44, scale: 1.0 },
-  pump: { sightY: 0.1, muzzle: [0, 0.035, -0.78], eject: [0.05, 0.04, -0.05], mag: null, fore: [0, -0.02, -0.42], hip: [0.2, -0.22, -0.52], adsZ: -0.46, scale: 1.0 },
+  pistol: { sightY: 0.09, muzzle: [0, 0.05, -0.2], eject: [0.03, 0.06, -0.03], mag: [0, -0.06, 0.02], fore: null, hip: [0.2, -0.2, -0.42], adsZ: -0.44, scale: 1.0 },
+  ar: { sightY: 0.13, muzzle: [0, 0.036, -0.7], eject: [0.045, 0.055, -0.06], mag: [0, -0.04, -0.13], fore: [0, -0.01, -0.36], hip: [0.2, -0.215, -0.5], adsZ: -0.6, scale: 1.0 },
+  drum: { sightY: 0.12, muzzle: [0, 0.03, -0.62], eject: [0.04, 0.05, -0.08], mag: [0, -0.06, -0.14], fore: [0, -0.1, -0.3], hip: [0.2, -0.22, -0.5], adsZ: -0.56, scale: 1.0 },
+  tac: { sightY: 0.11, muzzle: [0, 0.03, -0.66], eject: [0.05, 0.05, -0.05], mag: null, fore: [0, -0.03, -0.38], hip: [0.2, -0.22, -0.5], adsZ: -0.54, adsDrop: 0.065, scale: 1.0 },
+  pump: { sightY: 0.1, muzzle: [0, 0.035, -0.78], eject: [0.05, 0.04, -0.05], mag: null, fore: [0, -0.02, -0.42], hip: [0.2, -0.22, -0.52], adsZ: -0.56, adsDrop: 0.065, scale: 1.0 },
   sniper: { sightY: 0.16, muzzle: [0, 0.03, -0.95], eject: [0.05, 0.06, -0.04], mag: [0, -0.04, -0.12], fore: [0, -0.02, -0.4], hip: [0.2, -0.22, -0.55], adsZ: -0.4, scale: 1.0 },
 };
 

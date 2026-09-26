@@ -187,7 +187,8 @@ export class Viewmodel {
     const meta = this.meta;
     const ads = meta ? this.adsK : 0;
     const hip = meta ? meta.hip : [0.16, -0.2, -0.4];
-    const adsP = meta ? [0, -meta.sightY, meta.adsZ] : hip;
+    // Schrotflinten: beim Zielen etwas tiefer (Kolben verdeckt nicht die Mitte, Streukreis bleibt sichtbar)
+    const adsP = meta ? [0, -meta.sightY - (meta.adsDrop || 0), meta.adsZ] : hip;
     const spr = [0.15, -0.26, -0.44];
     let px = lerp(hip[0], adsP[0], ads), py = lerp(hip[1], adsP[1], ads), pz = lerp(hip[2], adsP[2], ads);
     let rx = 0, ry = lerp(0.04, 0, ads), rz = 0;

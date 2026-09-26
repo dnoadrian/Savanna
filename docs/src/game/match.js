@@ -261,7 +261,7 @@ export class MatchClient {
     this.sky.update(this.camera, dt);
     this.lights.update(this.state === 'alive' ? { x: pl.body.x, y: pl.body.y, z: pl.body.z } : cp);
     this.effects.update(dt, cp);
-    this.lootView.update(dt, now, this.state === 'alive' ? pl.target : null);
+    this.lootView.update(dt, now, this.state === 'alive' ? pl.target : null, cp);
 
     // Audio-Hörer
     const fwd = _v.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
