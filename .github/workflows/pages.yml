@@ -46,6 +46,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:pages
+        env:
+          SHOWDOWN_SERVER_URL: ${{ vars.SHOWDOWN_SERVER_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

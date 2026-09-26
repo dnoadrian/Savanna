@@ -141,6 +141,7 @@ export class LobbyScreen {
     let srv;
     if (net.connected) srv = net.serverUrl ? t('connectedTo', { host: net.serverHost }) : t('serverOnline');
     else if (net.failed) srv = t('serverFailed');
+    else if (net.waking) srv = t('serverWaking');
     else if (net.staticSite && !net.enabled) srv = t('serverStatic');
     else srv = net.enabled ? t('connecting') : t('serverOffline');
     this.serverDot.className = 'server-pill ' + (net.connected ? 'on' : net.staticSite && !net.enabled ? 'solo' : 'off');

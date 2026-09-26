@@ -121,9 +121,33 @@ Die Webseite läuft komplett im Browser: **BEREIT** → 15 s Warteschlange → M
 
 Für **Mehrspieler mit Freunden** braucht es einen laufenden Spielserver (GitHub Pages liefert nur Dateien aus):
 1. **Einer hostet:** `npm install` und `npm run online` (oder in der Lobby **≡ → „Online hosten“**). **Wer danach einfach die normale Webseite öffnet, wird automatisch mit diesem Host verbunden** – der Server meldet seine Tunnel-Adresse jede Minute über [ntfy.sh](https://ntfy.sh) (Thema `showdownbay-dnoadrian-savanna`), die Webseite fragt dort nach. Abschalten: `SHOWDOWN_BEACON=0` oder `"showdown": { "beacon": false }` in `package.json`; eigenes Thema über `"beaconTopic"`. Das Hosting-Panel zeigt dann einen *„Link über die Webseite“* wie `https://dnoadrian.github.io/Savanna/?server=https://xyz.trycloudflare.com`. Auf der Webseite kann man den Server auch über **≡ → „Server / Online spielen“** eintragen.
-2. **Dauerhaft online (optional):** [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dnoadrian/Savanna) – nutzt `render.yaml`. Soll die GitHub-Seite automatisch mit diesem Server verbinden, die Adresse in `package.json` unter `"showdown": { "server": "https://…onrender.com" }` eintragen und `npm run build:pages` ausführen.
+2. **Dauerhaft online (24/7):** siehe nächster Abschnitt.
 
 **Veröffentlichung auf GitHub Pages:** Die fertige Webseite liegt in `docs/` (`npm run build:pages`). Unter *Settings → Pages* entweder *Deploy from a branch* → Ordner **`/docs`** oder *GitHub Actions* (`.github/workflows/pages.yml`). `npm test` prüft, ob `docs/` aktuell ist.
+
+---
+
+## 🌍 24/7-Server: Jeder auf der Webseite spielt mit jedem
+
+Ziel: Wer **https://dnoadrian.github.io/Savanna/** öffnet (nicht die Code-Seite github.com/dnoadrian/Savanna) und **BEREIT** drückt, landet mit allen anderen auf demselben Server – rund um die Uhr, ohne dass dein PC läuft.
+
+**Weg A – Render (gratis, empfohlen)**
+1. Auf [render.com](https://render.com) mit dem GitHub-Konto anmelden.
+2. [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dnoadrian/Savanna) klicken (oder *New → Blueprint* → Repository `dnoadrian/Savanna`) → **Apply**. Nach ein paar Minuten läuft der Server unter einer Adresse wie `https://showdown-bay-xxxx.onrender.com` (die Datei `render.yaml` ist schon fertig).
+3. **Adresse eintragen**, damit die Webseite sich automatisch verbindet – eine der beiden Möglichkeiten:
+   - GitHub → Repository → *Settings → Secrets and variables → Actions → Variables* → **New repository variable** `SHOWDOWN_SERVER_URL` = deine Render-Adresse (wirkt, wenn *Settings → Pages → Source* auf **GitHub Actions** steht), **oder**
+   - in `package.json` eintragen: `"showdown": { "server": "https://showdown-bay-xxxx.onrender.com" }`, dann `npm run build:pages` und committen (für *Deploy from a branch → /docs*).
+4. **Wach halten:** Der Workflow *„Server wach halten“* (`.github/workflows/keepalive.yml`) ruft den Server alle 10 Minuten auf, damit er im Gratis-Tarif nicht einschläft. Unter *Actions* ggf. einmal aktivieren.
+
+Gut zu wissen beim Gratis-Tarif von Render:
+- 750 Stunden pro Monat – reicht für **einen** Server rund um die Uhr.
+- Ohne Aufrufe schläft er nach 15 Minuten ein. Dann zeigt die Webseite **„Server startet … (bis zu 1 Minute)“** und verbindet sich automatisch, sobald er wach ist.
+- **Kein dauerhafter Speicher:** Nach einem Neustart/Update sind Spielernamen, Freundeslisten und Admin-Zugänge auf dem Server weg. Coins, Skins und Statistiken liegen im Browser und bleiben erhalten. Für dauerhaften Speicher: bezahlter Tarif mit *Disk* (Mount-Pfad z. B. `/data`, dazu Umgebungsvariable `SHOWDOWN_DATA_DIR=/data`).
+- GitHub pausiert zeitgesteuerte Workflows nach 60 Tagen ohne Commits – dann unter *Actions* wieder aktivieren.
+
+**Weg B – eigener PC oder Raspberry Pi, der durchläuft:** `Starten.bat` bzw. `npm run online`. Die Webseite findet den Host automatisch (Leuchtfeuer über ntfy.sh), solange der Rechner an ist.
+
+**Weg C – eigener VPS** (z. B. ein Gratis-Server bei Oracle Cloud „Always Free“): mit Docker starten (siehe unten), Port 4242 freigeben oder `npm run online` für einen HTTPS-Link, Adresse wie in Schritt 3 eintragen.
 
 ---
 

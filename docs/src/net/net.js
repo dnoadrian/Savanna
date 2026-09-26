@@ -25,6 +25,8 @@ export class NetClient {
       let saved = null;
       try { saved = localStorage.getItem('showdown.server'); } catch { /* ignorieren */ }
       const meta = document.querySelector('meta[name="showdown-server"]');
+      // fest eingetragener 24/7-Server (package.json → showdown.server)
+      this.permanentServer = normalizeServerUrl(meta && meta.content);
       const url = normalizeServerUrl(param || saved || (meta && meta.content));
       if (url) {
         this.serverUrl = url;
@@ -34,7 +36,8 @@ export class NetClient {
     this.enabled = (location.protocol === 'http:' || location.protocol === 'https:') && (!this.staticSite || !!this.serverUrl);
     // Webseite ohne festen Server-Link: automatisch den gerade online hostenden Server suchen
     this.autoFound = null;
-    if (this.staticSite && !param) {
+    // (nicht nötig, wenn ein fester 24/7-Server eingetragen ist)
+    if (this.staticSite && !param && !this.permanentServer) {
       this.discover();
       this.discoverTimer = setInterval(() => { if (!this.connected) this.discover(); }, 30000);
     }
@@ -88,6 +91,8 @@ export class NetClient {
     this.enabled = true;
     this.failed = false;
     this.everConnected = false;
+    this.wakeStart = 0;
+    this.waking = false;
     this.retry = 0;
     if (this.ws) this.ws.close();
     else this.connect();
@@ -117,6 +122,7 @@ export class NetClient {
       this.connected = true;
       this.everConnected = true;
       this.failed = false;
+      this.waking = false;
       this.retry = 0;
       this.emitStatus();
       clearInterval(this.pingTimer);
@@ -169,6 +175,22 @@ export class NetClient {
 
   scheduleReconnect() {
     if (!this.enabled) return;
+    // Fester 24/7-Server (z. B. Render im Gratis-Tarif): schläft er, braucht er bis zu ~1 Minute
+    // zum Aufwachen – so lange weiter versuchen und „Server startet …“ anzeigen
+    const permanent = this.staticSite && this.serverUrl && this.serverUrl === this.permanentServer;
+    if (permanent && !this.everConnected) {
+      if (!this.wakeStart) {
+        this.wakeStart = Date.now();
+        // normaler HTTP-Aufruf weckt schlafende Server zuverlässig
+        try { fetch(this.serverUrl + '/api/health', { mode: 'no-cors', cache: 'no-store' }).catch(() => {}); } catch { /* ignorieren */ }
+      }
+      if (Date.now() - this.wakeStart < 120000) {
+        if (!this.waking) { this.waking = true; this.emitStatus(); }
+        setTimeout(() => { if (this.enabled) this.connect(); }, 3000);
+        return;
+      }
+      this.waking = false;
+    }
     // fremder Server nicht erreichbar (z. B. alter Einladungslink): nicht endlos versuchen
     if (this.staticSite && !this.everConnected && this.retry >= 3) {
       this.failed = true;
