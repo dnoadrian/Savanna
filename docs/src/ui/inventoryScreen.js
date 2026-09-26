@@ -1,15 +1,17 @@
-// TAB-Menü im Match (wie das Inventar im Original): links ein Menü (Inventar / Karte /
-// Einstellungen), oben Währung und Munitionsvorräte, darunter die 5 Plätze mit Details.
-// Sortieren nur über Tasten: Platznummer drücken (auswählen), dann Zielnummer (tauschen).
+// TAB-Inventar (wie im Original): schmales, durchsichtiges Panel links – das Spiel bleibt sichtbar.
+// Die Maus ist frei: Gegenstände per Ziehen zwischen den Plätzen sortieren, aus dem Menü ziehen
+// = fallen lassen (auch Munition). Tasten gehen weiterhin: Platznummer, dann Zielnummer.
+// Oben: Währung und Munitionsvorräte, unten: Details zum gewählten Gegenstand.
 import { h } from './dom.js';
 import { ICON } from './icons.js';
 import { t } from '../i18n.js';
 import { keyLabel } from '../settings.js';
-import { WEAPONS, CONSUMABLES, RARITY_COLORS, AMMO_TYPES, itemRarity } from '../../shared/items.js';
+import { WEAPONS, CONSUMABLES, RARITY_COLORS, AMMO_TYPES, AMMO_MAX, itemRarity } from '../../shared/items.js';
 import { itemIcon } from '../render/itemIcons.js';
 import { itemName, shortName } from './hud.js';
 
 const AMMO_COLOR = { light: '#9fc0dc', medium: '#5fbf3e', heavy: '#c0493a', shells: '#ff5a44' };
+const DRAG_START = 6; // px, ab dann ist es Ziehen statt Klicken
 
 export class InventoryScreen {
   constructor(root, app) {
@@ -17,26 +19,47 @@ export class InventoryScreen {
     this.open = false;
     this.picked = -1;
     this.focus = 0;
-    this.tab = 'inv';
+    this.drag = null;
     this.el = h('div', { class: 'inv-screen hidden' });
     root.appendChild(this.el);
+    // Klick ins Spiel (außerhalb des Panels, ohne Ziehen) schließt das Inventar
+    this.el.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('.inv-panel') && !this.drag) { e.preventDefault(); this.toggle(false); }
+    });
+    window.addEventListener('pointermove', (e) => this.onMove(e));
+    window.addEventListener('pointerup', (e) => this.onUp(e));
   }
 
-  toggle(v = !this.open) {
+  get player() { return this.app.match && this.app.match.player; }
+
+  // v: öffnen/schließen; noRelock: Maus nicht wieder fangen (anderes Menü übernimmt)
+  toggle(v = !this.open, noRelock = false) {
+    const app = this.app;
+    if (v === this.open) return;
     this.open = v;
     this.picked = -1;
-    this.tab = 'inv';
+    this.cancelDrag();
     this.el.classList.toggle('hidden', !v);
     if (v) {
-      this.focus = this.app.match?.player?.inv?.sel ?? 0;
-      this.app.audio.uiClick();
+      this.focus = this.player?.inv?.sel ?? 0;
+      app.audio.uiClick();
+      app.input.unlock(); // Maus frei zum Sortieren
       this.render();
+      return;
     }
+    const m = app.match;
+    if (noRelock || !m || m.state !== 'alive' || m.ended || app.ui.overlayOpen(false)) return;
+    app.lockGame();
+    // Browser verweigert den Mausfang manchmal (z. B. direkt nach ESC): dann „Klicken zum Spielen“
+    setTimeout(() => {
+      if (!app.input.locked && app.state === 'match' && app.match === m && m.state === 'alive' && !m.ended && !app.ui.overlayOpen()) app.ui.showClickToPlay();
+    }, 700);
   }
 
-  // Tasten im offenen Menü: 1–5 wählen/tauschen, Q/E Reiter, Esc schließt
+  // Tasten im offenen Menü: 1–5 wählen/tauschen, ESC schließt, R bricht die Auswahl ab
   handleInput(input, player) {
     if (!this.open) return;
+    if (input.pressedSet.has('Escape')) { this.toggle(false); return; }
     for (let i = 0; i < 5; i++) {
       if (!input.pressed('slot' + (i + 1))) continue;
       if (this.picked < 0) {
@@ -56,83 +79,170 @@ export class InventoryScreen {
     if (input.pressed('reload') && this.picked >= 0) { this.picked = -1; this.render(); }
   }
 
-  render() {
+  // ---------------- Ziehen & Ablegen ----------------
+  startDrag(e, kind, id) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    this.drag = { kind, id, x0: e.clientX, y0: e.clientY, started: false, ghost: null, over: null };
+  }
+
+  onMove(e) {
+    const d = this.drag;
+    if (!d || !this.open) return;
+    if (!d.started) {
+      if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < DRAG_START) return;
+      d.started = true;
+      const inv = this.player.inv;
+      const it = d.kind === 'slot' ? inv.slots[d.id] : { k: 'a', a: d.id, n: 1 };
+      if (!it) { this.drag = null; return; }
+      d.ghost = h('img', { class: 'inv-ghost', src: itemIcon(it), alt: '' });
+      this.el.appendChild(d.ghost);
+      this.el.classList.add('dragging');
+      this.el.querySelector(`[data-${d.kind}="${d.id}"]`)?.classList.add('drag-src');
+      this.app.audio.uiHover();
+    }
+    d.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const slot = under && under.closest('[data-slot]');
+    const outside = !under || !under.closest('.inv-panel');
+    for (const el of this.el.querySelectorAll('.drop-target')) el.classList.remove('drop-target');
+    if (slot && d.kind === 'slot') slot.classList.add('drop-target');
+    this.el.classList.toggle('drop-out', outside);
+  }
+
+  onUp(e) {
+    const d = this.drag;
+    if (!d) return;
+    this.drag = null;
     if (!this.open) return;
+    const pl = this.player;
+    if (!d.started) {
+      // Klick: Gegenstand auswählen (Details); Doppelklick nimmt ihn in die Hand
+      if (d.kind === 'slot') {
+        const now = performance.now();
+        if (this.lastClick && this.lastClick.id === d.id && now - this.lastClick.t < 350) pl.selectSlot(d.id);
+        this.lastClick = { id: d.id, t: now };
+        this.focus = d.id;
+      }
+      this.cleanupDrag();
+      this.render();
+      return;
+    }
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const slot = under && under.closest('[data-slot]');
+    const outside = !under || !under.closest('.inv-panel');
+    if (d.kind === 'slot') {
+      if (slot) {
+        const j = Number(slot.dataset.slot);
+        if (j !== d.id) { pl.swapSlots(d.id, j); this.app.audio.uiConfirm(); this.focus = j; }
+      } else if (outside) {
+        pl.dropSlot(d.id);
+      }
+    } else if (d.kind === 'ammo' && outside) {
+      pl.dropAmmo(d.id);
+    }
+    this.cleanupDrag();
+    this.render();
+  }
+
+  cancelDrag() {
+    this.drag = null;
+    this.cleanupDrag();
+  }
+
+  cleanupDrag() {
+    for (const g of this.el.querySelectorAll('.inv-ghost')) g.remove();
+    this.el.classList.remove('dragging', 'drop-out');
+  }
+
+  // ---------------- Darstellung ----------------
+  render() {
+    if (!this.open || (this.drag && this.drag.started)) return;
     const app = this.app;
-    const pl = app.match?.player;
+    const pl = this.player;
     if (!pl) return;
     const inv = pl.inv;
     const keys = app.settings.get('keys');
     const coins = app.profile.data.coins || 0;
-    const menu = h('div', { class: 'inv-menu' },
-      h('div', { class: 'inv-logo' }, 'SHOWDOWN', h('b', {}, ' BAY')),
-      ...[['inv', t('invTab'), 'backpack'], ['map', t('invMap'), 'map'], ['settings', t('menuSettings'), 'gear']].map(([id, label, ic]) =>
-        h('button', {
-          class: 'inv-menu-btn' + (this.tab === id ? ' sel' : ''),
-          onclick: () => {
-            app.audio.uiClick();
-            if (id === 'map') { this.toggle(false); app.match.hud.toggleBigMap(true); return; }
-            if (id === 'settings') { this.toggle(false); app.input.unlock(); app.ui.openSettings?.(); return; }
-            this.tab = id; this.render();
-          },
-        }, h('span', { class: 'icon', html: ICON[ic] || '' }), label)),
-      h('div', { class: 'inv-close-hint' }, t('invClose', { key: keyLabel(keys.scoreboard) })));
 
-    // Währung + Ressourcen
-    const res = h('div', { class: 'inv-res' },
-      h('div', { class: 'inv-sec' }, h('div', { class: 'inv-h' }, t('invCurrency')),
-        h('div', { class: 'inv-cur' }, h('span', { class: 'icon', html: ICON.coin }), h('b', {}, coins.toLocaleString('de-DE')), h('small', {}, t('coins')))),
-      h('div', { class: 'inv-sec grow' }, h('div', { class: 'inv-h' }, t('invResources')),
-        h('div', { class: 'inv-ammo-row' }, ...AMMO_TYPES.map((a) =>
-          h('div', { class: 'inv-ammo', style: { '--ac': AMMO_COLOR[a] } },
-            h('img', { src: itemIcon({ k: 'a', a, n: 1 }), alt: '' }),
-            h('div', {}, h('b', {}, String(inv.ammo[a] || 0)), h('small', {}, t('a_' + a))))))));
+    const tabs = h('div', { class: 'inv-tabs' },
+      h('button', { class: 'inv-tab sel' }, h('span', { class: 'icon', html: ICON.backpack }), t('invTab')),
+      h('button', { class: 'inv-tab', onclick: () => { app.audio.uiClick(); this.toggle(false, true); app.match.hud.toggleBigMap(true); app.lockGame(); } }, h('span', { class: 'icon', html: ICON.map }), t('invMap')),
+      h('button', { class: 'inv-tab', onclick: () => { app.audio.uiClick(); this.toggle(false, true); app.ui.openSettings(); } }, h('span', { class: 'icon', html: ICON.gear }), t('menuSettings')),
+      h('span', { class: 'inv-close', title: t('invClose', { key: keyLabel(keys.scoreboard) }) }, keyLabel(keys.scoreboard)));
 
-    // Loadout
+    const cur = h('div', { class: 'inv-row' },
+      h('div', { class: 'inv-h' }, t('invCurrency')),
+      h('div', { class: 'inv-cur' }, h('span', { class: 'icon', html: ICON.coin }), h('b', {}, coins.toLocaleString('de-DE'))));
+
+    const ammo = h('div', { class: 'inv-ammo-grid' }, ...AMMO_TYPES.map((a) => {
+      const n = inv.ammo[a] || 0;
+      const el = h('div', {
+        class: 'inv-ammo' + (n ? '' : ' empty'),
+        'data-ammo': a,
+        style: { '--ac': AMMO_COLOR[a] },
+        title: t('invDragAmmo'),
+        onpointerdown: (e) => { if (n) this.startDrag(e, 'ammo', a); },
+      },
+      h('img', { src: itemIcon({ k: 'a', a, n: 1 }), alt: '', draggable: 'false' }),
+      h('div', { class: 'ia-txt' }, h('b', {}, String(n)), h('small', {}, t('a_' + a))),
+      h('div', { class: 'ia-bar' }, h('i', { style: { width: Math.min(100, (n / AMMO_MAX[a]) * 100) + '%' } })));
+      return el;
+    }));
+
     const slots = h('div', { class: 'inv-slots' });
     for (let i = 0; i < 5; i++) {
       const it = inv.slots[i];
       const rar = it ? RARITY_COLORS[itemRarity(it)] : '#2a3350';
       slots.appendChild(h('div', {
         class: 'inv-slot' + (it ? '' : ' empty') + (i === inv.sel ? ' held' : '') + (i === this.picked ? ' picked' : '') + (i === this.focus ? ' focus' : ''),
+        'data-slot': i,
         style: { '--rar': rar },
+        onpointerdown: (e) => { if (it) this.startDrag(e, 'slot', i); },
+        onpointerenter: () => { if (!this.drag && it) this.showDetails(inv.slots[i]); },
+        onpointerleave: () => { if (!this.drag) this.showDetails(inv.slots[this.focus]); },
       },
       h('div', { class: 'inv-key' }, keyLabel(keys['slot' + (i + 1)])),
-      it ? h('img', { src: itemIcon(it), alt: '' }) : null,
-      it ? h('div', { class: 'inv-name' }, shortName(it)) : h('div', { class: 'inv-name dim' }, t('invEmpty')),
-      it && it.k === 'w' ? h('div', { class: 'inv-count' }, `${it.mag}/${WEAPONS[it.w].mag}`) : it && it.k === 'c' ? h('div', { class: 'inv-count' }, '×' + it.n) : null));
+      it ? h('img', { src: itemIcon(it), alt: '', draggable: 'false' }) : null,
+      it ? h('div', { class: 'inv-name' }, shortName(it)) : null,
+      it && it.k === 'w' ? h('div', { class: 'inv-count' + (it.mag === 0 ? ' empty' : '') }, `${it.mag}/${WEAPONS[it.w].mag}`) : it && it.k === 'c' ? h('div', { class: 'inv-count' }, '×' + it.n) : null));
     }
 
-    const hint = h('div', { class: 'inv-hint' }, this.picked >= 0
-      ? t('invSwapPick', { n: this.picked + 1 })
-      : t('invSwapHint'));
+    const hint = h('div', { class: 'inv-hint' }, this.picked >= 0 ? t('invSwapPick', { n: this.picked + 1 }) : t('invMouseHint'));
+    this.detailsEl = h('div', { class: 'inv-details-wrap' });
+    this.showDetails(inv.slots[this.focus]);
 
-    const main = h('div', { class: 'inv-main' },
-      res,
-      h('div', { class: 'inv-sec' }, h('div', { class: 'inv-h' }, t('invLoadout')), slots, hint),
-      this.details(inv.slots[this.focus]));
+    const panel = h('div', { class: 'inv-panel' },
+      tabs,
+      cur,
+      h('div', { class: 'inv-h' }, t('invResources')), ammo,
+      h('div', { class: 'inv-h' }, t('invLoadout')), slots, hint,
+      this.detailsEl);
     this.el.innerHTML = '';
-    this.el.append(h('div', { class: 'inv-wrap' }, menu, main));
+    this.el.append(panel, h('div', { class: 'inv-drop-hint' }, h('span', { class: 'icon', html: ICON.backpack }), t('invDropHere')));
   }
 
-  details(it) {
-    if (!it) return h('div', { class: 'inv-details empty' });
+  showDetails(it) {
+    if (!this.detailsEl) return;
+    this.detailsEl.innerHTML = '';
+    if (!it) return;
     const rar = itemRarity(it);
     const rows = [];
     if (it.k === 'w') {
       const d = WEAPONS[it.w];
-      rows.push([t('invDmg'), Math.round(d.dmg[it.r])], [t('invRate'), d.fireRate.toFixed(1) + '/s'], [t('invMag'), d.mag], [t('invReload'), d.reload[it.r].toFixed(2) + ' s'], [t('invAmmo'), t('a_' + d.ammo)]);
+      const ammoLeft = this.player ? this.player.inv.ammo[d.ammo] || 0 : 0;
+      rows.push([t('invDmg'), Math.round(d.dmg[it.r])], [t('invRate'), d.fireRate.toFixed(1) + '/s'], [t('invMag'), `${it.mag} / ${d.mag}`],
+        [t('invReload'), d.reload[it.r].toFixed(2) + ' s'], [t('invAmmo'), `${t('a_' + d.ammo)} · ${ammoLeft}`]);
     } else if (it.k === 'c') {
       const c = CONSUMABLES[it.c];
       if (c.heal) rows.push([t('invHeal'), '+' + c.heal]);
       if (c.shield) rows.push([t('invShield'), '+' + c.shield + ' (max ' + c.cap + ')']);
-      rows.push([t('invStack'), c.stack]);
+      rows.push([t('invStack'), `${it.n} / ${c.stack}`]);
     }
-    return h('div', { class: 'inv-details', style: { '--rar': RARITY_COLORS[rar] } },
-      h('img', { src: itemIcon(it), alt: '' }),
-      h('div', { class: 'inv-d-body' },
-        h('div', { class: 'inv-d-rar' }, t('rar_' + rar)),
-        h('div', { class: 'inv-d-name' }, itemName(it)),
-        h('div', { class: 'inv-d-stats' }, ...rows.map(([k, v]) => h('div', {}, h('span', {}, k), h('b', {}, String(v)))))));
+    this.detailsEl.appendChild(h('div', { class: 'inv-details', style: { '--rar': RARITY_COLORS[rar] } },
+      h('div', { class: 'inv-d-top' },
+        h('img', { src: itemIcon(it), alt: '', draggable: 'false' }),
+        h('div', {}, h('div', { class: 'inv-d-rar' }, t('rar_' + rar)), h('div', { class: 'inv-d-name' }, itemName(it)))),
+      h('div', { class: 'inv-d-stats' }, ...rows.map(([k, v]) => h('div', {}, h('span', {}, k), h('b', {}, String(v)))))));
   }
 }

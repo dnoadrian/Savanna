@@ -121,6 +121,9 @@ export class LocalSession {
   cancelReload() { this.sim.humanCancelReload(this.youId); }
   select(slot) { this.sim.humanSelect(this.youId, slot); }
   swap(a, b) { this.sim.humanSwap(this.youId, a, b); }
+  drop(slot) { this.sim.humanDrop(this.youId, slot); }
+  dropAmmo(a) { this.sim.humanDropAmmo(this.youId, a); }
+  cheat(o) { this.sim.humanCheat(this.youId, { infAmmo: !!o.ia }); if (o.op) this.sim.humanOpLoot(this.youId); }
   interact(target) { this.sim.humanInteract(this.youId, target); }
   use(slot) { this.sim.humanUse(this.youId, slot); }
   cancelUse() { this.sim.humanCancelUse(this.youId); }
@@ -354,6 +357,9 @@ export class NetSession {
   cancelReload() { this.net.send({ t: 'reloadCancel' }); }
   select(slot) { this.net.send({ t: 'sel', s: slot }); }
   swap(a, b) { this.net.send({ t: 'swap', a, b }); }
+  drop(slot) { this.net.send({ t: 'drop', s: slot }); }
+  dropAmmo(a) { this.net.send({ t: 'dropAmmo', a }); }
+  cheat(o) { this.net.send({ t: 'cheat', ia: !!o.ia, op: !!o.op }); }
   interact(target) { this.net.send({ t: 'int', ...target }); }
   use(slot) { this.net.send({ t: 'use', s: slot }); }
   cancelUse() { this.net.send({ t: 'useCancel' }); }

@@ -9,7 +9,7 @@ import {
 import { cloneInventory } from '../../shared/sim/inventory.js';
 import { applySpread, dirFromAngles, anglesFromDir, rayPlayer, stanceScale } from '../../shared/sim/combat.js';
 import { F, CLIENT_SEND_HZ, INTERACT_RANGE, MAX_HEALTH } from '../../shared/constants.js';
-import { WEAPONS, CONSUMABLES } from '../../shared/items.js';
+import { WEAPONS, CONSUMABLES, AMMO_MAX, KILL_AMMO, weaponItem } from '../../shared/items.js';
 import { MAT } from '../../shared/physics/collision.js';
 import { SURF } from '../../shared/map/terrain.js';
 import { AimAssist } from './aimassist.js';
@@ -149,6 +149,39 @@ export class LocalPlayer {
     if (this.inv.sel === a) this.inv.sel = b;
     else if (this.inv.sel === b) this.inv.sel = a;
     this.game.session.swap(a, b);
+  }
+
+  // Gegenstand fallen lassen (aus dem TAB-Menü gezogen)
+  dropSlot(i) {
+    if (i < 0 || i > 4 || !this.inv.slots[i]) return;
+    const held = i === this.inv.sel;
+    if (held) {
+      this.cancelUse();
+      if (this.rt.reloading) this.game.session.cancelReload();
+    }
+    this.inv.slots[i] = null;
+    this.game.session.drop(i);
+    if (held) this.onHandChanged();
+    this.audio.dropItem();
+  }
+
+  dropAmmo(a) {
+    const n = Math.min(this.inv.ammo[a] || 0, KILL_AMMO[a]);
+    if (n <= 0) return;
+    this.inv.ammo[a] -= n;
+    this.game.session.dropAmmo(a);
+    this.audio.dropItem();
+  }
+
+  // Admin: OP-Loot (goldene SCAR + goldenes Scharfschützengewehr)
+  applyOpLoot() {
+    this.cancelUse();
+    this.inv.slots = [weaponItem('ar', 4), weaponItem('sniper', 4), null, null, null];
+    this.inv.sel = 0;
+    this.inv.ammo.medium = Math.max(this.inv.ammo.medium, AMMO_MAX.medium);
+    this.inv.ammo.heavy = Math.max(this.inv.ammo.heavy, AMMO_MAX.heavy);
+    this.game.session.cheat({ ia: this.admin.active('infammo'), op: true });
+    this.onHandChanged();
   }
 
   selectSlot(i) {
@@ -402,6 +435,7 @@ export class LocalPlayer {
         let n = 0;
         while (canFire(this.rt, it) && n < 3) {
           if (!fireWeapon(this.rt, it)) break;
+          if (this.admin.active('infammo')) it.mag = def.mag; // Admin: unendliche Munition
           this.shoot(states, it);
           this.fireBuffer = 0;
           n++;

@@ -5,7 +5,7 @@ import {
   MATCH_SIZE, COUNTDOWN, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, F,
   SPAWN_MIN_DIST, MAX_REWIND, EYE_STAND, EYE_CROUCH, PLAY_RADIUS, INTERACT_RANGE, AUTO_PICKUP_RANGE, SEA_LEVEL,
 } from '../constants.js';
-import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem, AMMO_TYPES, KILL_AMMO, ammoItem, consumableItem } from '../items.js';
+import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem, AMMO_TYPES, AMMO_MAX, KILL_AMMO, ammoItem, consumableItem, weaponItem } from '../items.js';
 import { RNG } from '../rng.js';
 import { createBody, stepMovement, bodyFlags } from './movement.js';
 import { createWeaponRuntime, equipWeapon, fireWeapon, startReload, cancelReload, updateWeapon, weaponSpread, botWeaponSpread } from './weapon.js';
@@ -515,6 +515,7 @@ export class Simulation {
       if (pk.item.k === 'w') continue;
       const dx = pk.x - b.x, dz = pk.z - b.z;
       if (dx * dx + dz * dz > AUTO_PICKUP_RANGE * AUTO_PICKUP_RANGE || Math.abs(pk.y - b.y) > 1.6) continue;
+      if (pk.dropBy === p.id && this.time < pk.dropUntil) continue;
       if (pk.item.k === 'c') {
         const room = stackRoom(p.inv, pk.item.c);
         if (room <= 0) continue;
@@ -622,6 +623,7 @@ export class Simulation {
     if (p.wr.reloading && !def.shellReload && p.wr.reloadDur - p.wr.reloadT < 0.4) updateWeapon(p.wr, item, p.inv.ammo, 1);
     p.wr.equipT = 0;
     if (!fireWeapon(p.wr, item, true)) return false;
+    if (p.infAmmo) item.mag = def.mag; // Admin: unendliche Munition
     p.fireTokens -= 1;
     this.cancelUse(p);
     const dirs = [];
@@ -668,6 +670,63 @@ export class Simulation {
     else if (inv.sel === b) inv.sel = a;
     if (p.useT >= 0) p.useSlot = inv.sel;
     inv.rev++;
+    return true;
+  }
+
+  // Gegenstand aus dem Inventar fallen lassen (aus dem TAB-Menü gezogen)
+  humanDrop(id, slot) {
+    const p = this.byId.get(id);
+    slot |= 0;
+    if (!p || !p.alive || slot < 0 || slot > 4) return false;
+    const it = p.inv.slots[slot];
+    if (!it) return false;
+    if (slot === p.inv.sel) {
+      this.cancelUse(p);
+      cancelReload(p.wr);
+    }
+    p.inv.slots[slot] = null;
+    if (slot === p.inv.sel) equipWeapon(p.wr, null);
+    p.inv.rev++;
+    this.dropNear(p, it);
+    return true;
+  }
+
+  // Munition fallen lassen: ein Magazin der Art (bzw. der Rest)
+  humanDropAmmo(id, a) {
+    const p = this.byId.get(id);
+    if (!p || !p.alive || !AMMO_TYPES.includes(a)) return false;
+    const n = Math.min(p.inv.ammo[a], KILL_AMMO[a]);
+    if (n <= 0) return false;
+    p.inv.ammo[a] -= n;
+    p.inv.rev++;
+    this.dropNear(p, ammoItem(a, n));
+    return true;
+  }
+
+  dropNear(p, item) {
+    const [pk] = this.spawnLoot([item], p.body.x, p.body.y, p.body.z, p.body.yaw, 1.6);
+    // eigene fallengelassene Sachen nicht sofort wieder automatisch einsammeln
+    if (pk) { pk.dropBy = p.id; pk.dropUntil = this.time + 4; }
+  }
+
+  // Admin-Cheats (Server prüft vorher, ob der Spieler Admin ist)
+  humanCheat(id, o) {
+    const p = this.byId.get(id);
+    if (p) p.infAmmo = !!o.infAmmo;
+  }
+
+  // OP-Loot: goldene SCAR auf Platz 1, goldenes Scharfschützengewehr auf Platz 2, Rest leer
+  humanOpLoot(id) {
+    const p = this.byId.get(id);
+    if (!p || !p.alive) return false;
+    this.cancelUse(p);
+    cancelReload(p.wr);
+    p.inv.slots = [weaponItem('ar', 4), weaponItem('sniper', 4), null, null, null];
+    p.inv.sel = 0;
+    p.inv.ammo.medium = Math.max(p.inv.ammo.medium, AMMO_MAX.medium);
+    p.inv.ammo.heavy = Math.max(p.inv.ammo.heavy, AMMO_MAX.heavy);
+    p.inv.rev++;
+    equipWeapon(p.wr, selectedItem(p.inv));
     return true;
   }
 

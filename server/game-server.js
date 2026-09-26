@@ -5,6 +5,7 @@ import { Store } from './store.js';
 import { ServerMatch } from './match.js';
 import { TunnelManager } from './tunnel.js';
 import { Beacon } from './beacon.js';
+import { AdminAuth } from './admin.js';
 import { validateName, suggestAlternatives } from '../shared/names.js';
 import { generateMap } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
@@ -33,6 +34,7 @@ export class GameServer {
     this.tunnel = new TunnelManager(port);
     this.tunnel.on('change', (st) => this.broadcastHost(st));
     this.beacon = new Beacon(this.tunnel);
+    this.admin = new AdminAuth(this.store);
     setInterval(() => this.tickQueue(), 250);
     setInterval(() => this.tickInvites(), 1000);
     // Partys ohne Mitglieder aufräumen
@@ -125,7 +127,7 @@ export class GameServer {
     // Match-Nachrichten
     if (c.matchId) {
       const match = this.matches.get(c.matchId);
-      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'sel', 'swap', 'int', 'use', 'useCancel', 'leaveMatch', 'loaded'].includes(m.t)) {
+      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'sel', 'swap', 'drop', 'dropAmmo', 'cheat', 'int', 'use', 'useCancel', 'leaveMatch', 'loaded'].includes(m.t)) {
         match.onMessage(c, m);
         return;
       }
@@ -153,6 +155,11 @@ export class GameServer {
       case 'queue': return this.onQueue(c, m);
       case 'queueCancel': return this.onQueueCancel(c);
       case 'adminCoins': return this.onAdminCoins(c, m);
+      case 'adminLogin': return this.onAdminLogin(c, m);
+      case 'adminResume': return this.onAdminResume(c, m);
+      case 'adminLogout': c.admin = null; return;
+      case 'adminAccounts': return this.onAdminAccounts(c, m);
+      case 'cheat': c.cheats = { ia: !!m.ia }; return;
       case 'hostStatus': return this.sendHost(c);
       case 'hostStart':
         if (!c.isHost) return this.err(c, 'err_not_host');
@@ -318,9 +325,35 @@ export class GameServer {
   }
 
   // Admin schenkt einem Spieler Coins (Coins liegen im Profil des Browsers)
+  // ---------------- Admin ----------------
+  onAdminLogin(c, m) {
+    const r = this.admin.login(m.user, m.pass);
+    if (r.ok) {
+      c.admin = { user: String(m.user).trim().toLowerCase(), role: r.role };
+      console.log(`[admin] Anmeldung ${c.admin.user} (${r.role})${r.role === 'guest' ? `, übrig: ${r.uses < 0 ? '∞' : r.uses}` : ''}`);
+    }
+    this.send(c, { t: 'result', rid: m.rid, ...r });
+  }
+
+  onAdminResume(c, m) {
+    const a = this.admin.check(m.token);
+    c.admin = a;
+    this.send(c, { t: 'result', rid: m.rid, ok: !!a, role: a ? a.role : null, key: a ? null : 'adminExpired' });
+  }
+
+  onAdminAccounts(c, m) {
+    const reply = (r) => this.send(c, { t: 'result', rid: m.rid, ...r });
+    if (!c.admin || c.admin.role !== 'master') return reply({ ok: false, key: 'adminNoRight' });
+    let r = { ok: true };
+    if (m.op === 'add') r = this.admin.add(m.user, m.pass, m.uses);
+    else if (m.op === 'remove') r = this.admin.remove(m.user);
+    reply({ ...r, accounts: this.admin.list() });
+  }
+
   onAdminCoins(c, m) {
     const reply = (ok, key, extra = {}) => this.send(c, { t: 'result', rid: m.rid, ok, key, ...extra });
-    if (String(m.user || '').toLowerCase() !== ADMIN_USER || m.pass !== ADMIN_PASS) return reply(false, 'adminWrong');
+    const master = (c.admin && c.admin.role === 'master') || (String(m.user || '').toLowerCase() === ADMIN_USER && m.pass === ADMIN_PASS);
+    if (!master) return reply(false, 'adminWrong');
     const amount = Math.round(Number(m.amount));
     if (!Number.isFinite(amount) || amount < 1 || amount > ADMIN_MAX_COINS) return reply(false, 'err_generic');
     const target = this.store.byName(String(m.name || '').trim());

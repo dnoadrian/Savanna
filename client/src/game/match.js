@@ -154,9 +154,15 @@ export class MatchClient {
       }
     }
 
+    // Admin-Cheats: Zustand einmal pro Match an Server/Simulation melden, OP-Loot beim Start
+    if (!this.cheatsSynced && app.admin.loggedIn) { this.cheatsSynced = true; app.admin.syncCheats(); }
+    if (!this.opLootGiven && phase === 'playing' && this.state === 'alive' && app.admin.active('oploot')) {
+      this.opLootGiven = true;
+      this.player.applyOpLoot();
+    }
     // TAB-Inventar schließen, sobald ein anderes Menü aufgeht oder der Spieler nicht mehr lebt
-    if (this.invScreen.open && (app.ui.overlayOpen() || this.state !== 'alive' || !input.locked)) this.invScreen.toggle(false);
-    const menuOpen = app.ui.overlayOpen() || this.invScreen.open;
+    if (this.invScreen.open && (app.ui.overlayOpen(false) || this.state !== 'alive' || this.ended)) this.invScreen.toggle(false, true);
+    const menuOpen = app.ui.overlayOpen();
     if (this.state === 'alive') {
       if (!menuOpen && input.locked) this.player.update(dt, now, phase, states);
       else {
@@ -297,7 +303,7 @@ export class MatchClient {
     this.updateNameTags(states, now, W, H);
     // Scoreboard / Karte
     // TAB: Inventar (statt Spielerliste) – Sortieren über die Platz-Tasten
-    if (!app.ui.overlayOpen()) {
+    if (!app.ui.overlayOpen(false)) {
       if (input.pressed('scoreboard') && this.state === 'alive') this.invScreen.toggle(!this.invScreen.open);
       else if (this.invScreen.open) {
         this.invScreen.handleInput(input, this.player);

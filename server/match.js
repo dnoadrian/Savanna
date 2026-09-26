@@ -45,6 +45,7 @@ export class ServerMatch {
 
   onLoaded(c) {
     this.loaded.add(c.pid);
+    if (c.admin && c.cheats && c.cheats.ia) this.sim.humanCheat(c.pid, { infAmmo: true });
   }
 
   update() {
@@ -115,13 +116,22 @@ export class ServerMatch {
         if (!Array.isArray(m.o) || !Array.isArray(m.d) || m.d.length > 12) break;
         const [ox, oy, oz] = m.o.map(Number);
         const dirs = m.d.filter((d) => Array.isArray(d) && d.length === 3 && d.every((v) => Number.isFinite(+v))).map((d) => ({ x: +d[0], y: +d[1], z: +d[2] }));
-        if ([ox, oy, oz].every(Number.isFinite) && dirs.length) sim.humanFire(c.pid, { s: m.s | 0, ox, oy, oz, dirs, rewind: rw, wall: !!m.wb });
+        if ([ox, oy, oz].every(Number.isFinite) && dirs.length) sim.humanFire(c.pid, { s: m.s | 0, ox, oy, oz, dirs, rewind: rw, wall: !!m.wb && !!c.admin });
         break;
       }
       case 'reload': sim.humanReload(c.pid); break;
       case 'reloadCancel': sim.humanCancelReload(c.pid); break;
       case 'sel': sim.humanSelect(c.pid, m.s | 0); break;
       case 'swap': sim.humanSwap(c.pid, m.a | 0, m.b | 0); break;
+      case 'drop': sim.humanDrop(c.pid, m.s | 0); break;
+      case 'dropAmmo': sim.humanDropAmmo(c.pid, String(m.a)); break;
+      case 'cheat':
+        // Cheats nur für angemeldete Admins (Server prüft das Token)
+        c.cheats = { ia: !!m.ia };
+        if (!c.admin) break;
+        sim.humanCheat(c.pid, { infAmmo: !!m.ia });
+        if (m.op) sim.humanOpLoot(c.pid);
+        break;
       case 'int':
         if (Number.isInteger(m.c)) sim.humanInteract(c.pid, { c: m.c });
         else if (Number.isInteger(m.l)) sim.humanInteract(c.pid, { l: m.l });

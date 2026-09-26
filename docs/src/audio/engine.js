@@ -323,6 +323,15 @@ export class AudioEngine {
     this.noiseHit(d, t + 0.05, { dur: 0.03, type: 'highpass', freq: 3500, gain: 0.12 });
   }
 
+  // Gegenstand fallen lassen: kurzes Wusch + dumpfes Aufkommen
+  dropItem() {
+    if (!this.ready) return;
+    const d = this.out('sfx');
+    const t = this.now;
+    this.noiseHit(d, t, { dur: 0.12, type: 'bandpass', freq: 1400, freqEnd: 500, q: 1.2, gain: 0.2 });
+    this.tone(d, t + 0.14, { type: 'sine', freq: 160, freqEnd: 90, dur: 0.08, gain: 0.25 });
+  }
+
   // Waffe/Gegenstand in die Hand nehmen
   equip(item) {
     if (!this.ready || !item) return;

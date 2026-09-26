@@ -158,6 +158,66 @@ test('Inventar sortieren (TAB): Plätze tauschen, gewählter Gegenstand bleibt i
   assert.equal(sim.humanSwap(a.id, 0, 7), false);
 });
 
+test('Inventar: Gegenstand und Munition fallen lassen (nicht sofort wieder eingesammelt)', () => {
+  const sim = makeSim(9, 2);
+  playing(sim);
+  const a = sim.players[0];
+  a.inv.slots = [weaponItem('ar', 2), consumableItem('mini', 2), null, null, null];
+  a.inv.sel = 0;
+  a.inv.ammo.medium = 70;
+  const before = new Set(sim.loot.pickups.keys());
+  assert.ok(sim.humanDrop(a.id, 0));
+  assert.equal(a.inv.slots[0], null);
+  assert.ok(sim.humanDropAmmo(a.id, 'medium'));
+  assert.equal(a.inv.ammo.medium, 40);
+  for (let i = 0; i < 20; i++) sim.step(SIM_DT);
+  const fresh = [...sim.loot.pickups.values()].filter((p) => !before.has(p.id));
+  assert.ok(fresh.some((p) => p.item.k === 'w' && p.item.w === 'ar'), 'SCAR liegt am Boden');
+  assert.ok(fresh.some((p) => p.item.k === 'a' && p.item.a === 'medium' && p.item.n === 30), 'Munition liegt am Boden');
+  assert.equal(a.inv.ammo.medium, 40, 'nicht sofort wieder eingesammelt');
+  assert.equal(sim.humanDrop(a.id, 0), false);
+});
+
+test('Admin-Cheats: OP-Loot (goldene SCAR + Sniper) und unendliche Munition', () => {
+  const sim = makeSim(10, 2);
+  playing(sim);
+  const a = sim.players[0];
+  assert.ok(sim.humanOpLoot(a.id));
+  assert.deepEqual(a.inv.slots.map((x) => x && `${x.w}${x.r}`), ['ar4', 'sniper4', null, null, null]);
+  assert.equal(a.inv.sel, 0);
+  sim.humanCheat(a.id, { infAmmo: true });
+  a.wr.equipT = 0;
+  const shot = () => sim.humanFire(a.id, { s: 0, ox: a.body.x, oy: a.body.y + 1.6, oz: a.body.z, dirs: [{ x: 0, y: 0, z: -1 }] });
+  for (let i = 0; i < 40; i++) { a.fireTokens = 2; a.wr.cooldown = 0; shot(); }
+  assert.equal(a.inv.slots[0].mag, 30, 'Magazin bleibt voll');
+  sim.humanCheat(a.id, { infAmmo: false });
+  a.fireTokens = 2; a.wr.cooldown = 0;
+  assert.ok(shot());
+  assert.equal(a.inv.slots[0].mag, 29);
+});
+
+test('Admin-Zugänge: Haupt-Admin legt Zugänge mit begrenzten Anmeldungen an', async () => {
+  const { AdminAuth, USES_UNLIMITED } = await import('../server/admin.js');
+  const store = { data: {}, save() {} };
+  const auth = new AdminAuth(store);
+  const m = auth.login('adrian', '1234');
+  assert.equal(m.role, 'master');
+  assert.equal(auth.check(m.token).role, 'master');
+  assert.ok(auth.add('Freund', 'geheim', 2).ok);
+  assert.ok(auth.add('vip', 'pw', USES_UNLIMITED).ok);
+  assert.equal(auth.add('x', 'pw', 3).ok, false, 'zu kurzer Name');
+  assert.equal(auth.login('freund', 'falsch').ok, false);
+  const g1 = auth.login('freund', 'geheim');
+  assert.ok(g1.ok && g1.role === 'guest' && g1.uses === 1);
+  assert.equal(auth.login('freund', 'geheim').uses, 0);
+  assert.equal(auth.login('freund', 'geheim').key, 'adminNoUses');
+  for (let i = 0; i < 5; i++) assert.ok(auth.login('vip', 'pw').ok);
+  assert.ok(auth.check(g1.token), 'Token bleibt gültig');
+  auth.remove('freund');
+  assert.equal(auth.check(g1.token), null, 'gelöschter Zugang verliert das Token');
+  assert.deepEqual(auth.list().map((a) => a.user), ['vip']);
+});
+
 test('Sprint-Ausdauer: leert sich beim Sprinten, erholt sich danach', () => {
   const map = generateMap();
   const world = { terrain: map.terrain, collision: map.collision };

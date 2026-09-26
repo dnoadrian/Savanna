@@ -30,7 +30,7 @@ Ein Low-Poly-Battle-Royale für den Browser. **12 Spieler** landen in einer Hafe
 | **F** | Truhe öffnen / Gegenstand aufheben |
 | **1 – 5**, Mausrad | Inventarplatz wählen |
 | **V** | Ego- / Schulterperspektive |
-| **TAB** | Inventar: Coins, Munition, Ausrüstung – **sortieren:** Platznummer drücken, dann Zielnummer |
+| **TAB** | Inventar (durchsichtiges Panel links, Maus frei): **Ziehen = sortieren**, **aus dem Menü ziehen = fallen lassen** (auch Munition), Doppelklick = in die Hand; Tasten: Platznummer, dann Zielnummer |
 | **M** | Große Karte · **ESC** Pause |
 
 Alle Tasten lassen sich in *Einstellungen → Steuerung* neu belegen.
@@ -104,9 +104,12 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 ## 🛠️ Admin-Panel
 
 In der Lobby (oder im Spiel) die Taste **0** drücken. Die Taste steht absichtlich nicht in den Tastenbelegungen.
-- Benutzer **adrian**, Passwort **1234**
+- Haupt-Admin: Benutzer **adrian**, Passwort **1234**
+- **Zugänge für andere:** Der Haupt-Admin legt Name + Passwort an und wählt, **wie oft** man sich damit anmelden kann (1×, 3×, 5×, 10×, 25× oder unbegrenzt). Mit Server gelten die Zugänge überall und werden dort gezählt; ohne Server nur auf diesem Gerät. Zugänge lassen sich jederzeit löschen.
+- Cheats, die der Server ausführt (unendliche Munition, OP-Loot, durch Wände schießen), gelten online nur für angemeldete Admins.
+- **Unendlich Munition** (Magazin wird nie leer), **OP-Loot** (goldene SCAR auf Platz 1, goldenes Scharfschützengewehr auf Platz 2, Rest leer – sofort und in jedem Match),
 - **Skelett-ESP** (rotes Skelett aller Gegner, durch Wände), **Aimbot** (rastet immer auf den nächsten Gegner ein, zielt auf den Kopf), **Durch Wände schießen**, **Spinbot**, **Fliegen** (Tempo einstellbar), **Tempo** (Laufgeschwindigkeit frei einstellbar)
-- **Coins geben:** Spielername + Menge – der Spieler muss mit dem Server verbunden sein (eigener Name geht auch offline)
+- **Coins geben** (nur Haupt-Admin): Spielername + Menge – der Spieler muss mit dem Server verbunden sein (eigener Name geht auch offline)
 
 ---
 
@@ -151,7 +154,7 @@ Dann **http://localhost:4242** öffnen.
 
 **Mehrspieler-Technik:** Server-autoritativ für Treffer, Schaden, Beute, Truhen, Inventar, Munition und Sturm. Clients senden 30×/s, der Server schickt 20 Snapshots/s, andere Spieler werden mit 100 ms Puffer interpoliert, Treffer mit Lag-Kompensation (bis 300 ms).
 
-Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsammeln, Ausdauer, Slide-Befreiung, Objekt-Hitboxen, Waffenwerte inkl. SCAR 7,2/s, keine unendliche Munition, Inventar + Sortieren, Truhen, Sofort-Heilung, 12 Spieler, Karte mit 3 Orten, komplettes Bot-Match, Leuchtfeuer, Syntax aller Dateien, Server mit 15-s-Warteschlange, Webseite aktuell).
+Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsammeln, Ausdauer, Slide-Befreiung, Objekt-Hitboxen, Waffenwerte inkl. SCAR 7,2/s, keine unendliche Munition, Inventar + Sortieren + Fallenlassen, Admin-Zugänge, unendliche Munition + OP-Loot, Truhen, Sofort-Heilung, 12 Spieler, Karte mit 3 Orten, komplettes Bot-Match, Leuchtfeuer, Syntax aller Dateien, Server mit 15-s-Warteschlange, Webseite aktuell).
 
 ---
 
