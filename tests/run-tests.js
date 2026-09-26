@@ -21,15 +21,17 @@ import { runServerTest } from './server-test.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let passed = 0;
+const asyncTests = [];
 function test(name, fn) {
   const t0 = Date.now();
+  const ok = () => { passed++; console.log(`  ✔ ${name} (${Date.now() - t0} ms)`); };
+  const fail = (e) => { console.error(`  ✘ ${name}\n    ${e.stack}`); process.exitCode = 1; };
   try {
-    fn();
-    passed++;
-    console.log(`  ✔ ${name} (${Date.now() - t0} ms)`);
+    const r = fn();
+    if (r && typeof r.then === 'function') asyncTests.push(r.then(ok, fail));
+    else ok();
   } catch (e) {
-    console.error(`  ✘ ${name}\n    ${e.stack}`);
-    process.exitCode = 1;
+    fail(e);
   }
 }
 
@@ -389,6 +391,27 @@ test('Komplettes Bot-Match: Sieger, Plätze 1..12, Truhen geöffnet, Beute, Heil
   console.log(`    Sieger: ${r.winner.name} nach ${r.sim.matchTime.toFixed(0)} s · Truhen ${r.stats.chests} · Aufgehoben ${r.stats.pickups} · Heilungen ${r.stats.heals} · Waffen ${JSON.stringify(r.stats.weapons)}`);
 });
 
+test('Leuchtfeuer: Host meldet seine Tunnel-Adresse, beim Beenden „offline“', async () => {
+  const { Beacon } = await import('../server/beacon.js');
+  const { EventEmitter } = await import('events');
+  const sent = [];
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, o) => { sent.push([url, o.body]); return { ok: true }; };
+  try {
+    const tunnel = new EventEmitter();
+    const b = new Beacon(tunnel, () => {});
+    tunnel.emit('change', { state: 'online', url: 'https://abc-def.trycloudflare.com' });
+    tunnel.emit('change', { state: 'online', url: 'https://abc-def.trycloudflare.com' });
+    tunnel.emit('change', { state: 'idle', url: null });
+    await new Promise((r) => setTimeout(r, 20));
+    b.stop();
+    assert.deepEqual(sent.map((x) => x[1]), ['https://abc-def.trycloudflare.com', 'offline']);
+    assert.ok(sent[0][0].startsWith('https://ntfy.sh/'));
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
 test('Alle JavaScript-Dateien sind syntaktisch korrekt (Client, Server, Shared)', () => {
   const files = [];
   const walk = (d) => {
@@ -421,7 +444,8 @@ test('Webseiten-Version (docs/) ist aktuell', () => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-// asynchroner Server-Integrationstest
+// asynchrone Tests abwarten, dann Server-Integrationstest
+await Promise.all(asyncTests);
 {
   const t0 = Date.now();
   try {

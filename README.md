@@ -8,13 +8,13 @@ Ein Low-Poly-Battle-Royale für den Browser. **12 Spieler** landen in einer Hafe
 
 - **Client:** Three.js (lokal über npm, kein CDN), reines JavaScript mit ES-Modulen, Web Audio API
 - **Server:** Node.js + `ws` auf Port **4242** (Spiel ausliefern, Namen, Lobby, Freunde, Party, Warteschlange, server-autoritative Matches)
-- **Keine fremden Assets:** Alle Modelle, Texturen, Sounds und Musik entstehen im Code. Die Schrift *Barlow Condensed* (SIL OFL) ist lokal über `@fontsource` eingebunden.
+- **Assets:** Alle Modelle, Texturen, Sounds und Musik entstehen im Code – einzige Ausnahme ist der mitgelieferte SCAR-Schuss (`client/sounds/scar-shot.mp3`). Die Schrift *Barlow Condensed* (SIL OFL) ist lokal über `@fontsource` eingebunden.
 
 ---
 
 ## 🎮 So spielt man
 
-1. Namen wählen (🎲 = Zufallsname), optional Outfit.
+1. Namen wählen (🎲 = Zufallsname). Am Anfang hat man nur **„Kein Skin“** – weitere Skins gibt es im **Shop**.
 2. In der Lobby **BEREIT** drücken. Die Warteschlange wartet auf echte Spieler – **Standard 15 Sekunden**, einstellbar in *Einstellungen → Konto → Warteschlange* von **10 bis 120 Sekunden**. Die Zeit läuft immer voll ab, auch wenn jemand dazukommt. Danach startet das Match, freie Plätze füllen Bots (immer 12 Spieler).
 3. Ins Bild klicken (Mausfang), am besten **Vollbild** nutzen.
 
@@ -22,15 +22,16 @@ Ein Low-Poly-Battle-Royale für den Browser. **12 Spieler** landen in einer Hafe
 |---|---|
 | **W A S D** | Laufen |
 | **Leertaste** | Springen |
-| **STRG** | Sprinten |
+| **STRG** | Sprinten (weißer Ausdauerbalken über der Hotbar) |
 | **SHIFT** | Ducken / beim Sprinten: Slide |
-| **Linke Maus** | Schießen / Schild oder Medikit benutzen |
-| **Rechte Maus** | Zielen (Kimme und Korn, Scharfschützengewehr: Zielfernrohr) |
+| **Linke Maus** | Schießen / Schild oder Medikit benutzen (wirkt sofort) |
+| **Rechte Maus** | Zielen (Waffe bleibt seitlich wie in Valorant, leichter Zoom; Scharfschützengewehr: Zielfernrohr) |
 | **R** | Nachladen (nur manuell) |
 | **F** | Truhe öffnen / Gegenstand aufheben |
 | **1 – 5**, Mausrad | Inventarplatz wählen |
 | **V** | Ego- / Schulterperspektive |
-| **M** | Große Karte · **TAB** Scoreboard · **ESC** Pause |
+| **TAB** | Inventar: Coins, Munition, Ausrüstung – **sortieren:** Platznummer drücken, dann Zielnummer |
+| **M** | Große Karte · **ESC** Pause |
 
 Alle Tasten lassen sich in *Einstellungen → Steuerung* neu belegen.
 
@@ -50,39 +51,53 @@ Alle Tasten lassen sich in *Einstellungen → Steuerung* neu belegen.
 
 | Gegenstand | Wirkung | Dauer | Stapel |
 |---|---|---|---|
-| Mini-Schild | +25 Schild (nur bis 50) | 2 s | 6 |
-| Schildtrank | +50 Schild (bis 100) | 5 s | 3 |
-| Medikit | Leben auf 100 | 10 s | 3 |
+| Mini-Schild | +25 Schild (nur bis 50) | **sofort** | 6 |
+| Schildtrank | +50 Schild (bis 100) | **sofort** | 3 |
+| Medikit | Leben auf 100 | **sofort** | 3 |
+
+Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen automatisch eingesammelt.
 
 **Waffen** (Werte orientieren sich an den bekannten Originalen)
 
-| Waffe | Munition | Magazin | Schuss/s | Schaden (grau → gold) |
-|---|---|---|---|---|
-| Pistole | leicht | 20 | 6,75 | 24–28 |
-| Sturmgewehr (SCAR) | mittel | 30 | **5,5** | 30 / 31 / 33 / 35 / 36 |
-| Trommelgewehr | leicht | 40 | 10 | 19–23 |
-| Taktische Schrotflinte (rot) | Schrot | 8 | 1,5 | 67–82 |
-| Pump-Schrotflinte | Schrot | 5 | 0,7 | 85–105 |
-| Schweres Scharfschützengewehr | schwer | 1 | 0,33 | 150 / 157, Kopf ×2,5 |
+| Waffe | Munition | Magazin | Schuss/s | Nachladen | Schaden (grau → gold) |
+|---|---|---|---|---|---|
+| Pistole | leicht | 20 | 8,75 | 0,8 s | 24–28 |
+| Sturmgewehr (SCAR) | mittel | 30 | **7,2** | 1,15 s | 30 / 31 / 33 / 35 / 36 |
+| Trommelgewehr | leicht | 40 | 13 | 1,5 s | 19–23 |
+| Taktische Schrotflinte | Schrot | 8 | 1,95 | 0,3 s/Patrone | 70–85 |
+| Pump-Schrotflinte | Schrot | 5 | 1,1 | 0,45 s/Patrone | **100–125** |
+| **Hammer-Pump** (neu) | Schrot | 6 | 1,5 | 0,4 s/Patrone | 84–104 |
+| Schweres Scharfschützengewehr | schwer | 1 | 0,45 | 2,4 s | 150 / 157, Kopf ×2,5 |
 
 - Seltenheiten: **Grau, Grün, Blau, Lila, Gold** (Farbe am Modell, Lichtsäule und Inventar)
-- Schrotflinten verschießen 10 Kugeln, der Schaden fällt mit der Entfernung ab.
-- **Keine unendliche Munition:** Start mit grauer Pistole **20 + 60 = 80 Schuss**. Munition gibt es aus Truhen, am Boden und von Eliminierten.
+- **Hitscan & kein Rückstoß:** Kugeln treffen immer genau das Fadenkreuz – im Stehen, Laufen und Springen. Nur Schrotflinten haben einen festen Streukegel; der runde Kreis im Fadenkreuz zeigt ihn exakt (Pump eng, Taktische weit).
+- Schrotflinten verschießen 10 Kugeln, der Schaden fällt mit der Entfernung ab. Die Pump ist bis etwa 12 m tödlich.
+- Spieler-Hitboxen sind 25 % größer. Kugeln fliegen durch Zäune und Geländer und streifen knapp an Felskanten vorbei.
+- **Keine unendliche Munition:** Start mit grauer Pistole **20 + 60 = 80 Schuss**. Waffen aus Truhen bringen das **Dreifache ihres Magazins** an Munition mit (SCAR: 30 + 90 = 120).
+- **Jede Eliminierung** lässt zusätzlich **ein volles Magazin jeder Munitionsart** fallen (Leicht 40, Mittel 30, Schrot 8, Schwer 3). Die Munitionsarten haben eigene Modelle: graublaue Schachtel, grüne Munitionskiste, dunkelrote schwere Kiste, rote Schrotpatronen.
 
-**Truhen** – goldenes Leuchten und leises Summen. Mit **F** öffnen: **1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition**.
+**Truhen** (31 Stück) – goldenes Leuchten, Summen und Funkeln in der Nähe. Mit **F** öffnen: **1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition**.
 
-**Inventar** – 5 Plätze (1–5). Ist alles voll, tauscht **F** den Gegenstand in der Hand.
+**Inventar** – 5 Plätze (1–5) mit Kurznamen und Seltenheitsfarbe. Ist alles voll, tauscht **F** den Gegenstand in der Hand. Sortieren im TAB-Menü.
+
+**Bewegung** – schneller Sprint mit Ausdauer (ca. 7 s, erholt sich in 3 s), kräftiger Slide. Wer unter einen Steg rutscht, kriecht heraus.
+
+**Karte** – an den langen Stegen gibt es Fischerhütten und Kistenlager als Deckung für Nahkämpfe.
 
 **Sturm** – 5 Phasen, der letzte Kreis schließt sich nach etwa 4 Minuten.
 
-**Bots** – looten zuerst, öffnen Truhen, wählen die passende Waffe für die Entfernung, trinken Schilde und fliehen vor dem Sturm. Die Lobby ist gemischt (leicht, normal, wenige starke).
+**Bots** – looten zuerst, öffnen Truhen, wählen die passende Waffe für die Entfernung, heilen sofort im Kampf, wechseln bei leerem Magazin auf die Zweitwaffe, nutzen die Pump-Kombo, sprinten/sliden/schleichen passend und gehen rechtzeitig vor dem Sturm los. Auf kurze Distanz zielen sie ca. 30 % schlechter. Die Lobby ist gemischt (leicht, normal, wenige starke).
+
+**Coins & Shop** – **50 Coins pro Kill, 250 pro Sieg.** Im **Shop** (oben in der Lobby) gibt es 8 Skins von 600 bis 2.500 Coins; gekaufte Skins erscheinen im Spind.
+
+**Sieg** – Siegerkamera um die jubelnde Figur, Lichtstrahlen, Konfetti und eine große, leuchtende Krone für die Siegesserie. Wer Zweiter wird, geht direkt zurück zur Lobby.
 
 ---
 
 ## ⚙️ Einstellungen
 
 - **Grafik wie in Fortnite:** Rendermodus *Qualität* oder *Leistung*, Stufen *Niedrig / Mittel / Hoch / Episch / Auto*. **Alle Stufen rendern mit 100 % 3D-Auflösung.**
-- **Aim-Assist: An / Aus.** „An“ bremst das Fadenkreuz am Gegner leicht ab und zieht ein wenig mit, wenn du dich bewegst oder zielst – es ist bewusst kein Aimbot.
+- **Aim-Assist: An / Aus.** „An“ bremst das Fadenkreuz am Gegner leicht ab und zieht mit, wenn du dich bewegst oder zielst – es ist bewusst kein Aimbot.
 - **Wartezeit auf echte Spieler:** 10–120 s (Standard 15 s)
 - Maus-, ADS- und Zielfernrohr-Empfindlichkeit, FOV, FPS-Limit, V-Sync, HUD-Größe, Fadenkreuz, Farbenblind-Modus, Lautstärken, Sprache (Deutsch/English)
 
@@ -90,7 +105,8 @@ Alle Tasten lassen sich in *Einstellungen → Steuerung* neu belegen.
 
 In der Lobby (oder im Spiel) die Taste **0** drücken. Die Taste steht absichtlich nicht in den Tastenbelegungen.
 - Benutzer **adrian**, Passwort **1234**
-- Schalter: **Hitboxen** (Kopf/Körper/Beine aller Gegner, auch durch Wände), **Aimbot** (rastet beim Schießen/Zielen auf den Kopf ein), **Fliegen** (Springen = hoch, Ducken = runter)
+- **Skelett-ESP** (rotes Skelett aller Gegner, durch Wände), **Aimbot** (rastet immer auf den nächsten Gegner ein, zielt auf den Kopf), **Durch Wände schießen**, **Spinbot**, **Fliegen** (Tempo einstellbar), **Tempo** (Laufgeschwindigkeit frei einstellbar)
+- **Coins geben:** Spielername + Menge – der Spieler muss mit dem Server verbunden sein (eigener Name geht auch offline)
 
 ---
 
@@ -101,7 +117,7 @@ In der Lobby (oder im Spiel) die Taste **0** drücken. Die Taste steht absichtli
 Die Webseite läuft komplett im Browser: **BEREIT** → 15 s Warteschlange → Match gegen 11 Bots.
 
 Für **Mehrspieler mit Freunden** braucht es einen laufenden Spielserver (GitHub Pages liefert nur Dateien aus):
-1. **Einer hostet:** `npm install` und `npm run online`. Das Hosting-Panel zeigt dann einen *„Link über die Webseite“* wie `https://dnoadrian.github.io/Savanna/?server=https://xyz.trycloudflare.com`. Auf der Webseite kann man den Server auch über **≡ → „Server / Online spielen“** eintragen.
+1. **Einer hostet:** `npm install` und `npm run online` (oder in der Lobby **≡ → „Online hosten“**). **Wer danach einfach die normale Webseite öffnet, wird automatisch mit diesem Host verbunden** – der Server meldet seine Tunnel-Adresse jede Minute über [ntfy.sh](https://ntfy.sh) (Thema `showdownbay-dnoadrian-savanna`), die Webseite fragt dort nach. Abschalten: `SHOWDOWN_BEACON=0` oder `"showdown": { "beacon": false }` in `package.json`; eigenes Thema über `"beaconTopic"`. Das Hosting-Panel zeigt dann einen *„Link über die Webseite“* wie `https://dnoadrian.github.io/Savanna/?server=https://xyz.trycloudflare.com`. Auf der Webseite kann man den Server auch über **≡ → „Server / Online spielen“** eintragen.
 2. **Dauerhaft online (optional):** [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/dnoadrian/Savanna) – nutzt `render.yaml`. Soll die GitHub-Seite automatisch mit diesem Server verbinden, die Adresse in `package.json` unter `"showdown": { "server": "https://…onrender.com" }` eintragen und `npm run build:pages` ausführen.
 
 **Veröffentlichung auf GitHub Pages:** Die fertige Webseite liegt in `docs/` (`npm run build:pages`). Unter *Settings → Pages* entweder *Deploy from a branch* → Ordner **`/docs`** oder *GitHub Actions* (`.github/workflows/pages.yml`). `npm test` prüft, ob `docs/` aktuell ist.
@@ -135,7 +151,7 @@ Dann **http://localhost:4242** öffnen.
 
 **Mehrspieler-Technik:** Server-autoritativ für Treffer, Schaden, Beute, Truhen, Inventar, Munition und Sturm. Clients senden 30×/s, der Server schickt 20 Snapshots/s, andere Spieler werden mit 100 ms Puffer interpoliert, Treffer mit Lag-Kompensation (bis 300 ms).
 
-Tests: `npm test` (Leben/Schild/Überschild, Siphon, Waffenwerte inkl. SCAR 5,5/s, keine unendliche Munition, Inventar, Truhen, Heilung, 12 Spieler, Karte mit 3 Orten, komplettes Bot-Match, Server mit 15-s-Warteschlange, Webseite aktuell).
+Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsammeln, Ausdauer, Slide-Befreiung, Objekt-Hitboxen, Waffenwerte inkl. SCAR 7,2/s, keine unendliche Munition, Inventar + Sortieren, Truhen, Sofort-Heilung, 12 Spieler, Karte mit 3 Orten, komplettes Bot-Match, Leuchtfeuer, Syntax aller Dateien, Server mit 15-s-Warteschlange, Webseite aktuell).
 
 ---
 
@@ -172,4 +188,5 @@ Tests: `npm test` (Leben/Schild/Überschild, Siphon, Waffenwerte inkl. SCAR 5,5/
 - [three.js](https://threejs.org) (MIT), [ws](https://github.com/websockets/ws) (MIT)
 - Schrift: *Barlow Condensed* (Jeremy Tribby), SIL Open Font License, über [@fontsource](https://fontsource.org)
 - Online-Hosting: [cloudflared](https://github.com/cloudflare/cloudflared) (Apache 2.0), wird bei Bedarf heruntergeladen
-- Alle Modelle, Texturen, Sounds und Musik: prozedural im Code erzeugt. Waffenwerte sind an bekannte Vorbilder angelehnt; es werden keine fremden Assets, Logos oder Namen verwendet.
+- Alle Modelle, Texturen, Sounds und Musik: prozedural im Code erzeugt. Ausnahme: `client/sounds/scar-shot.mp3` (vom Projektinhaber bereitgestellt – vor einer öffentlichen Veröffentlichung die Nutzungsrechte prüfen). Waffenwerte sind an bekannte Vorbilder angelehnt.
+- Server-Suche der Webseite: [ntfy.sh](https://ntfy.sh) (öffentlicher Dienst; jeder kann in ein Thema schreiben – es werden nur `*.trycloudflare.com`-Adressen angenommen)

@@ -4,6 +4,7 @@
 import { Store } from './store.js';
 import { ServerMatch } from './match.js';
 import { TunnelManager } from './tunnel.js';
+import { Beacon } from './beacon.js';
 import { validateName, suggestAlternatives } from '../shared/names.js';
 import { generateMap } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
@@ -31,6 +32,7 @@ export class GameServer {
     console.log(`Karte generiert in ${Date.now() - t0} ms (${map.collision.cols.length} Collider).`);
     this.tunnel = new TunnelManager(port);
     this.tunnel.on('change', (st) => this.broadcastHost(st));
+    this.beacon = new Beacon(this.tunnel);
     setInterval(() => this.tickQueue(), 250);
     setInterval(() => this.tickInvites(), 1000);
     // Partys ohne Mitglieder aufräumen

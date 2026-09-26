@@ -1,4 +1,7 @@
 // WebSocket-Verbindung zum Server (funktioniert lokal, im LAN und über HTTPS-Tunnel/Proxy).
+import { BEACON_BASE, BEACON_TOPIC, BEACON_MAX_AGE } from '../../shared/constants.js';
+
+const TUNNEL_RE = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/i;
 
 export class NetClient {
   constructor() {
@@ -29,6 +32,38 @@ export class NetClient {
       }
     }
     this.enabled = (location.protocol === 'http:' || location.protocol === 'https:') && (!this.staticSite || !!this.serverUrl);
+    // Webseite ohne festen Server-Link: automatisch den gerade online hostenden Server suchen
+    this.autoFound = null;
+    if (this.staticSite && !param) {
+      this.discover();
+      this.discoverTimer = setInterval(() => { if (!this.connected) this.discover(); }, 30000);
+    }
+  }
+
+  // Leuchtfeuer abfragen (ntfy.sh): neueste Tunnel-Adresse der letzten Minuten
+  async discover() {
+    let text;
+    try {
+      const r = await fetch(`${BEACON_BASE}/${encodeURIComponent(BEACON_TOPIC)}/json?poll=1&since=10m`, { cache: 'no-store' });
+      if (!r.ok) return;
+      text = await r.text();
+    } catch {
+      return;
+    }
+    let last = null;
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const m = JSON.parse(line);
+        if (m.event === 'message' && (!last || m.time >= last.time)) last = m;
+      } catch { /* ignorieren */ }
+    }
+    if (this.noAuto || !last || Date.now() / 1000 - last.time > BEACON_MAX_AGE) return;
+    const url = normalizeServerUrl(String(last.message || '').trim());
+    if (!url || !TUNNEL_RE.test(url) || this.connected) return;
+    if (url === this.serverUrl && !this.failed) return;
+    this.autoFound = url;
+    this.setServer(url, false);
   }
 
   url() {
@@ -45,11 +80,11 @@ export class NetClient {
   }
 
   // Mit einem anderen Server verbinden (statische Webseite)
-  setServer(url) {
+  setServer(url, persist = true) {
     const n = normalizeServerUrl(url);
     if (!n) return false;
     this.serverUrl = n;
-    try { localStorage.setItem('showdown.server', n); } catch { /* ignorieren */ }
+    if (persist) try { localStorage.setItem('showdown.server', n); } catch { /* ignorieren */ }
     this.enabled = true;
     this.failed = false;
     this.everConnected = false;
@@ -61,6 +96,7 @@ export class NetClient {
 
   clearServer() {
     this.serverUrl = null;
+    this.noAuto = true; // bewusst getrennt: nicht automatisch wieder verbinden
     try { localStorage.removeItem('showdown.server'); } catch { /* ignorieren */ }
     this.enabled = !this.staticSite;
     if (this.ws) this.ws.close();

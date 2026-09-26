@@ -111,6 +111,12 @@ export const COINS_PER_WIN = 250;
 export const ADMIN_USER = 'adrian';
 export const ADMIN_PASS = '1234';
 export const ADMIN_MAX_COINS = 100000;
+// „Leuchtfeuer“: Wer online hostet, meldet seine Tunnel-Adresse über ntfy.sh. Die Webseite
+// (GitHub Pages) fragt dort nach und verbindet sich automatisch mit dem laufenden Host.
+export const BEACON_BASE = 'https://ntfy.sh';
+export const BEACON_TOPIC = 'showdownbay-dnoadrian-savanna';
+export const BEACON_INTERVAL = 60; // s – so oft meldet sich der Host
+export const BEACON_MAX_AGE = 180; // s – ältere Meldungen gelten als offline
 // Preis und Seltenheit (0..4) je Skin – ein Skin kostet etwa 3–15 Runden
 export const SKIN_SHOP = {
   cowboy: { price: 600, rarity: 1 },
