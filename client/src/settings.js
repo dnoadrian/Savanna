@@ -18,6 +18,7 @@ export const DEFAULT_KEYS = {
   slot3: 'Digit3',
   slot4: 'Digit4',
   slot5: 'Digit5',
+  knife: 'KeyQ',
   scoreboard: 'Tab',
   map: 'KeyM',
   view: 'KeyV',
@@ -70,6 +71,7 @@ export const DEFAULTS = {
   // Konto / Warteschlange
   language: 'de',
   queueWait: QUEUE_WAIT, // Sekunden, die auf echte Spieler gewartet wird (10–120)
+  gameMode: 'solo', // Battle Royale: 'solo' oder 'duo'
 };
 
 const STORAGE_KEY = 'showdown.settings.v1';
@@ -99,6 +101,7 @@ export class Settings {
     }
     this.values.resolution = 100;
     this.values.queueWait = clampQueueWait(this.values.queueWait);
+    if (this.values.gameMode !== 'duo') this.values.gameMode = 'solo';
     if (this.values.aimAssist !== 'on' && this.values.aimAssist !== 'off') this.values.aimAssist = 'on';
   }
 

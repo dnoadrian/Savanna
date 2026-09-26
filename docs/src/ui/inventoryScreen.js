@@ -44,6 +44,10 @@ export class InventoryScreen {
       this.focus = this.player?.inv?.sel ?? 0;
       app.audio.uiClick();
       app.input.unlock(); // Maus frei zum Sortieren
+      // Einblend-Animation nur beim Öffnen (nicht bei jedem Neuaufbau)
+      this.el.classList.add('opening');
+      clearTimeout(this.openTimer);
+      this.openTimer = setTimeout(() => this.el.classList.remove('opening'), 220);
       this.render();
       return;
     }
@@ -156,12 +160,26 @@ export class InventoryScreen {
   }
 
   // ---------------- Darstellung ----------------
+  // Nur neu aufbauen, wenn sich wirklich etwas geändert hat (sonst flackert es und Hover/Ziehen
+  // gehen verloren)
+  refresh() {
+    if (!this.open || this.drag) return;
+    const pl = this.player;
+    if (!pl) return;
+    if (this.signature(pl.inv) !== this.lastSig) this.render();
+  }
+
+  signature(inv) {
+    return JSON.stringify([inv.slots.map((it) => it && [it.w || it.c || it.a, it.r, it.mag, it.n]), inv.sel, inv.ammo, this.app.profile.data.coins, this.picked, this.focus]);
+  }
+
   render() {
     if (!this.open || (this.drag && this.drag.started)) return;
     const app = this.app;
     const pl = this.player;
     if (!pl) return;
     const inv = pl.inv;
+    this.lastSig = this.signature(inv);
     const keys = app.settings.get('keys');
     const coins = app.profile.data.coins || 0;
 

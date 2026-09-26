@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { Settings } from './settings.js';
 import { setLanguage, t } from './i18n.js';
-import { Profile, computeXp, computeCoins } from './profile.js';
+import { Profile, computeCoins } from './profile.js';
 import { AudioEngine } from './audio/engine.js';
 import { Renderer, QUALITY_PRESETS, PERFORMANCE_MODE } from './render/renderer.js';
 import { LobbyScene } from './render/lobbyScene.js';
@@ -15,12 +15,12 @@ import { NetClient } from './net/net.js';
 import { LocalSession, NetSession } from './net/session.js';
 import { HUD } from './ui/hud.js';
 import { UI } from './ui/ui.js';
-import { AdminPanel } from './ui/admin.js';
-import { generateMap } from '../shared/map/mapgen.js';
+import { AdminPanel, loadLocalAnnouncements } from './ui/admin.js';
+import { mapSteps, randomMapId } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
-import { MAP_SEED, MATCH_SIZE, clampQueueWait } from '../shared/constants.js';
+import { MATCH_SIZE, clampQueueWait } from '../shared/constants.js';
 
 const QUALITY_ORDER = ['low', 'medium', 'high', 'epic'];
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -41,7 +41,9 @@ class App {
     this.state = 'boot';
     this.localQueue = null;
     this.match = null;
-    this.mapData = null;
+    this.mapData = null; // Karte des laufenden/letzten Matches
+    this.mapCache = new Map(); // Karten-ID -> { promise, data }
+    this.soloMapId = randomMapId(); // nächste Karte für Matches ohne Server
     this.social = { friends: [], incoming: [], outgoing: [], blocked: [] };
     this.party = null;
     this.queue = null;
@@ -54,6 +56,8 @@ class App {
     this.settings.onChange((k) => this.onSettingChanged(k));
     this.net.on((m) => this.onNet(m));
     this.net.onStatus((c) => this.onNetStatus(c));
+    // Spielstand-Kopie auf dem Server aktuell halten (gebündelt)
+    this.profile.onChange = () => this.scheduleSync();
     // erste Nutzergeste aktiviert Audio
     const unlockAudio = () => {
       this.audio.init();
@@ -76,8 +80,8 @@ class App {
     else this.showWelcome();
     this.lastT = performance.now();
     this.scheduleFrame();
-    // Karte im Hintergrund vorbereiten, damit das erste Match schnell startet
-    setTimeout(() => this.prepareMap().catch((e) => console.error(e)), 600);
+    // nächste Offline-Karte im Hintergrund vorbereiten, damit das erste Match schnell startet
+    setTimeout(() => { if (!this.net.connected) this.prepareMap(this.soloMapId).catch((e) => console.error(e)); }, 1500);
   }
 
   t(k, v) { return t(k, v); }
@@ -182,20 +186,47 @@ class App {
     document.body.classList.add('menu');
   }
 
-  showWelcome() {
+  showWelcome(opts) {
     this.state = 'welcome';
     this.cancelQueue();
     this.lobbyScene.setMembers([]);
     this.showMenuScene('welcome');
-    this.ui.showWelcome();
+    this.ui.showWelcome(opts);
   }
 
-  // Name gewählt (Erststart)
-  async finishWelcome(name) {
-    this.profile.create(name);
+  // Name + Geburtsdatum gewählt (Erststart)
+  async finishWelcome(name, auth) {
+    this.profile.create(name, auth);
     this.registered = false;
     if (this.net.connected) this.sendHello();
     this.audio.uiConfirm();
+  }
+
+  // Anmelden mit Name + Geburtsdatum (Konto von einem anderen Gerät/Browser)
+  async login(name, auth) {
+    if (!this.net.connected) return { ok: false, key: 'loginOffline' };
+    const r = await this.net.request({ t: 'login', name, auth }, 5000);
+    if (!r.ok) return { ok: false, key: r.key || (r.err === 'timeout' ? 'loginOffline' : 'loginWrong') };
+    if (this.net.connected && this.profile.hasName && this.registered) this.net.send({ t: 'logout' });
+    this.profile.adopt(r.id, r.name, auth, r.save);
+    this.registered = false;
+    this.party = null;
+    this.sendHello();
+    return { ok: true, name: r.name };
+  }
+
+  // Abmelden: Profil nur auf diesem Gerät entfernen (Konto bleibt auf dem Server)
+  signOut(opts = { mode: 'login' }) {
+    if (this.net.connected && this.registered) this.net.send({ t: 'logout' });
+    this.profile.reset();
+    this.party = null;
+    this.registered = false;
+    this.showWelcome(opts);
+  }
+
+  scheduleSync() {
+    clearTimeout(this.syncTimer);
+    this.syncTimer = setTimeout(() => this.sendProfile(), 1200);
   }
 
   enterLobby() {
@@ -215,6 +246,7 @@ class App {
     if (this.party && this.party.members.length > 1) {
       members = [me, ...this.party.members.filter((m) => m.id !== p.id).map((m) => ({
         id: m.id, outfit: m.outfit, color: m.color, name: m.name, crown: m.streak > 0, crownStyle: m.crownStyle,
+        ingame: m.status === 'game',
       }))];
     }
     this.lobbyScene.setMembers(members);
@@ -237,22 +269,28 @@ class App {
   sendHello() {
     const p = this.profile;
     if (!p.hasName) return;
-    this.net.send({ t: 'hello', id: p.id, name: p.name, profile: p.publicInfo() });
+    this.net.send({ t: 'hello', id: p.id, name: p.name, profile: p.publicInfo(), auth: p.data.auth || null, save: p.saveBlob() });
   }
 
   sendProfile() {
-    if (this.net.connected && this.profile.hasName) this.net.send({ t: 'profile', profile: this.profile.publicInfo() });
+    clearTimeout(this.syncTimer);
+    if (this.net.connected && this.profile.hasName && this.registered) this.net.send({ t: 'profile', profile: this.profile.publicInfo(), save: this.profile.saveBlob() });
   }
 
   onNet(m) {
     switch (m.t) {
       case 'welcome':
         this.serverInfo = m.srv || null;
+        this.setAnnouncements(m.ann);
         this.registered = true;
         this.isHost = !!m.isHost;
         if (m.name && m.name !== this.profile.name) this.profile.set('name', m.name);
         this.profile.set('registered', true);
         this.ui.onRegistered();
+        break;
+      case 'authFail':
+        // Konto gehört zu einem Geburtsdatum, der Schlüssel passt nicht: neu anmelden
+        this.signOut({ mode: 'login', name: this.profile.name, msg: t('authFail') });
         break;
       case 'nameTaken':
         // Name wurde inzwischen vergeben (Offline-Registrierung): neuen Namen wählen lassen
@@ -265,6 +303,10 @@ class App {
         break;
       case 'party':
         this.party = m.party;
+        // als Leader den eigenen Modus (Solo/Duo) für die Party übernehmen
+        if (m.party && m.party.members.length > 1 && m.party.leader === this.profile.id && (m.party.mode || 'solo') !== this.settings.get('gameMode')) {
+          this.net.send({ t: 'partyMode', mode: this.settings.get('gameMode') });
+        }
         this.refreshLobbyMembers();
         this.ui.onParty();
         break;
@@ -290,6 +332,7 @@ class App {
       case 'queue':
         if (this.localQueue) break;
         this.queue = m.state === 'idle' ? null : m;
+        if (m.map && m.state === 'waiting') this.prepareMap(m.map).catch(() => {});
         this.ui.onQueue();
         break;
       case 'matchStart':
@@ -298,6 +341,9 @@ class App {
       case 'srv':
         this.serverInfo = m.srv;
         this.ui.lobby.updateServerBox?.();
+        break;
+      case 'ann':
+        this.setAnnouncements(m.ann);
         break;
       case 'coins':
         // Geschenk vom Admin
@@ -315,32 +361,93 @@ class App {
     }
   }
 
+  // Lobby-Nachrichten vom Admin: { id, text, until } (until = 0 → dauerhaft, sonst Zeitpunkt)
+  setAnnouncements(list) {
+    const now = Date.now();
+    this.announcements = (Array.isArray(list) ? list : []).map((a) => ({ id: a.id, text: String(a.text || ''), until: a.left > 0 ? now + a.left : 0 }));
+    this.ui.lobby.renderAnnouncements?.();
+    this.admin?.onAnnouncements?.();
+  }
+
+  // aktuell sichtbare Nachrichten (mit Server die vom Server, sonst die dieses Geräts)
+  liveAnnouncements() {
+    const now = Date.now();
+    const list = this.net.connected ? this.announcements || [] : loadLocalAnnouncements();
+    return list.filter((a) => !a.until || a.until > now);
+  }
+
   // ---------------- Karte / Welt ----------------
-  async prepareMap(onProgress = null) {
-    if (onProgress) this.mapProgressCb = onProgress;
-    if (this.mapData) return this.mapData;
-    if (this.mapPromise) return this.mapPromise;
-    const report = (p) => this.mapProgressCb && this.mapProgressCb(p);
-    this.mapPromise = (async () => {
+  // Karte erzeugen (in Häppchen, damit der Ladebalken flüssig bleibt) und zwischenspeichern.
+  // onProgress bekommt 0..0.9.
+  prepareMap(id, onProgress = null) {
+    let e = this.mapCache.get(id);
+    if (e) {
+      e.used = performance.now();
+      if (onProgress) {
+        e.progress = onProgress;
+        onProgress(e.p || 0);
+      }
+      return e.promise;
+    }
+    e = { used: performance.now(), progress: onProgress, p: 0, data: null };
+    const report = (p) => { e.p = p; if (e.progress) e.progress(p); };
+    e.promise = (async () => {
       report(0.02);
       await nextFrame();
-      const map = generateMap(MAP_SEED);
-      report(0.25);
+      const gen = mapSteps(id);
+      let map = null;
+      let t = performance.now();
+      for (;;) {
+        const r = gen.next();
+        if (r.done) { map = r.value; break; }
+        report(r.value * 0.3);
+        if (performance.now() - t > 30) {
+          await nextFrame();
+          t = performance.now();
+        }
+      }
       await nextFrame();
       const world = new WorldView(map);
-      await world.build((p) => report(0.25 + p * 0.55));
+      await world.build((p) => report(0.3 + p * 0.5));
       const mapImage = renderMapImage(map, 1024);
       preloadItemIcons();
       report(0.9);
-      this.mapData = { map, world, mapImage, nav: null };
-      return this.mapData;
+      e.data = { id, map, world, mapImage, nav: null };
+      return e.data;
     })();
-    return this.mapPromise;
+    this.mapCache.set(id, e);
+    this.pruneMaps(id);
+    return e.promise;
   }
 
-  ensureNav() {
-    if (!this.mapData.nav) this.mapData.nav = new NavGrid(this.mapData.map.terrain, this.mapData.map.collision);
-    return this.mapData.nav;
+  // höchstens zwei Karten im Speicher; die älteste (nicht benutzte) freigeben
+  pruneMaps(keep) {
+    if (this.mapCache.size <= 2) return;
+    const list = [...this.mapCache.entries()].filter(([id]) => id !== keep && (!this.mapData || this.mapData.id !== id)).sort((a, b) => a[1].used - b[1].used);
+    while (this.mapCache.size > 2 && list.length) {
+      const [id, e] = list.shift();
+      this.mapCache.delete(id);
+      e.promise.then((d) => d && d.world.dispose()).catch(() => {});
+    }
+  }
+
+  ensureNav(data = this.mapData) {
+    if (!data.nav) data.nav = new NavGrid(data.map.terrain, data.map.collision);
+    return data.nav;
+  }
+
+  // Spielmodus: in einer Party bestimmt der Leader (Server), sonst die eigene Einstellung
+  gameMode() {
+    const party = this.party;
+    if (party && party.members.length > 1 && this.net.connected) return party.mode === 'duo' ? 'duo' : 'solo';
+    return this.settings.get('gameMode') === 'duo' ? 'duo' : 'solo';
+  }
+
+  setGameMode(mode) {
+    mode = mode === 'duo' ? 'duo' : 'solo';
+    this.settings.set('gameMode', mode);
+    const party = this.party;
+    if (party && party.members.length > 1 && party.leader === this.profile.id && this.net.connected) this.net.send({ t: 'partyMode', mode });
   }
 
   // ---------------- Warteschlange ----------------
@@ -348,10 +455,11 @@ class App {
   // für freie Plätze; ohne Server (Webseite) → dieselbe Wartezeit lokal, dann eine Bot-Lobby.
   ready() {
     if (this.queue) return;
-    this.prepareMap().catch(() => {});
+    if (!this.net.connected) this.prepareMap(this.soloMapId).catch(() => {});
     const wait = clampQueueWait(this.settings.get('queueWait'));
+    const mode = this.gameMode();
     if (this.net.connected) {
-      this.net.send({ t: 'queue', wait });
+      this.net.send({ t: 'queue', wait, mode });
       return;
     }
     this.localQueue = { start: performance.now(), wait };
@@ -391,19 +499,23 @@ class App {
     this.audio.stopLobbyMusic();
     this.state = 'loading';
     this.ui.showLoading();
-    const data = await this.prepareMap((p) => this.ui.setLoading(p));
+    const mapId = this.soloMapId;
+    const data = await this.prepareMap(mapId, (p) => this.ui.setLoading(p));
+    this.mapData = data;
+    this.soloMapId = randomMapId(Math.random, mapId);
     this.ui.setLoading(0.92);
     await nextFrame();
-    const nav = this.ensureNav();
+    const nav = this.ensureNav(data);
     const prof = this.profile.data;
     const seed = (Math.random() * 0xffffffff) >>> 0;
     const rng = new RNG(seed);
     const me = { ...this.profile.publicInfo(), isBot: false };
     const champ = prof.soloChampion;
-    const players = Simulation.fillWithBots([me], rng, champ ? { ...champ, isBot: true, crownStyle: 'gold' } : null);
-    if (players.length !== MATCH_SIZE) throw new Error('Spielerzahl muss 12 sein');
+    const mode = this.gameMode();
+    const players = Simulation.fillWithBots([me], rng, champ ? { ...champ, isBot: true, crownStyle: 'gold' } : null, mode);
+    if (players.length !== MATCH_SIZE) throw new Error('Spielerzahl muss ' + MATCH_SIZE + ' sein');
     const map = data.map;
-    const sim = new Simulation({ terrain: map.terrain, collision: map.collision, nav, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot }, { seed, players });
+    const sim = new Simulation({ terrain: map.terrain, collision: map.collision, nav, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot }, { seed, players, mode });
     const session = new LocalSession(sim, me.id);
     this.beginMatch(session, 'solo');
   }
@@ -414,7 +526,8 @@ class App {
     this.state = 'loading';
     this.queue = null;
     this.ui.showLoading();
-    const data = await this.prepareMap((p) => this.ui.setLoading(p));
+    const data = await this.prepareMap(m.map, (p) => this.ui.setLoading(p));
+    this.mapData = data;
     const session = new NetSession(this.net, m, data.map);
     this.net.send({ t: 'loaded', mid: m.matchId });
     this.beginMatch(session, 'party');
@@ -467,28 +580,27 @@ class App {
   endMatch(r) {
     const mine = r.mine;
     if (r.mode === 'solo') this.applySoloResult({ mine, results: r.results, winnerId: r.winnerId, players: r.players, silent: true });
-    const xp = this.applyPersonalResult(mine);
+    const xp = this.applyPersonalResult(mine, r.total);
     this.disposeMatch();
     this.state = 'results';
     this.showMenuScene('lobby');
     this.refreshLobbyMembers();
-    this.ui.showResults({ mine, total: r.players.length, xp, winner: r.winner, youId: r.youId, onDone: () => this.enterLobby() });
+    this.ui.showResults({ mine, total: r.total || r.players.length, xp, winner: r.winner, youId: r.youId, duo: r.duo, onDone: () => this.enterLobby() });
   }
 
   // Vorzeitig zurück in die Lobby
-  returnToLobby({ mine, mode, partial }) {
-    if (mine && partial) this.applyPersonalResult({ ...mine, placement: mine.placement || 0 });
+  returnToLobby({ mine, mode, partial, total }) {
+    if (mine && partial) this.applyPersonalResult({ ...mine, placement: mine.placement || 0 }, total);
     this.disposeMatch();
     this.enterLobby();
   }
 
-  applyPersonalResult(mine) {
-    const r = { kills: mine.kills || 0, damage: mine.damage || 0, headshots: mine.headshots || 0, placement: mine.placement || 12, survival: mine.survival || 0 };
+  applyPersonalResult(mine, total = MATCH_SIZE) {
+    const r = { kills: mine.kills || 0, damage: mine.damage || 0, headshots: mine.headshots || 0, placement: mine.placement || total, survival: mine.survival || 0 };
     this.profile.applyMatch(r);
-    const xp = computeXp(r);
-    xp.levelUps = this.profile.addXp(xp.total);
-    xp.level = this.profile.data.stats.level;
-    xp.progress = this.profile.data.stats.xp;
+    const xp = { parts: [] };
+    // Ranked-Fortschritt (ersetzt Level/XP)
+    xp.rank = this.profile.applyRank(r);
     // Coins: 50 pro Kill, 250 für den Sieg
     xp.coins = computeCoins(r);
     if (xp.coins) this.profile.addCoins(xp.coins);

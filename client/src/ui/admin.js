@@ -9,13 +9,30 @@ import { ADMIN_USER as USER, ADMIN_PASS as PASS, ADMIN_MAX_COINS } from '../../s
 
 const STORE = 'showdown.admin';
 const LOCAL_ACCOUNTS = 'showdown.adminAccounts';
-const TOGGLES = ['esp', 'aimbot', 'wallbang', 'spinbot', 'fly', 'speed', 'infammo', 'oploot'];
+const TOGGLES = ['esp', 'aimbot', 'aimbotFov', 'wallbang', 'spinbot', 'fly', 'speed', 'infammo', 'oploot'];
+// Unteroptionen erscheinen nur, wenn die übergeordnete Option an ist
+const PARENT = { aimbotFov: 'aimbot' };
 // Regler: [Schlüssel, min, max, Schritt, Standard, Anzeige]
 const SLIDERS = {
+  aimbotFov: ['fovRadius', 30, 600, 5, 160, (v) => v + ' px'],
   fly: ['flySpeed', 5, 80, 1, 15, (v) => v + ' m/s'],
   speed: ['speedMul', 1, 5, 0.1, 1.6, (v) => '×' + Number(v).toFixed(1)],
 };
 const USES = [1, 3, 5, 10, 25, -1];
+// Lobby-Nachrichten: Anzeigedauer in Minuten (0 = dauerhaft)
+const ANN_MINS = [10, 30, 60, 360, 1440, 10080, 0];
+const LOCAL_ANN = 'showdown.announcements';
+
+// ohne Server: Nachrichten nur auf diesem Gerät
+export function loadLocalAnnouncements() {
+  try {
+    const a = JSON.parse(localStorage.getItem(LOCAL_ANN) || '[]');
+    return Array.isArray(a) ? a : [];
+  } catch { return []; }
+}
+function saveLocalAnnouncements(a) {
+  try { localStorage.setItem(LOCAL_ANN, JSON.stringify(a)); } catch { /* ignorieren */ }
+}
 
 function loadLocalAccounts() {
   try { return JSON.parse(localStorage.getItem(LOCAL_ACCOUNTS) || '{}') || {}; } catch { return {}; }
@@ -66,7 +83,7 @@ export class AdminPanel {
   get isMaster() { return this.loggedIn && this.role === 'master'; }
 
   active(name) {
-    return this.loggedIn && !!this.flags[name];
+    return this.loggedIn && !!this.flags[name] && (!PARENT[name] || !!this.flags[PARENT[name]]);
   }
 
   // eingestellter Wert (Fluggeschwindigkeit, Tempo-Faktor)
@@ -212,8 +229,9 @@ export class AdminPanel {
     const app = this.app;
     p.appendChild(h('p', { class: 'hint' }, t('adminHint'), ' ', h('b', {}, (this.user || '') + (this.isMaster ? ' · ' + t('adminMaster') : ''))));
     for (const k of TOGGLES) {
+      if (PARENT[k] && !this.flags[PARENT[k]]) continue;
       const on = this.flags[k];
-      p.appendChild(h('div', { class: 'set-row' },
+      p.appendChild(h('div', { class: 'set-row' + (PARENT[k] ? ' sub-toggle' : '') },
         h('div', { class: 'set-label' }, t('admin_' + k), h('small', {}, t('admin_' + k + 'Desc'))),
         h('div', { class: 'set-ctrl' }, h('button', {
           class: 'toggle' + (on ? ' on' : ''),
@@ -242,6 +260,7 @@ export class AdminPanel {
       }
     }
     if (this.isMaster) {
+      this.renderAnnounce(p);
       this.renderAccounts(p);
       this.renderCoins(p);
     }
@@ -260,6 +279,71 @@ export class AdminPanel {
     } else {
       this.app.ui.toast(t('adminOpLootNext'), '');
     }
+  }
+
+  // ---------------- Lobby-Nachrichten ----------------
+  onAnnouncements() {
+    if (this.el && this.loggedIn && this.isMaster && !this.annTyping) this.render();
+  }
+
+  async changeAnnouncement(op, data) {
+    const app = this.app;
+    if (app.net.connected) {
+      const r = await app.net.request({ t: 'adminAnnounce', op, ...data });
+      if (!r.ok) {
+        app.audio.uiError();
+        app.ui.toast(t(r.key || 'err_generic'), 'error');
+        return false;
+      }
+      if (r.ann) app.setAnnouncements(r.ann);
+      return true;
+    }
+    const now = Date.now();
+    let list = loadLocalAnnouncements().filter((a) => !a.until || a.until > now);
+    if (op === 'add') {
+      const text = String(data.text || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+      if (!text) { app.ui.toast(t('adminAnnEmpty'), 'error'); return false; }
+      if (list.length >= 5) { app.ui.toast(t('adminAnnFull'), 'error'); return false; }
+      list.push({ id: now, text, until: data.mins ? now + data.mins * 60000 : 0 });
+    } else if (op === 'remove') list = list.filter((a) => a.id !== data.id);
+    saveLocalAnnouncements(list);
+    app.ui.lobby.renderAnnouncements?.();
+    if (this.el) this.render();
+    return true;
+  }
+
+  renderAnnounce(p) {
+    const app = this.app;
+    const box = h('div', { class: 'admin-coins admin-ann' },
+      h('div', { class: 'set-label' }, t('adminAnn'), h('small', {}, t(app.net.connected ? 'adminAnnDesc' : 'adminAnnLocal'))));
+    const text = h('input', { type: 'text', class: 'field', placeholder: t('adminAnnText'), maxlength: 160, spellcheck: 'true' });
+    text.addEventListener('focus', () => { this.annTyping = true; });
+    text.addEventListener('blur', () => { this.annTyping = false; });
+    const dur = h('select', { class: 'field' }, ...ANN_MINS.map((n) => h('option', { value: n, selected: n === 60 }, annDuration(n))));
+    const send = async () => {
+      app.audio.uiClick();
+      if (await this.changeAnnouncement('add', { text: text.value, mins: Number(dur.value) })) {
+        app.audio.uiConfirm();
+        app.ui.toast(t('adminAnnSent'), 'ok');
+        text.value = '';
+        this.annTyping = false;
+        this.render();
+      }
+    };
+    text.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    box.appendChild(h('div', { class: 'row acc-add ann-add' }, text, dur, h('button', { class: 'btn yellow small', onclick: send }, t('adminAnnSend'))));
+    const list = h('div', { class: 'acc-list' });
+    const live = app.liveAnnouncements();
+    if (!live.length) list.appendChild(h('div', { class: 'hint small' }, t('adminAnnNone')));
+    for (const a of live) {
+      const left = a.until ? Math.max(1, Math.round((a.until - Date.now()) / 60000)) : 0;
+      list.appendChild(h('div', { class: 'acc-row ann-row' },
+        h('span', { class: 'ann-text' }, a.text),
+        h('span', { class: 'acc-uses' }, left ? t('adminAnnLeft', { t: annDuration(left) }) : t('adminAnnPerm')),
+        h('button', { class: 'close-x small', title: t('adminAnnRemove'), onclick: () => { app.audio.uiClick(); this.changeAnnouncement('remove', { id: a.id }); } }, '✕')));
+    }
+    box.appendChild(list);
+    p.appendChild(box);
   }
 
   // ---------------- Zugänge für andere ----------------
@@ -363,4 +447,13 @@ export class AdminPanel {
     this.badge.classList.toggle('hidden', !on.length);
     this.badge.textContent = 'ADMIN · ' + on.map((k) => t('admin_' + k).toUpperCase()).join(' · ');
   }
+}
+
+// Dauer lesbar: 45 min, 3 h, 2 Tage, dauerhaft
+function annDuration(mins) {
+  if (!mins) return t('adminAnnPerm');
+  if (mins < 60) return t('durMin', { n: mins });
+  if (mins < 1440) return t('durHour', { n: Math.round(mins / 60) });
+  const d = Math.round(mins / 1440);
+  return t(d === 1 ? 'durDay' : 'durDays', { n: d });
 }

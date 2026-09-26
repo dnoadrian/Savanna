@@ -6,10 +6,11 @@ import { h, clear, esc, fmtTime } from './dom.js';
 import { ICON } from './icons.js';
 import { t } from '../i18n.js';
 import { keyLabel } from '../settings.js';
-import { MAX_HEALTH, MAX_SHIELD } from '../../shared/constants.js';
+import { MAX_HEALTH, MAX_SHIELD, REVIVE_TIME } from '../../shared/constants.js';
 import { WEAPONS, CONSUMABLES, RARITY_COLORS, AMMO_TYPES, itemRarity } from '../../shared/items.js';
 import { MAP_EXTENT } from '../render/mapImage.js';
 import { itemIcon } from '../render/itemIcons.js';
+import { KNIFE_SLOT } from '../../shared/sim/inventory.js';
 
 const _v = new THREE.Vector3();
 // gebrochenes Schild (Hitmarker beim Schildbruch)
@@ -73,12 +74,17 @@ export class HUD {
     this.osRow = h('div', { class: 'bar-row os hidden' }, h('span', { class: 'bar-ico', html: ICON.shield }), h('div', { class: 'bar' }, h('div', { class: 'bar-fill' })), h('span', { class: 'bar-num' }));
     this.shRow = h('div', { class: 'bar-row sh' }, h('span', { class: 'bar-ico', html: ICON.shield }), h('div', { class: 'bar' }, h('div', { class: 'bar-ghost' }), h('div', { class: 'bar-fill' })), h('span', { class: 'bar-num' }));
     this.hpRow = h('div', { class: 'bar-row hp' }, h('span', { class: 'bar-ico', html: ICON.cross2 }), h('div', { class: 'bar' }, h('div', { class: 'bar-ghost' }), h('div', { class: 'bar-fill' })), h('span', { class: 'bar-num' }));
-    const bl = h('div', { class: 'hud-bl' }, this.osRow, this.shRow, this.hpRow);
+    // Duo: Partner-Anzeige über den eigenen Balken
+    this.teamEl = h('div', { class: 'hud-team hidden' });
+    const bl = h('div', { class: 'hud-bl' }, this.teamEl, this.osRow, this.shRow, this.hpRow);
     // ---- unten rechts: Munition + Inventar ----
     this.ammoBig = h('div', { class: 'ammo-big' });
     this.ammoRes = h('div', { class: 'ammo-res' });
     this.slotEls = [];
     const bar = h('div', { class: 'hotbar' });
+    // Messer-Platz links (eigene Taste, wie die Spitzhacke im Original)
+    this.knifeEl = h('div', { class: 'slot knife-slot' }, h('div', { class: 'slot-key' }), h('img', { class: 'slot-img', alt: '' }), h('div', { class: 'slot-count' }), h('div', { class: 'slot-name' }));
+    bar.appendChild(this.knifeEl);
     for (let i = 0; i < 5; i++) {
       const el = h('div', { class: 'slot empty' }, h('div', { class: 'slot-key' }), h('img', { class: 'slot-img', alt: '' }), h('div', { class: 'slot-count' }), h('div', { class: 'slot-name' }));
       bar.appendChild(el);
@@ -95,8 +101,14 @@ export class HUD {
     this.ring = h('div', { class: 'progress-ring hidden', html: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" class="bg"/><circle cx="50" cy="50" r="42" class="fg"/></svg>' });
     this.ringFg = this.ring.querySelector('.fg');
     this.useLabel = h('div', { class: 'use-label hidden' });
-    this.center = h('div', { class: 'hud-center' }, this.cross, this.hitmarkerEl, this.ring, this.useLabel);
+    // Admin-Aimbot mit Radius: Kreis ums Fadenkreuz
+    this.fovEl = h('div', { class: 'aimbot-fov hidden' });
+    this.center = h('div', { class: 'hud-center' }, this.fovEl, this.cross, this.hitmarkerEl, this.ring, this.useLabel);
     this.prompt = h('div', { class: 'interact hidden' });
+    // Duo: am Boden
+    this.downFill = h('i');
+    this.downText = h('small');
+    this.downEl = h('div', { class: 'hud-down hidden' }, h('b', {}, t('knockedTitle')), h('div', { class: 'down-bar' }, this.downFill), this.downText);
     this.scope = h('div', { class: 'scope hidden' }, h('div', { class: 'scope-lens' }), h('div', { class: 'scope-h' }), h('div', { class: 'scope-v' }));
     this.msgEl = h('div', { class: 'hud-msg' });
     this.bigMsgEl = h('div', { class: 'hud-bigmsg' });
@@ -114,7 +126,7 @@ export class HUD {
     this.bigMap = h('div', { class: 'bigmap hidden' });
     this.bigMapCanvas = h('canvas', { width: 900, height: 900 });
     this.bigMap.appendChild(h('div', { class: 'bigmap-inner' }, h('div', { class: 'bigmap-title' }, t('bigMap'), h('small', {}, ' · ' + t('mapClose'))), this.bigMapCanvas));
-    r.append(this.scope, this.stormTint, this.vignette, this.tagsEl, this.numsEl, this.indEl, tl, tr, bl, br, this.center, this.prompt,
+    r.append(this.scope, this.stormTint, this.vignette, this.tagsEl, this.numsEl, this.indEl, tl, tr, bl, br, this.center, this.prompt, this.downEl,
       this.msgEl, this.bigMsgEl, this.countEl, this.pickEl, this.floatEl, this.specEl, this.scoreEl, this.bigMap);
     this.buildCrosshair();
     this.cache = {};
@@ -127,6 +139,7 @@ export class HUD {
     this.root.dataset.cb = s.get('colorblind');
     const keys = s.get('keys');
     this.slotEls.forEach((el, i) => { el.firstChild.textContent = keyLabel(keys['slot' + (i + 1)]); });
+    this.knifeEl.firstChild.textContent = keyLabel(keys.knife || 'KeyQ');
     this.cache = {};
     this.buildCrosshair();
   }
@@ -153,6 +166,7 @@ export class HUD {
 
   setMapImage(canvas, pois) {
     this.minimapImg = canvas;
+    pois = (pois || []).filter((p) => p.name && !p.minor);
     this.pois = pois;
   }
 
@@ -182,8 +196,9 @@ export class HUD {
     // Inventar
     this.updateSlots(d.inv);
     // Munition der Waffe in der Hand
-    const it = d.inv.slots[d.inv.sel];
-    const w = it && it.k === 'w' ? WEAPONS[it.w] : null;
+    const it = d.inv.sel === KNIFE_SLOT ? d.inv.knife : d.inv.slots[d.inv.sel];
+    const wAny = it && it.k === 'w' ? WEAPONS[it.w] : null;
+    const w = wAny && !wAny.melee ? wAny : null; // Messer: keine Munitionsanzeige
     const ammoKey = w ? `${it.mag}|${d.inv.ammo[w.ammo]}|${w.ammo}` : '';
     if (c.ammo !== ammoKey) {
       c.ammo = ammoKey;
@@ -232,22 +247,34 @@ export class HUD {
     else this.cross.style.setProperty('--gap', 4 + d.spread * 5.5 + 'px');
     this.cross.classList.toggle('enemy', !!d.overEnemy);
     this.cross.classList.toggle('hidden', !!d.hideCross);
+    const fr = Math.round(d.fovRadius || 0);
+    if (c.fov !== fr) {
+      c.fov = fr;
+      this.fovEl.classList.toggle('hidden', !fr);
+      if (fr) this.fovEl.style.width = this.fovEl.style.height = fr * 2 + 'px';
+    }
     this.scope.classList.toggle('hidden', !d.scoped);
-    // Fortschrittsring (Nachladen / Benutzen)
-    const prog = d.use01 >= 0 ? d.use01 : d.reload01;
+    // Fortschrittsring (Nachladen / Benutzen / Wiederbeleben)
+    const rev = d.revive01 >= 0 ? d.revive01 : -1;
+    const prog = rev >= 0 ? rev : d.use01 >= 0 ? d.use01 : d.reload01;
     if (prog >= 0 && d.alive) {
       this.ring.classList.remove('hidden');
       this.ringFg.style.strokeDashoffset = String(264 * (1 - Math.min(1, prog)));
-      this.ring.classList.toggle('heal', d.use01 >= 0);
+      this.ring.classList.toggle('heal', d.use01 >= 0 || rev >= 0);
     } else this.ring.classList.add('hidden');
-    if (d.useItem && d.alive) {
+    if (rev >= 0 && d.alive) {
+      this.useLabel.textContent = `${t('reviving')} · ${Math.max(0, REVIVE_TIME * (1 - rev)).toFixed(1)} s`;
+      this.useLabel.classList.remove('hidden');
+    } else if (d.useItem && d.alive) {
       const def = CONSUMABLES[d.useItem.c];
       const left = Math.max(0, def.use * (1 - d.use01)).toFixed(1);
       this.useLabel.textContent = `${itemName(d.useItem)} · ${left} s`;
       this.useLabel.classList.remove('hidden');
     } else this.useLabel.classList.add('hidden');
-    // F-Hinweis
-    this.updatePrompt(d.target);
+    // F-Hinweis (Partner wiederbeleben geht vor)
+    this.updatePrompt(d.reviveTarget ? { kind: 'r', id: d.reviveTarget.id, name: d.reviveTarget.name } : d.target);
+    this.updateDown(d);
+    this.updateTeam(d.team);
     // Meldungen
     if (this.msgTimer > 0) {
       this.msgTimer -= dt;
@@ -303,9 +330,20 @@ export class HUD {
   }
 
   updateSlots(inv) {
-    const key = inv.slots.map((it) => (it ? (it.k === 'w' ? `${it.w}${it.r}:${it.mag}` : `${it.c}:${it.n}`) : '-')).join('|') + '#' + inv.sel;
+    const key = inv.slots.map((it) => (it ? (it.k === 'w' ? `${it.w}${it.r}:${it.mag}` : `${it.c}:${it.n}`) : '-')).join('|') + '#' + inv.sel + '#' + (inv.knife ? inv.knife.r : -1);
     if (this.cache.slots === key) return;
     this.cache.slots = key;
+    const kn = inv.knife;
+    this.knifeEl.classList.toggle('sel', inv.sel === KNIFE_SLOT);
+    this.knifeEl.classList.toggle('hidden', !kn);
+    if (kn) {
+      this.knifeEl.style.setProperty('--rar', RARITY_COLORS[kn.r]);
+      if (this.knifeEl._k !== kn.r) {
+        this.knifeEl._k = kn.r;
+        this.knifeEl.children[1].src = itemIcon(kn);
+        this.knifeEl.children[3].textContent = shortName(kn);
+      }
+    }
     inv.slots.forEach((it, i) => {
       const el = this.slotEls[i];
       el.classList.toggle('sel', i === inv.sel);
@@ -343,7 +381,10 @@ export class HUD {
     const k = keyLabel(this.settings.get('keys').interact);
     const el = this.prompt;
     el.classList.remove('hidden');
-    if (tg.kind === 'c') {
+    if (tg.kind === 'r') {
+      el.style.setProperty('--rar', '#4fb3ff');
+      el.innerHTML = `<span class="key">${esc(k)}</span><span class="ip-text"><b>${esc(t('reviveHold'))}</b><small>${esc(tg.name)}</small></span>`;
+    } else if (tg.kind === 'c') {
       el.style.removeProperty('--rar');
       el.innerHTML = `<span class="key">${esc(k)}</span><span class="ip-text">${esc(t('openChest'))}</span>`;
     } else {
@@ -366,13 +407,41 @@ export class HUD {
     }
   }
 
+  // Duo: eigener Zustand am Boden (Ausbluten, Hilfe kommt)
+  updateDown(d) {
+    const on = !!(d.knocked && d.alive);
+    if (this.cache.down !== on) {
+      this.cache.down = on;
+      this.downEl.classList.toggle('hidden', !on);
+      this.root.classList.toggle('knocked', on);
+    }
+    if (!on) return;
+    this.downFill.style.width = Math.max(0, Math.min(100, d.health)) + '%';
+    const txt = d.beingRevived ? t('beingRevived') : t('knockedHint');
+    if (this.downText.textContent !== txt) this.downText.textContent = txt;
+  }
+
+  // Duo: Partner mit Schild/Leben und Status
+  updateTeam(list) {
+    const key = list ? list.map((m) => `${m.id}:${Math.ceil(m.health)}:${Math.ceil(m.shield)}:${m.knocked ? 1 : 0}:${m.alive ? 1 : 0}`).join('|') : '';
+    if (this.cache.team === key) return;
+    this.cache.team = key;
+    this.teamEl.classList.toggle('hidden', !list || !list.length);
+    if (!list) return;
+    this.teamEl.innerHTML = list.map((m) => {
+      const st = !m.alive ? `<span class="tm-st dead">${esc(t('mateOut'))}</span>` : m.knocked ? `<span class="tm-st down">${esc(t('mateDown'))}</span>` : '';
+      return `<div class="tm-row ${m.alive ? '' : 'out'} ${m.knocked ? 'down' : ''}"><div class="tm-name">${esc(m.name)}${st}</div>
+        <div class="tm-bars"><div class="tm-sh"><i style="width:${Math.min(100, m.shield)}%"></i></div><div class="tm-hp"><i style="width:${Math.max(0, Math.min(100, m.health))}%"></i></div></div></div>`;
+    }).join('');
+  }
+
   updateTags(camera, w, hgt, list) {
     const seen = new Set();
     for (const tg of list) {
       seen.add(tg.id);
       let el = this.tags.get(tg.id);
       if (!el) {
-        el = h('div', { class: 'name-tag' }, h('div', { class: 'nt-name' }), h('div', { class: 'nt-bars' }, h('div', { class: 'nt-sh' }, h('i')), h('div', { class: 'nt-hp' }, h('i'))));
+        el = h('div', { class: 'name-tag' + (tg.mate ? ' mate' : '') }, h('div', { class: 'nt-name' }), h('div', { class: 'nt-bars' }, h('div', { class: 'nt-sh' }, h('i')), h('div', { class: 'nt-hp' }, h('i'))));
         this.tagsEl.appendChild(el);
         this.tags.set(tg.id, el);
       }
@@ -384,7 +453,8 @@ export class HUD {
       el.style.display = '';
       const scale = Math.max(0.6, Math.min(1.1, 14 / Math.max(1, tg.dist)));
       el.style.transform = `translate(${((_v.x + 1) / 2) * w}px, ${((1 - _v.y) / 2) * hgt}px) translate(-50%,-100%) scale(${scale})`;
-      const nameHtml = (tg.crown ? `<span class="nt-crown">${ICON.crown}</span>` : '') + esc(tg.name);
+      const nameHtml = (tg.crown ? `<span class="nt-crown">${ICON.crown}</span>` : '') + esc(tg.name) + (tg.knocked ? ` <span class="nt-down">${esc(t('mateDown'))}</span>` : '') + (tg.mate && tg.dist > 25 ? ` <small>${Math.round(tg.dist)} m</small>` : '');
+      el.classList.toggle('knocked', !!tg.knocked);
       if (el._name !== nameHtml) {
         el._name = nameHtml;
         el.firstChild.innerHTML = nameHtml;
@@ -498,11 +568,11 @@ export class HUD {
   }
 
   killfeed(e) {
-    const weapon = e.cause === 'storm' ? t('kfStorm') : e.cause === 'leave' ? t('kfLeft') : t('w_' + e.cause);
+    const weapon = e.knock ? t('kfKnocked') : e.cause === 'storm' ? t('kfStorm') : e.cause === 'leave' ? t('kfLeft') : e.cause === 'bleed' ? t('kfBleed') : t('w_' + e.cause);
     const nm = (name, crown, me, bot) => `<span class="kf-name ${me ? 'me' : ''}">${crown ? `<span class="kf-crown">${ICON.crown}</span>` : ''}${esc(name)}${bot ? ' <small>BOT</small>' : ''}</span>`;
     const html = (e.killer ? nm(e.killer, e.killerCrown, e.killerMe, e.killerBot) : '') +
       `<span class="kf-weapon">${esc(weapon)}</span>` + (e.headshot ? `<span class="kf-hs">${ICON.headshot}</span>` : '') + nm(e.victim, e.victimCrown, e.victimMe, e.victimBot);
-    const el = h('div', { class: 'kf-row' + (e.killerMe || e.victimMe ? ' involved' : ''), html });
+    const el = h('div', { class: 'kf-row' + (e.killerMe || e.victimMe ? ' involved' : '') + (e.knock ? ' knock' : ''), html });
     this.feedEl.prepend(el);
     while (this.feedEl.children.length > 5) this.feedEl.lastChild.remove();
     setTimeout(() => el.classList.add('fade'), 6500);
@@ -578,6 +648,19 @@ export class HUD {
         g.fillText(p.name.toUpperCase(), 0, 0);
         g.restore();
       }
+    }
+    // Duo: Partner als blaue Punkte (am Boden: rot blinkend)
+    for (const m of d.mates || []) {
+      let x = (m.x - d.px) * pxPerM, y = (m.z - d.pz) * pxPerM;
+      const l = Math.hypot(x, y);
+      if (l > R - 8) { x *= (R - 8) / l; y *= (R - 8) / l; }
+      g.fillStyle = m.knocked ? (Math.floor(performance.now() / 300) % 2 ? '#ff5a5a' : '#ffd0d0') : '#4fb3ff';
+      g.strokeStyle = '#0b1a3a';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(x, y, 6, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
     }
     g.restore();
     // Spielerpfeil
@@ -662,6 +745,15 @@ export class HUD {
       g.fillText(p.name.toUpperCase(), toX(p.x) + 2, toX(p.z) + 2);
       g.fillStyle = '#fff';
       g.fillText(p.name.toUpperCase(), toX(p.x), toX(p.z));
+    }
+    for (const m of d.mates || []) {
+      g.fillStyle = m.knocked ? '#ff5a5a' : '#4fb3ff';
+      g.strokeStyle = '#0b1a3a';
+      g.lineWidth = 3;
+      g.beginPath();
+      g.arc(toX(m.x), toX(m.z), 11, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
     }
     g.save();
     g.translate(toX(d.px), toX(d.pz));

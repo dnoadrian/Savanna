@@ -1,18 +1,53 @@
 // 3D-Lobby vor transparentem Hintergrund (das blaue Streifen-Wallpaper liegt per CSS dahinter):
-// eigene Figur mit goldener SCAR in der Mitte, Party links/rechts. Im Willkommens-Modus drehen
+// eigene Figur mit goldener SCAR genau in der Mitte, Party links/rechts. Im Willkommens-Modus drehen
 // sich stattdessen einige Waffen des Spiels als Schaukasten.
 import * as THREE from 'three';
 import { Character } from './characters.js';
 import { weaponGeometry, itemMaterial } from './weapons.js';
 import { handCode } from '../../shared/sim/simulation.js';
 
+// eigene Figur in der Mitte, Party links/rechts etwas dahinter (zwischen den Seitenleisten sichtbar)
 const SLOTS = [
   { x: 0, z: 0, ry: 0.5 },
-  { x: -2.3, z: 0.9, ry: 0.3 },
-  { x: 2.3, z: 0.9, ry: -0.3 },
-  { x: -4.3, z: 2.1, ry: 0.45 },
+  { x: -1.75, z: -1.1, ry: 0.35 },
+  { x: 1.75, z: -1.1, ry: -0.35 },
+  { x: -3.1, z: -2.6, ry: 0.45 },
 ];
 const LOBBY_GUN = handCode({ k: 'w', w: 'ar', r: 4 });
+
+// Party-Mitglied noch im Match: blaue Hologramm-Figur (Randleuchten + wandernde Scanlinien)
+let holoMat = null;
+function hologramMaterial() {
+  if (holoMat) return holoMat;
+  holoMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    // Normalen aus den Bildschirm-Ableitungen (die Figuren-Geometrie hat keine eigenen)
+    vertexShader: `
+      varying vec3 vView; varying float vY;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vY = wp.y;
+        vec4 mv = viewMatrix * wp;
+        vView = mv.xyz;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform float uTime; varying vec3 vView; varying float vY;
+      void main() {
+        vec3 n = normalize(cross(dFdx(vView), dFdy(vView)));
+        float fr = pow(1.0 - abs(dot(n, normalize(-vView))), 2.0);
+        float lines = 0.5 + 0.5 * sin(vY * 55.0 - uTime * 5.0);
+        float band = smoothstep(0.92, 1.0, fract(vY * 0.45 - uTime * 0.35));
+        vec3 col = mix(vec3(0.1, 0.42, 1.0), vec3(0.55, 0.88, 1.0), fr);
+        float a = 0.3 + fr * 0.55 + lines * 0.12 + band * 0.35;
+        gl_FragColor = vec4(col * (0.85 + band), clamp(a, 0.0, 1.0));
+      }`,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  return holoMat;
+}
 
 function glowTexture() {
   const c = document.createElement('canvas');
@@ -48,6 +83,9 @@ export class LobbyScene {
     this.chars = [];
     this.time = 0;
     this.mode = 'lobby';
+    // Blickpunkt: Figur in der Mitte; bei offenem Spind/Shop (rechts) rückt sie nach links
+    this.focusX = 0;
+    this.focusTarget = 0;
     this.onResize();
     window.addEventListener('resize', () => this.onResize());
   }
@@ -89,14 +127,19 @@ export class LobbyScene {
     this.scene.add(this.showcase);
   }
 
+  // Spind/Shop rechts offen: Figur nach links verschieben, damit sie sichtbar bleibt
+  setPanelOpen(open) {
+    this.focusTarget = open ? 1.7 : 0;
+  }
+
   onResize() {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
   }
 
-  // members: [{id, outfit, color, name, crown, crownStyle}]
+  // members: [{id, outfit, color, name, crown, crownStyle, ingame}]
   setMembers(members) {
-    const key = JSON.stringify(members.map((m) => [m.id, m.outfit, m.color, m.crown, m.crownStyle]));
+    const key = JSON.stringify(members.map((m) => [m.id, m.outfit, m.color, m.crown, m.crownStyle, !!m.ingame]));
     if (key === this.key) return;
     this.key = key;
     for (const c of this.chars) {
@@ -106,6 +149,11 @@ export class LobbyScene {
     this.chars = members.slice(0, 4).map((m, i) => {
       const c = new Character({ outfit: m.outfit, color: m.color, name: m.name, crown: m.crown, crownStyle: m.crownStyle });
       c.setHand(LOBBY_GUN);
+      if (m.ingame) {
+        const mat = hologramMaterial();
+        c.root.traverse((o) => { if (o.isMesh) { o.material = mat; o.castShadow = false; } });
+      }
+      c.ingame = !!m.ingame;
       const sl = SLOTS[i];
       c.root.position.set(sl.x, 0, sl.z);
       c.baseYaw = Math.PI + sl.ry;
@@ -113,7 +161,7 @@ export class LobbyScene {
       this.scene.add(c.root);
       return c;
     });
-    this.glows.forEach((g, i) => { g.visible = i < this.chars.length; });
+    this.glows.forEach((g, i) => { g.visible = i < this.chars.length && !this.chars[i].ingame; });
   }
 
   // Bildschirmposition über dem Kopf (für Namen/Bereit-Status)
@@ -127,6 +175,7 @@ export class LobbyScene {
   update(dt) {
     this.time += dt;
     const t = this.time;
+    if (holoMat) holoMat.uniforms.uTime.value = t;
     const welcome = this.mode === 'welcome';
     this.showcase.visible = welcome;
     this.stage.visible = !welcome;
@@ -143,10 +192,12 @@ export class LobbyScene {
         m.position.y = m.userData.y + Math.sin(t * 1.1 + ph) * 0.08;
       }
     } else {
-      // Figur leicht rechts der Mitte, damit links Platz für Party/Chat bleibt
+      // eigene Figur genau in der Mitte des Bildschirms
+      this.focusX += (this.focusTarget - this.focusX) * Math.min(1, dt * 6);
+      const fx = this.focusX;
       const sway = Math.sin(t * 0.25) * 0.15;
-      this.camera.position.set(-0.9 + sway, 1.55, 8.4);
-      this.camera.lookAt(-0.9, 1.05, 0);
+      this.camera.position.set(fx + sway, 1.55, 8.4);
+      this.camera.lookAt(fx, 1.05, 0);
     }
     this.chars.forEach((c, i) => {
       const look = Math.sin(t * 0.4 + i * 1.3) * 0.22;

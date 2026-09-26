@@ -70,7 +70,16 @@ export class Grass {
     this.lastZ = 1e9;
     this.level = null;
     this.tiles = new Map();
-    this.cols = [new THREE.Color(0xd9b048), new THREE.Color(0xe6c35a), new THREE.Color(0xb9b848), new THREE.Color(0xc9a23e)];
+    // grüne Wiese, trockenes Gras (golden) und Getreide
+    this.cols = [new THREE.Color(0x6fb33f), new THREE.Color(0x7fc44b), new THREE.Color(0x5ea63a), new THREE.Color(0x8fc653)];
+    this.dryCols = [new THREE.Color(0xd9b048), new THREE.Color(0xe6c35a), new THREE.Color(0xb9b848), new THREE.Color(0xc9a23e)];
+    this.fieldCol = new THREE.Color(0xe8c04e);
+  }
+
+  dispose() {
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+    this.tiles.clear();
   }
 
   update(camera, levelName, time) {
@@ -109,15 +118,17 @@ export class Grass {
         const x = (i + hash2(i, j, 3)) * cell;
         const z = (j + hash2(i, j, 5)) * cell;
         const s = terrain.surfaceAt(x, z);
-        if (s !== SURF.GRASS && s !== SURF.DRYGRASS && !(s === SURF.DIRT && h1 < 0.25)) continue;
+        const field = s === SURF.FIELD;
+        if (s !== SURF.GRASS && s !== SURF.DRYGRASS && s !== SURF.FOREST && !field && !(s === SURF.SWAMP && h1 < 0.5) && !(s === SURF.DIRT && h1 < 0.25)) continue;
         const y = terrain.heightAt(x, z);
         if (y < 0.4 || terrain.waterLevelAt(x, z) > y - 0.05) continue;
         if (col.groundAt(x, z, 0.05, y + 4) > y + 0.05) continue;
-        const scale = 0.7 + hash2(i, j, 9) * 0.6;
-        const c = this.cols[Math.floor(hash2(i, j, 21) * 4)];
+        const scale = (0.7 + hash2(i, j, 9) * 0.6) * (field ? 1.5 : 1);
+        const pal = s === SURF.DRYGRASS || s === SURF.DIRT ? this.dryCols : this.cols;
+        const c = field ? this.fieldCol : pal[Math.floor(hash2(i, j, 21) * 4)];
         const b = 0.85 + hash2(i, j, 23) * 0.3;
-        const green = s === SURF.GRASS;
-        out.push(x, y - 0.03, z, hash2(i, j, 11) * 6.28, scale, scale * (0.8 + hash2(i, j, 13) * 0.6), c.r * b * (green ? 0.92 : 1), c.g * b, c.b * b * (green ? 0.9 : 1), h1);
+        const green = s === SURF.GRASS || s === SURF.FOREST;
+        out.push(x, y - 0.03, z, hash2(i, j, 11) * 6.28, scale, scale * (0.8 + hash2(i, j, 13) * 0.6) * (field ? 1.8 : 1), c.r * b * (green ? 0.92 : 1), c.g * b, c.b * b * (green ? 0.9 : 1), h1);
       }
     }
     t = { data: new Float32Array(out), used: performance.now() };

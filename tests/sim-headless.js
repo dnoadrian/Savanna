@@ -1,19 +1,19 @@
-// Headless-Test: komplettes Match mit 12 Bots in Node simulieren.
+// Headless-Test: komplettes Match mit 20 Bots in Node simulieren.
 import { generateMap } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
 import { SIM_DT, MATCH_SIZE } from '../shared/constants.js';
 
-export function runHeadlessMatch({ seed = 1234, difficulty = 'normal', storm = true, maxTime = 900, log = false } = {}) {
+export function runHeadlessMatch({ seed = 1234, difficulty = 'normal', storm = true, maxTime = 900, log = false, mapId, mode = 'solo' } = {}) {
   const t0 = Date.now();
-  const map = generateMap();
+  const map = generateMap(mapId);
   const nav = new NavGrid(map.terrain, map.collision);
   const tGen = Date.now() - t0;
   const rng = new RNG(seed);
-  const players = Simulation.fillWithBots([], rng);
-  const sim = new Simulation({ terrain: map.terrain, collision: map.collision, nav, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot }, { seed, players, storm, botDifficulty: difficulty });
-  const stats = { kills: 0, heals: 0, shots: 0, hits: 0, stormDeaths: 0, reloads: 0, slides: 0, chests: 0, pickups: 0, siphons: 0, weapons: {} };
+  const players = Simulation.fillWithBots([], rng, null, mode);
+  const sim = new Simulation({ terrain: map.terrain, collision: map.collision, nav, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot }, { seed, players, storm, botDifficulty: difficulty, mode });
+  const stats = { knocks: 0, revives: 0, kills: 0, heals: 0, shots: 0, hits: 0, stormDeaths: 0, reloads: 0, slides: 0, chests: 0, pickups: 0, siphons: 0, weapons: {} };
   const stateTime = {};
   let stuckSamples = 0, stuckMax = 0;
   const lastPos = new Map();
@@ -25,6 +25,8 @@ export function runHeadlessMatch({ seed = 1234, difficulty = 'normal', storm = t
     for (const e of sim.drainEvents()) {
       if (e.t === 'kill') { stats.kills++; if (e.w === 'storm') stats.stormDeaths++; if (log) console.log(`[${sim.matchTime.toFixed(1)}] ${e.k ? sim.byId.get(e.k).name : 'Sturm'} -> ${sim.byId.get(e.v).name} (#${e.place})${e.hs ? ' HS' : ''}`); }
       else if (e.t === 'used') stats.heals++;
+      else if (e.t === 'knock') { stats.knocks++; if (log) console.log(`[${sim.matchTime.toFixed(1)}] ${e.k ? sim.byId.get(e.k).name : '-'} knockt ${sim.byId.get(e.v).name}`); }
+      else if (e.t === 'revive') { stats.revives++; if (log) console.log(`[${sim.matchTime.toFixed(1)}] ${sim.byId.get(e.by).name} belebt ${sim.byId.get(e.id).name}`); }
       else if (e.t === 'shot') { stats.shots++; stats.weapons[e.w] = (stats.weapons[e.w] || 0) + 1; if (e.e.some((q) => q[3] === 8)) stats.hits++; }
       else if (e.t === 'chest') stats.chests++;
       else if (e.t === 'pick') stats.pickups++;
@@ -52,7 +54,7 @@ export function runHeadlessMatch({ seed = 1234, difficulty = 'normal', storm = t
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const r = runHeadlessMatch({ log: true, difficulty: process.argv[2] || 'normal' });
+  const r = runHeadlessMatch({ log: !process.argv[4], difficulty: process.argv[2] || 'normal', mapId: process.argv[3], mode: process.argv[5] || 'solo' });
   console.log('winner', r.winner && r.winner.name, 'matchTime', r.sim.matchTime.toFixed(1), 'steps', r.steps, 'simMs', r.tSim, 'genMs', r.tGen);
   console.log(r.stats, r.stateTime, 'stuckMax', r.stuckMax);
 }

@@ -2,7 +2,7 @@
 // ein kleines Bild gerendert und zwischengespeichert (Data-URL).
 import * as THREE from 'three';
 import { itemGeometry, itemMaterial } from './weapons.js';
-import { WEAPONS, WEAPON_TYPES, CONSUMABLE_TYPES, AMMO_TYPES } from '../../shared/items.js';
+import { WEAPONS, WEAPON_TYPES, CONSUMABLE_TYPES, AMMO_TYPES, KNIFE_SKINS } from '../../shared/items.js';
 
 const W = 192, H = 96;
 const cache = new Map();
@@ -65,6 +65,7 @@ export function itemIcon(item) {
 // kleinen Zusatz-Renderer wieder freigeben.
 export function preloadItemIcons() {
   for (const w of WEAPON_TYPES) for (const r of WEAPONS[w].rarities) itemIcon({ k: 'w', w, r });
+  KNIFE_SKINS.forEach((_, r) => itemIcon({ k: 'w', w: 'knife', r }));
   for (const c of CONSUMABLE_TYPES) itemIcon({ k: 'c', c });
   for (const a of AMMO_TYPES) itemIcon({ k: 'a', a });
   if (ctx) {

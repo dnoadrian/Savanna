@@ -6,9 +6,9 @@ import { createBody, stepMovement, bodyFlags, eyeHeight } from '../../shared/sim
 import {
   createWeaponRuntime, equipWeapon, canFire, fireWeapon, canReload, startReload, cancelReload, updateWeapon, weaponSpread, reloadProgress,
 } from '../../shared/sim/weapon.js';
-import { cloneInventory } from '../../shared/sim/inventory.js';
+import { cloneInventory, selectedItem, KNIFE_SLOT } from '../../shared/sim/inventory.js';
 import { applySpread, dirFromAngles, anglesFromDir, rayPlayer, stanceScale } from '../../shared/sim/combat.js';
-import { F, CLIENT_SEND_HZ, INTERACT_RANGE, MAX_HEALTH } from '../../shared/constants.js';
+import { F, CLIENT_SEND_HZ, INTERACT_RANGE, MAX_HEALTH, CRAWL_MULT, REVIVE_RANGE } from '../../shared/constants.js';
 import { WEAPONS, CONSUMABLES, AMMO_MAX, KILL_AMMO, weaponItem } from '../../shared/items.js';
 import { MAT } from '../../shared/physics/collision.js';
 import { SURF } from '../../shared/map/terrain.js';
@@ -28,8 +28,8 @@ export function surfaceSound(map, body) {
     default: break;
   }
   const s = map.terrain.surfaceAt(body.x, body.z);
-  if (s === SURF.GRASS) return 'grass';
-  if (s === SURF.ROCK) return 'stone';
+  if (s === SURF.GRASS || s === SURF.FOREST || s === SURF.FIELD || s === SURF.DRYGRASS || s === SURF.SWAMP) return 'grass';
+  if (s === SURF.ROCK || s === SURF.ROAD || s === SURF.PLAZA) return 'stone';
   return 'sand';
 }
 
@@ -96,7 +96,7 @@ export class LocalPlayer {
   }
 
   get item() {
-    return this.inv.slots[this.inv.sel] || null;
+    return selectedItem(this.inv);
   }
 
   get weaponDef() {
@@ -185,18 +185,20 @@ export class LocalPlayer {
   }
 
   selectSlot(i) {
-    if (i < 0 || i > 4 || i === this.inv.sel) return;
+    if (i < 0 || i > KNIFE_SLOT || i === this.inv.sel) return;
     this.cancelUse();
     if (this.rt.reloading) this.game.session.cancelReload();
+    if (this.inv.sel !== KNIFE_SLOT) this.lastSlot = this.inv.sel; // Q erneut: zurück zur Waffe
     this.inv.sel = i;
     this.game.session.select(i);
     this.onHandChanged();
   }
 
   cycleSlot(dir) {
-    // Mausrad: nur belegte Plätze
+    // Mausrad: nur belegte Plätze (vom Messer aus beim ersten/letzten Platz weiter)
+    const from = this.inv.sel === KNIFE_SLOT ? (dir > 0 ? -1 : 5) : this.inv.sel;
     for (let k = 1; k <= 5; k++) {
-      const i = (this.inv.sel + dir * k + 10) % 5;
+      const i = (from + dir * k + 10) % 5;
       if (this.inv.slots[i]) { this.selectSlot(i); return; }
     }
   }
@@ -236,6 +238,28 @@ export class LocalPlayer {
     g.viewmodel.useFlash = 1;
   }
 
+  // Duo: nächster Partner am Boden in Reichweite; F halten = wiederbeleben
+  updateRevive(states, can, holding) {
+    const s = this.game.session;
+    let tgt = null;
+    if (can && s.mode === 'duo') {
+      const b = this.body;
+      let best = REVIVE_RANGE + 0.3;
+      for (const st of states) {
+        if (!st.alive || !(st.flags & F.KNOCKED) || !s.isMate(st.id)) continue;
+        const d = Math.hypot(st.x - b.x, st.z - b.z);
+        if (d < best && Math.abs(st.y - b.y) < 2) { best = d; tgt = st; }
+      }
+    }
+    this.reviveTarget = tgt;
+    const want = tgt && holding ? tgt.id : null;
+    if (want !== (this.reviving || null)) {
+      this.reviving = want;
+      s.revive(want);
+      if (want) this.cancelUse();
+    }
+  }
+
   // Truhe/Gegenstand, auf die man schaut (F)
   findTarget() {
     const loot = this.game.session.loot;
@@ -266,6 +290,9 @@ export class LocalPlayer {
     const b = this.body;
     const playing = phase === 'playing';
     const selfInfo = g.session.self();
+    // Duo: am Boden (niedergeschlagen) nur kriechen – kein Schießen, Heilen, Looten
+    const knocked = !!selfInfo.knocked && selfInfo.alive;
+    this.knocked = knocked;
     b.frozen = !playing;
     this.syncInventory();
     if (selfInfo.useT < 0 && this.useT >= 0 && this.useT > 0.4) this.useT = -1; // Server hat abgebrochen/fertig
@@ -279,7 +306,8 @@ export class LocalPlayer {
     const adsSens = this.adsK > 0.5 ? s.get('adsSens') * scopeSens : 1;
     const camPos = this.camera.position;
     const moveInput = (input.isDown('forward') || input.isDown('back') || input.isDown('left') || input.isDown('right'));
-    const aa = this.aim.update(playing && def ? s.get('aimAssist') : 'off', camPos, this.yaw, this.pitch, states, g.session.youId, dt, now,
+    this.aim.isMate = (id) => g.session.isMate(id);
+    const aa = this.aim.update(playing && def && !this.knocked ? s.get('aimAssist') : 'off', camPos, this.yaw, this.pitch, states, g.session.youId, dt, now,
       this.ads && !this.wasAds, Math.abs(m.dx) + Math.abs(m.dy) > 0 || moveInput);
     this.wasAds = this.ads;
     const fovScale = this.fovCur / 90;
@@ -302,8 +330,9 @@ export class LocalPlayer {
     this.pitch = Math.max(-89 * DEG, Math.min(89 * DEG, this.pitch));
 
     // ---- Inventar ----
-    if (playing || phase === 'countdown') {
+    if ((playing || phase === 'countdown') && !knocked) {
       for (let i = 0; i < 5; i++) if (input.pressed(SLOT_ACTIONS[i])) this.selectSlot(i);
+      if (input.pressed('knife')) this.selectSlot(this.inv.sel === KNIFE_SLOT ? this.lastSlot ?? 0 : KNIFE_SLOT);
       if (input.pressedSet.has('WheelDown')) this.cycleSlot(1);
       if (input.pressedSet.has('WheelUp')) this.cycleSlot(-1);
     }
@@ -324,9 +353,13 @@ export class LocalPlayer {
       if (sprintWanted && moving && crouchPressed) this.crouchToggle = false;
       crouchWanted = this.crouchToggle;
     } else crouchWanted = input.isDown('crouch');
+    if (knocked) {
+      sprintWanted = false;
+      crouchWanted = true;
+    }
 
     // auch sehr kurze Klicks zählen (Drücken + Loslassen zwischen zwei Frames)
-    const firing = (input.isDown('fire') || input.pressed('fire')) && playing && selfInfo.alive;
+    const firing = (input.isDown('fire') || input.pressed('fire')) && playing && selfInfo.alive && !knocked && !this.reviving;
     if (firing && def) {
       this.sprintBlockT = 0.35;
       if (s.get('sprintMode') === 'toggle') this.sprintToggle = false;
@@ -335,23 +368,27 @@ export class LocalPlayer {
     if (this.sprintBlockT > 0) sprintWanted = false;
     if (this.useT >= 0) sprintWanted = false;
 
-    this.ads = input.isDown('ads') && !!def && !b.sprinting && this.useT < 0 && selfInfo.alive;
+    this.ads = input.isDown('ads') && !!def && !def.melee && !b.sprinting && this.useT < 0 && selfInfo.alive && !knocked;
     this.adsK += ((this.ads ? 1 : 0) - this.adsK) * Math.min(1, dt * (def && def.scope ? 10 : 14));
 
-    const fly = this.admin.active('fly');
+    const fly = this.admin.active('fly') && !knocked;
+    // Duo: Partner wiederbeleben (F gedrückt halten, solange man nah genug ist)
+    this.updateRevive(states, playing && selfInfo.alive && !knocked, input.isDown('interact'));
+    const hold = !!this.reviving;
     const inp = {
-      mx: moveX, mz: moveZ, yaw: this.yaw,
-      jump: input.pressed('jump') && playing,
-      sprint: sprintWanted && playing,
+      mx: hold ? 0 : moveX, mz: hold ? 0 : moveZ, yaw: this.yaw,
+      jump: input.pressed('jump') && playing && !knocked,
+      sprint: sprintWanted && playing && !hold,
       crouch: crouchWanted,
-      crouchPressed,
+      crouchPressed: crouchPressed && !knocked,
       ads: this.adsK > 0.5,
       using: this.useT >= 0,
       fly: fly && playing,
       flyUp: input.isDown('jump'),
       flyDown: input.isDown('crouch'),
       flySpeed: this.admin.value('flySpeed'),
-      speedMul: this.admin.active('speed') ? this.admin.value('speedMul') : 0,
+      // Messer in der Hand: 8 % schneller (Admin-Tempo kommt obendrauf)
+      speedMul: knocked ? CRAWL_MULT : (this.admin.active('speed') ? this.admin.value('speedMul') : 1) * (def && def.melee ? 1.08 : 1),
     };
     const prevGrounded = b.grounded;
     stepMovement(b, inp, dt, this.map);
@@ -402,7 +439,7 @@ export class LocalPlayer {
       g.session.cancelReload();
     }
     // Nachladen nur manuell
-    if (input.pressed('reload') && canReload(this.rt, it, this.inv.ammo) && selfInfo.alive && !b.sprinting && this.useT < 0) {
+    if (input.pressed('reload') && canReload(this.rt, it, this.inv.ammo) && selfInfo.alive && !knocked && !b.sprinting && this.useT < 0) {
       if (startReload(this.rt, it, this.inv.ammo)) {
         g.session.reload();
         this.audio.reloadSounds(it.w, this.rt.reloadDur, it.mag === 0);
@@ -410,7 +447,7 @@ export class LocalPlayer {
       }
     }
     // F: Truhe öffnen / aufheben
-    this.target = selfInfo.alive && playing ? this.findTarget() : null;
+    this.target = selfInfo.alive && playing && !knocked && !this.reviveTarget ? this.findTarget() : null;
     if (input.pressed('interact') && this.target) {
       g.session.interact(this.target.kind === 'c' ? { c: this.target.id } : { l: this.target.id });
       if (this.target.kind === 'c') this.audio.chestOpen();
@@ -419,7 +456,7 @@ export class LocalPlayer {
     // Klick-Puffer: ein Klick kurz vor Ende von Ausrüsten/Feuerpause wird nachgeholt
     if (input.pressed('fire')) this.fireBuffer = 0.18;
     else this.fireBuffer = Math.max(0, (this.fireBuffer || 0) - dt);
-    const wantShot = firing || (this.fireBuffer > 0 && def && !def.auto && playing && selfInfo.alive);
+    const wantShot = firing || (this.fireBuffer > 0 && def && !def.auto && playing && selfInfo.alive && !knocked);
     if (wantShot && !b.sprinting && it) {
       if (it.k === 'c') {
         if (input.pressed('fire')) this.tryUse();
@@ -525,11 +562,17 @@ export class LocalPlayer {
     const wall = this.admin.active('wallbang');
     const head = (st) => st.y + 1.6 * stanceScale(st.flags);
     const visible = (st) => wall || this.map.collision.lineOfSight(ex, ey, ez, st.x, head(st), st.z);
-    let tgt = null, bestD = 300;
+    // Radius an: nur Gegner, deren Kopf im Kreis ums Fadenkreuz liegt (der nächste zur Mitte)
+    const fov = this.admin.active('aimbotFov') ? this.admin.value('fovRadius') : 0;
+    const inCircle = (st) => {
+      const d = this.fovDist(st.x, head(st), st.z);
+      return d <= fov ? d : -1;
+    };
+    let tgt = null, bestD = fov ? fov + 1 : 300;
     for (const st of states) {
-      if (st.id === this.game.session.youId || !st.alive) continue;
-      const d = Math.hypot(st.x - ex, head(st) - ey, st.z - ez);
-      if (d >= bestD || !visible(st)) continue;
+      if (st.id === this.game.session.youId || !st.alive || this.isMate(st.id)) continue;
+      const d = fov ? inCircle(st) : Math.hypot(st.x - ex, head(st) - ey, st.z - ez);
+      if (d < 0 || d >= bestD || !visible(st)) continue;
       bestD = d;
       tgt = st;
     }
@@ -537,7 +580,7 @@ export class LocalPlayer {
     if (tgt) { this.lockId = tgt.id; this.lockLost = 0; }
     else if (this.lockId) {
       const st = states.find((q) => q.id === this.lockId && q.alive);
-      if (st && (this.lockLost = (this.lockLost || 0) + dt) < 0.6) tgt = st;
+      if (st && (!fov || inCircle(st) >= 0) && (this.lockLost = (this.lockLost || 0) + dt) < 0.6) tgt = st;
       else this.lockId = null;
     }
     this.aimbotTarget = tgt;
@@ -551,13 +594,27 @@ export class LocalPlayer {
     }
   }
 
+  // Abstand (CSS-Pixel) eines Weltpunkts von der Bildschirmmitte; hinter der Kamera = unendlich
+  fovDist(x, y, z) {
+    const v = this.tmpV3 || (this.tmpV3 = new THREE.Vector3());
+    v.set(x, y, z).project(this.camera);
+    if (v.z > 1 || v.z < -1) return Infinity;
+    return Math.hypot((v.x * window.innerWidth) / 2, (v.y * window.innerHeight) / 2);
+  }
+
+  // Teammitglied (Duo) – wird nie anvisiert
+  isMate(id) {
+    const s = this.game.session;
+    return !!(s.isMate && s.isMate(id));
+  }
+
   checkOverEnemy(states) {
     const cam = this.camera.position;
     const cd = this.tmpV2.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
     let best = 250;
     let hit = false;
     for (const s of states) {
-      if (s.id === this.game.session.youId || !s.alive) continue;
+      if (s.id === this.game.session.youId || !s.alive || this.isMate(s.id)) continue;
       const dx = s.x - cam.x, dz = s.z - cam.z;
       if (dx * dx + dz * dz > 250 * 250) continue;
       const r = rayPlayer(s, cam.x, cam.y, cam.z, cd.x, cd.y, cd.z, best);

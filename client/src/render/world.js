@@ -10,7 +10,7 @@ import { Grass } from './grass.js';
 import { C } from '../../shared/map/builder.js';
 
 const CHUNK = 32;
-const EMISSIVE_COLORS = new Set([C.FIRE, C.FIRE2, C.LAMP]);
+const EMISSIVE_COLORS = new Set([C.FIRE, C.FIRE2, C.LAMP, C.SLURP, C.NEON]);
 
 const nextFrame = () => new Promise((r) => setTimeout(r, 0));
 
@@ -33,7 +33,8 @@ export class WorldView {
     onProgress(0.1);
     await nextFrame();
     this.heightTex = heightTexture(map);
-    this.water = createWater(this.heightTex, map.terrain.half, 0);
+    // Meer bis zum Horizont (die Insel liegt mitten im offenen Wasser)
+    this.water = createWater(this.heightTex, map.terrain.half, 0, 2600, 320);
     this.group.add(this.water.mesh);
     for (const sg of map.signs) this.group.add(buildSign(sg));
     onProgress(0.2);
@@ -132,6 +133,20 @@ export class WorldView {
     this.grass = new Grass(map);
     this.group.add(this.grass.mesh);
     onProgress(1);
+  }
+
+  // Speicher freigeben, wenn die Karte nicht mehr gebraucht wird
+  dispose() {
+    this.group.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.name === 'sign' && o.material) {
+        if (o.material.map) o.material.map.dispose();
+        o.material.dispose();
+      }
+    });
+    if (this.heightTex) this.heightTex.dispose();
+    if (this.water && this.water.mesh.material) this.water.mesh.material.dispose();
+    if (this.grass && this.grass.dispose) this.grass.dispose();
   }
 
   setViewDistance(d) {

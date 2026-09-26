@@ -1,11 +1,11 @@
 // Match-Sitzungen mit gleicher Schnittstelle:
 //  - LocalSession: Bot-Lobby ohne Server, gemeinsame Simulation läuft im Browser (pausierbar)
 //  - NetSession: Mehrspieler, Server ist autoritativ; Interpolation mit 100 ms Puffer
-import { SIM_DT, INTERP_DELAY, F, MAX_HEALTH, START_OVERSHIELD } from '../../shared/constants.js';
+import { SIM_DT, INTERP_DELAY, F, MAX_HEALTH, START_OVERSHIELD, REVIVE_TIME } from '../../shared/constants.js';
 import { decodeItem } from '../../shared/items.js';
 import { Zone } from '../../shared/sim/zone.js';
 import { Loot } from '../../shared/sim/loot.js';
-import { createInventory } from '../../shared/sim/inventory.js';
+import { createInventory, selectedItem } from '../../shared/sim/inventory.js';
 import { handCode } from '../../shared/sim/simulation.js';
 
 function lerpAngle(a, b, t) {
@@ -19,12 +19,30 @@ function newState(id) {
   return { id, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, flags: 0, health: MAX_HEALTH, shield: 0, overshield: START_OVERSHIELD, alive: true, vx: 0, vz: 0, hand: 1 };
 }
 
+
+// höchstens so lange (s) über das letzte Paket hinaus weiterrechnen
+const MAX_EXTRAP = 0.2;
+
+// gemeinsame Team-Hilfen (Duo)
+const TeamMixin = {
+  initTeams(mode) {
+    this.mode = mode === 'duo' ? 'duo' : 'solo';
+    this.teamOf = new Map(this.players.map((p) => [p.id, p.team]));
+  },
+  isMate(id) {
+    return this.mode === 'duo' && id !== this.youId && this.teamOf.get(id) !== undefined && this.teamOf.get(id) === this.teamOf.get(this.youId);
+  },
+  mateIds() {
+    return this.players.filter((p) => this.isMate(p.id)).map((p) => p.id);
+  },
+};
 export class LocalSession {
   constructor(sim, youId) {
     this.isLocal = true;
     this.sim = sim;
     this.youId = youId;
-    this.players = sim.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, outfit: p.outfit, color: p.color, crownStyle: p.crownStyle, streak: p.streak }));
+    this.players = sim.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, outfit: p.outfit, color: p.color, crownStyle: p.crownStyle, streak: p.streak, team: p.team }));
+    this.initTeams(sim.mode);
     const me = sim.byId.get(youId);
     this.me = me;
     this.spawn = { x: me.body.x, y: me.body.y, z: me.body.z, yaw: me.body.yaw };
@@ -77,14 +95,14 @@ export class LocalSession {
         s.yaw = lerpAngle(pr.yaw, b.yaw, a);
       }
       s.pitch = p.pitch;
-      s.flags = p.alive ? p.flags : F.DEAD;
+      s.flags = p.alive ? this.sim.netFlags(p) : F.DEAD;
       s.health = p.health;
       s.shield = p.shield;
       s.overshield = p.overshield;
       s.alive = p.alive;
       s.vx = b.vx;
       s.vz = b.vz;
-      s.hand = p.alive ? handCode(p.inv.slots[p.inv.sel]) : 0;
+      s.hand = p.alive ? handCode(selectedItem(p.inv)) : 0;
     });
     return list;
   }
@@ -93,7 +111,8 @@ export class LocalSession {
     const p = this.me;
     return {
       health: p.health, shield: p.shield, overshield: p.overshield, alive: p.alive, kills: p.kills, damage: Math.round(p.damage),
-      headshots: p.headshots, useT: p.useT, placement: p.placement,
+      headshots: p.headshots, useT: p.useT, placement: p.placement, knocked: p.knocked,
+      revive01: p.reviving ? Math.min(1, p.reviveT / REVIVE_TIME) : -1,
     };
   }
 
@@ -127,6 +146,7 @@ export class LocalSession {
   interact(target) { this.sim.humanInteract(this.youId, target); }
   use(slot) { this.sim.humanUse(this.youId, slot); }
   cancelUse() { this.sim.humanCancelUse(this.youId); }
+  revive(targetId) { this.sim.humanRevive(this.youId, targetId); }
 
   drainEvents() {
     const e = this.events;
@@ -173,12 +193,16 @@ export class NetSession {
     this.matchId = start.matchId;
     this.youId = start.you;
     this.players = start.players;
+    this.initTeams(start.mode);
+    this.reviveStart = -1;
     const me = start.spawns[this.youId];
     this.spawn = { x: me[0], y: me[1], z: me[2], yaw: me[3] };
     this.zoneObj = new Zone(start.seed, map.terrain, true);
     // Startbeute ist deterministisch aus Seed + Karte; danach kommen Änderungen als Ereignisse
     this.loot = new Loot(map, start.seed);
-    this.inv = createInventory();
+    const mine = this.players.find((p) => p.id === this.youId);
+    this.inv = createInventory(mine && mine.knife);
+    this.knife = this.inv.knife;
     this.useT = -1;
     this.useRecv = 0;
     this.snaps = [];
@@ -202,10 +226,12 @@ export class NetSession {
     if (m.mid && m.mid !== this.matchId) return;
     if (m.t === 'snap') {
       const now = performance.now() / 1000;
+      // Zeitversatz Server→Client: Ziel = untere Hülle (späteste Pakete), die Anzeige-Uhr
+      // folgt dem Ziel sanft (renderTime), damit sie nie rückwärts springt
       const off = m.s.t - now;
-      if (this.offset === null) this.offset = off;
-      else if (off > this.offset) this.offset += (off - this.offset) * 0.05;
-      else this.offset = off; // späte Pakete: sofort anpassen (untere Hülle)
+      if (this.offset === null) this.offset = this.targetOffset = off;
+      else if (off > this.targetOffset) this.targetOffset += (off - this.targetOffset) * 0.05;
+      else this.targetOffset = off;
       const map = new Map();
       for (const r of m.s.p) map.set(r[0], r);
       const snap = { t: m.s.t, mt: m.s.mt, ph: m.s.ph, cd: m.s.cd, p: map, recv: now };
@@ -217,7 +243,7 @@ export class NetSession {
         this.useRecv = now;
         if (m.me.inv) {
           const i = m.me.inv;
-          this.inv = { slots: i.s.map((e) => (e ? decodeItem(e) : null)), sel: i.sel, ammo: { ...i.a }, rev: i.rev };
+          this.inv = { knife: this.knife, slots: i.s.map((e) => (e ? decodeItem(e) : null)), sel: i.sel, ammo: { ...i.a }, rev: i.rev };
         }
       }
       if (m.sc) for (const [id, k, d, pg] of m.sc) {
@@ -235,6 +261,9 @@ export class NetSession {
           if (e.k === this.youId) this.kills++;
         }
         if (e.t === 'win') this.winner = e.id;
+        // eigener Wiederbelebungs-Fortschritt (für den Ring)
+        if (e.t === 'reviveStart' && e.id === this.youId) this.reviveStart = performance.now() / 1000;
+        if ((e.t === 'reviveStop' && e.id === this.youId) || (e.t === 'revive' && e.by === this.youId)) this.reviveStart = -1;
       }
     } else if (m.t === 'matchEnd') {
       this.ended = true;
@@ -261,7 +290,15 @@ export class NetSession {
   update() {}
 
   renderTime() {
-    return performance.now() / 1000 + (this.offset ?? 0) - INTERP_DELAY;
+    const now = performance.now() / 1000;
+    if (this.offset === null) return now - INTERP_DELAY;
+    const dt = this.lastRT ? Math.min(0.1, Math.max(0, now - this.lastRT)) : 0;
+    this.lastRT = now;
+    const diff = this.targetOffset - this.offset;
+    // große Sprünge (Tab war im Hintergrund) sofort, sonst höchstens ±12 % Zeitdehnung
+    if (Math.abs(diff) > 0.4) this.offset = this.targetOffset;
+    else this.offset += Math.max(-dt * 0.12, Math.min(dt * 0.12, diff));
+    return now + this.offset - INTERP_DELAY;
   }
 
   states() {
@@ -291,7 +328,10 @@ export class NetSession {
         s.yaw = lerpAngle(ra[4], rb[4], k);
         s.pitch = ra[5] + (rb[5] - ra[5]) * k;
       } else {
-        s.x = ra[1]; s.y = ra[2]; s.z = ra[3]; s.yaw = ra[4]; s.pitch = ra[5];
+        // kein neueres Paket da (Paket verspätet): kurz mit der Geschwindigkeit weiterrechnen
+        // statt einzufrieren und dann zu springen
+        const ex = a && !(ra[6] & F.DEAD) ? Math.max(0, Math.min(MAX_EXTRAP, rt - a.t)) : 0;
+        s.x = ra[1] + ra[10] * ex; s.y = ra[2]; s.z = ra[3] + ra[11] * ex; s.yaw = ra[4]; s.pitch = ra[5];
       }
       const latest = this.latest.p.get(p.id) || ra;
       s.flags = (rb || ra)[6];
@@ -314,6 +354,8 @@ export class NetSession {
     return {
       health: r ? r[7] : MAX_HEALTH, shield: r ? r[8] : 0, overshield: r ? r[9] : START_OVERSHIELD, alive,
       kills: this.kills, damage: Math.round(this.damage), headshots: this.headshots, useT,
+      knocked: !!(r && alive && r[6] & F.KNOCKED),
+      revive01: this.reviveStart >= 0 ? Math.min(1, (performance.now() / 1000 - this.reviveStart) / REVIVE_TIME) : -1,
     };
   }
 
@@ -363,6 +405,7 @@ export class NetSession {
   interact(target) { this.net.send({ t: 'int', ...target }); }
   use(slot) { this.net.send({ t: 'use', s: slot }); }
   cancelUse() { this.net.send({ t: 'useCancel' }); }
+  revive(targetId) { this.net.send({ t: 'rev', v: targetId || null }); }
 
   drainEvents() {
     const e = this.events;
@@ -384,3 +427,6 @@ export class NetSession {
     this.unsub && this.unsub();
   }
 }
+
+Object.assign(LocalSession.prototype, TeamMixin);
+Object.assign(NetSession.prototype, TeamMixin);

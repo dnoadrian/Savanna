@@ -6,16 +6,16 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { validateName, suggestAlternatives, randomName } from '../shared/names.js';
-import { MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, MATCH_SIZE, SIM_DT, QUEUE_WAIT, clampQueueWait } from '../shared/constants.js';
-import { WEAPONS, CONSUMABLES, AMMO_DROP, KILL_AMMO, AMMO_TYPES, weaponItem, consumableItem, ammoItem, weaponDamage, rollWeapon, decodeItem, chestAmmoFor } from '../shared/items.js';
+import { MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, MATCH_SIZE, SIM_DT, QUEUE_WAIT, PLAY_RADIUS, clampQueueWait } from '../shared/constants.js';
+import { WEAPONS, LOOT_WEAPONS, KNIFE_SKINS, CONSUMABLES, AMMO_DROP, KILL_AMMO, AMMO_TYPES, weaponItem, consumableItem, ammoItem, weaponDamage, rollWeapon, decodeItem, chestAmmoFor } from '../shared/items.js';
 import { createWeaponRuntime, equipWeapon, canFire, fireWeapon, updateWeapon } from '../shared/sim/weapon.js';
-import { createInventory, addItem, SLOTS } from '../shared/sim/inventory.js';
+import { createInventory, addItem, selectedItem, SLOTS, KNIFE_SLOT } from '../shared/sim/inventory.js';
 import { createBody, stepMovement } from '../shared/sim/movement.js';
 import { PT, propColliders } from '../shared/map/props.js';
 import { CollisionWorld } from '../shared/physics/collision.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
-import { generateMap } from '../shared/map/mapgen.js';
+import { generateMap, MAPS, randomMapId } from '../shared/map/mapgen.js';
 import { runHeadlessMatch } from './sim-headless.js';
 import { runServerTest } from './server-test.js';
 
@@ -194,6 +194,46 @@ test('Admin-Cheats: OP-Loot (goldene SCAR + Sniper) und unendliche Munition', ()
   a.fireTokens = 2; a.wr.cooldown = 0;
   assert.ok(shot());
   assert.equal(a.inv.slots[0].mag, 29);
+});
+
+test('Messer: eigener Platz, Nahkampf 40 Schaden (Kopf 60), keine Munition, nie in Truhen', () => {
+  assert.ok(!LOOT_WEAPONS.includes('knife'));
+  const rng = new RNG(99);
+  for (let i = 0; i < 2000; i++) assert.notEqual(rollWeapon(rng).w, 'knife');
+  assert.equal(createInventory('gold').knife.r, KNIFE_SKINS.indexOf('gold'));
+  assert.equal(createInventory('gibtsnicht').knife.r, 0, 'unbekannter Skin → Standard');
+  const sim = makeSim(12, 2);
+  playing(sim);
+  const [a, b] = sim.players;
+  // beide in die Luft (nichts im Weg), b steht 1,8 m vor a
+  a.body.x = 0; a.body.y = 150; a.body.z = 0;
+  b.body.x = 0; b.body.y = 150; b.body.z = -1.8;
+  sim.humanSelect(a.id, KNIFE_SLOT);
+  assert.equal(a.inv.sel, KNIFE_SLOT);
+  assert.equal(selectedItem(a.inv).w, 'knife');
+  const ammo = { ...a.inv.ammo };
+  const total = () => b.health + b.shield + b.overshield;
+  const hit = (dy) => {
+    a.fireTokens = 2; a.wr.cooldown = 0; a.wr.equipT = 0;
+    const l = Math.hypot(dy, 1);
+    return sim.humanFire(a.id, { s: KNIFE_SLOT, ox: 0, oy: 151.6, oz: 0, dirs: [{ x: 0, y: dy / l, z: -1 / l }] });
+  };
+  let before = total();
+  assert.ok(hit(-0.35));
+  assert.equal(before - total(), 40, 'Körpertreffer');
+  before = total();
+  assert.ok(hit(0));
+  assert.equal(before - total(), 60, 'Kopftreffer');
+  assert.equal(a.inv.knife.mag, 1, 'kein Magazin verbraucht');
+  assert.deepEqual(a.inv.ammo, ammo, 'keine Munition verbraucht');
+  sim.humanReload(a.id);
+  assert.equal(a.wr.reloading, false, 'Messer lädt nicht nach');
+  b.body.z = -4;
+  before = total();
+  hit(-0.35);
+  assert.equal(total(), before, '4 m sind außer Reichweite');
+  sim.humanSelect(a.id, 0);
+  assert.equal(selectedItem(a.inv).w, 'pistol');
 });
 
 test('Admin-Zugänge: Haupt-Admin legt Zugänge mit begrenzten Anmeldungen an', async () => {
@@ -406,49 +446,121 @@ test('Warteschlange: Wartezeit einstellbar, Standard 15 s, 10 bis 120 s', () => 
   assert.equal(clampQueueWait(500), 120);
 });
 
-test('Immer genau 12 Spieler (1..12 Menschen, Rest Bots)', () => {
+test('Immer genau 20 Spieler (1..20 Menschen, Rest Bots)', () => {
+  assert.equal(MATCH_SIZE, 20);
   const rng = new RNG(5);
-  for (let h = 1; h <= 14; h++) {
+  for (let h = 1; h <= 22; h++) {
     const humans = Array.from({ length: h }, (_, i) => ({ id: 'h' + i, name: 'Mensch' + i }));
     const players = Simulation.fillWithBots(humans, rng, h % 2 ? { name: 'Kronen Bot', outfit: 'pirate', color: 1, streak: 2 } : null);
     assert.equal(players.length, MATCH_SIZE);
-    assert.equal(players.filter((p) => !p.isBot).length, Math.min(h, 12));
-    assert.equal(new Set(players.map((p) => p.id)).size, 12);
+    assert.equal(players.filter((p) => !p.isBot).length, Math.min(h, 20));
+    assert.equal(new Set(players.map((p) => p.id)).size, 20);
   }
 });
 
-test('Karte: Hafenbucht mit 3 Orten, Truhen, türkisem Wasser, deterministisch (Server = Client)', () => {
-  const m2 = generateMap();
+test('Duo-Teams: Party-Partner zusammen, Einzelspieler miteinander, Rest Bots – 10 Zweierteams', () => {
+  const rng = new RNG(8);
+  const humans = [
+    { id: 'a', name: 'Anna', party: 'p1' }, { id: 'b', name: 'Ben', party: 'p1' },
+    { id: 'c', name: 'Cem' }, { id: 'd', name: 'Dora' }, { id: 'e', name: 'Emil' },
+  ];
+  const players = Simulation.fillWithBots(humans, rng, null, 'duo');
+  const team = (id) => players.find((p) => p.id === id).team;
+  assert.equal(team('a'), team('b'), 'Party zusammen');
+  assert.equal(team('c'), team('d'), 'Einzelspieler zusammen');
+  assert.ok(players.find((p) => p.team === team('e') && p.id !== 'e').isBot, 'Rest mit Bot');
+  const sizes = new Map();
+  for (const p of players) sizes.set(p.team, (sizes.get(p.team) || 0) + 1);
+  assert.equal(sizes.size, 10);
+  assert.ok([...sizes.values()].every((n) => n === 2));
+});
+
+test('Duo: kein Eigenbeschuss, Niederschlagen, Wiederbeleben, Team-Aus und Team-Sieg', () => {
+  const players = ['a', 'b', 'c', 'd'].map((id, i) => ({ id, name: 'P' + id, team: i < 2 ? 0 : 1 }));
+  const sim = new Simulation(world, { seed: 3, players, storm: false, mode: 'duo' });
+  playing(sim);
+  const [a, b, c, d] = sim.players;
+  assert.ok(Math.hypot(a.body.x - b.body.x, a.body.z - b.body.z) < 6, 'Partner starten zusammen');
+  sim.applyDamage(b, 60, 'a', 'b', null, 'ar');
+  assert.equal(b.overshield + b.health, 150, 'kein Eigenbeschuss');
+  // a wird niedergeschlagen (b steht noch)
+  sim.applyDamage(a, 500, 'c', 'b', null, 'ar');
+  assert.ok(a.alive && a.knocked, 'niedergeschlagen statt eliminiert');
+  assert.equal(sim.humanFire(a.id, { s: 0, ox: a.body.x, oy: a.body.y + 1, oz: a.body.z, dirs: [{ x: 0, y: 0, z: -1 }] }), false, 'am Boden kein Schießen');
+  // b belebt a wieder
+  b.body.x = a.body.x + 1; b.body.z = a.body.z; b.body.y = a.body.y;
+  assert.ok(sim.humanRevive(b.id, a.id));
+  for (let t = 0; t < 5.2; t += SIM_DT) sim.step(SIM_DT);
+  assert.ok(!a.knocked && a.health === 30, 'wiederbelebt mit 30 Leben');
+  // ausbluten: c niederschlagen, d eliminieren → c scheidet sofort mit aus (Team raus, Platz 2)
+  sim.applyDamage(c, 500, 'a', 'b', null, 'ar');
+  assert.ok(c.knocked);
+  sim.applyDamage(d, 500, 'b', 'b', null, 'ar');
+  assert.ok(!c.alive && !d.alive, 'ganzes Team ausgeschieden');
+  assert.equal(c.placement, 2);
+  assert.equal(d.placement, 2);
+  assert.equal(sim.phase, 'ended');
+  assert.equal(sim.stats(a).placement, 1);
+  assert.equal(sim.stats(b).placement, 1);
+});
+
+test('Karten: 18 Chapter-2-Orte als Inseln im Meer, deterministisch (Server = Client), zufällig je Runde', () => {
   const hash = (m) => {
     let h = 0;
     for (const c of m.collision.cols) h = (h * 31 + Math.round((c.x + c.z) * 100)) | 0;
     return [m.collision.cols.length, h, m.props.length, m.parts.length, m.chests.length];
   };
-  assert.deepEqual(hash(map), hash(m2));
-  assert.deepEqual(map.pois.map((p) => p.name), ['Saloon Pier', 'Lighthouse Point', 'Tin Roof Wharf']);
-  assert.ok(map.chests.length >= 15, 'Truhen: ' + map.chests.length);
-  let water = 0, land = 0;
-  for (let x = -90; x <= 90; x += 6) for (let z = -90; z <= 90; z += 6) {
-    if (Math.hypot(x, z) > 90) continue;
-    if (map.terrain.heightAt(x, z) < 0) water++; else land++;
+  assert.equal(MAPS.length, 18);
+  const names = ['Pleasant Park', 'Salty Springs', 'Sweaty Sands', 'Steamy Stacks', 'Frenzy Farm', 'Holly Hedges', 'Weeping Woods', 'Slurpy Swamp', 'Misty Meadows',
+    'Lazy Lake', 'Retail Row', 'Dirty Docks', 'Craggy Cliffs', 'The Agency', 'The Shark', 'The Yacht', 'The Rig', 'The Grotto'];
+  assert.deepEqual(MAPS.map((m) => m.name), names);
+  for (const def of MAPS) {
+    const m = generateMap(def.id);
+    assert.equal(m.pois[0].name, def.name, 'Ort ' + def.name);
+    assert.ok(m.chests.length >= 30, `${def.name}: Truhen ${m.chests.length}`);
+    assert.ok(m.floorLoot.length >= 40, `${def.name}: Bodenbeute ${m.floorLoot.length}`);
+    // rundherum Meer (Insel), innen Land
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) assert.ok(m.terrain.heightAt(Math.cos(a) * 185, Math.sin(a) * 185) < -1, `${def.name}: Meer bei 185 m`);
+    let land = 0;
+    for (let x = -100; x <= 100; x += 10) for (let z = -100; z <= 100; z += 10) if (m.terrain.heightAt(x, z) > 0.3) land++;
+    assert.ok(land > 250, `${def.name}: Land ${land}`);
+    if (def.id === 'salty' || def.id === 'rig') assert.deepEqual(hash(m), hash(generateMap(def.id)), 'deterministisch');
   }
-  assert.ok(water > 60 && land > 60, `Wasser ${water} / Land ${land}`);
-  // Canyonwände rundherum
-  for (let a = 0; a < Math.PI * 2; a += Math.PI / 6) assert.ok(map.terrain.heightAt(Math.cos(a) * 125, Math.sin(a) * 125) > 3, 'Canyon bei 125 m');
-  assert.ok(map.collision.cols.filter((c) => Math.hypot(c.x, c.z) > 95).length > 30, 'Felswände fehlen');
+  // doppelte Fläche der alten Bucht (Spielfeld-Radius 100 → 142)
+  assert.ok(Math.abs((PLAY_RADIUS * PLAY_RADIUS) / (100 * 100) - 2) < 0.05);
+  const seen = new Set();
+  let last = null;
+  for (let i = 0; i < 200; i++) { last = randomMapId(Math.random, last); seen.add(last); }
+  assert.equal(seen.size, 18, 'alle Karten kommen vor');
 });
 
-test('Komplettes Bot-Match: Sieger, Plätze 1..12, Truhen geöffnet, Beute, Heilung, Siphon', () => {
-  const r = runHeadlessMatch({ seed: 4242 });
-  assert.equal(r.playerCount, 12);
+test('Komplettes Bot-Match: Sieger, Plätze 1..20, Truhen geöffnet, Beute, Heilung, Siphon', () => {
+  const r = runHeadlessMatch({ seed: 4242, mapId: 'retail' });
+  assert.equal(r.playerCount, 20);
   assert.ok(r.winner, 'Kein Sieger');
   const places = r.sim.players.map((p) => p.placement).sort((a, b) => a - b);
-  assert.deepEqual(places, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  assert.deepEqual(places, Array.from({ length: 20 }, (_, i) => i + 1));
   assert.ok(r.stats.chests > 3, 'Bots öffnen keine Truhen');
   assert.ok(r.stats.pickups > 5, 'Bots heben nichts auf');
   assert.ok(r.stats.siphons > 0, 'kein Siphon');
   assert.ok(r.stuckMax < 8, 'Bots stecken fest');
   console.log(`    Sieger: ${r.winner.name} nach ${r.sim.matchTime.toFixed(0)} s · Truhen ${r.stats.chests} · Aufgehoben ${r.stats.pickups} · Heilungen ${r.stats.heals} · Waffen ${JSON.stringify(r.stats.weapons)}`);
+});
+
+test('Duo-Bot-Match: 10 Teams, Plätze pro Team, Siegerteam auf Platz 1', () => {
+  const r = runHeadlessMatch({ seed: 777, mapId: 'weeping', mode: 'duo' });
+  assert.ok(r.winner, 'Kein Sieger');
+  const byTeam = new Map();
+  for (const p of r.sim.players) {
+    if (!byTeam.has(p.team)) byTeam.set(p.team, new Set());
+    byTeam.get(p.team).add(p.placement);
+  }
+  assert.equal(byTeam.size, 10);
+  for (const set of byTeam.values()) assert.equal(set.size, 1, 'Team hat eine gemeinsame Platzierung');
+  const places = [...byTeam.values()].map((set) => [...set][0]).sort((a, b) => a - b);
+  assert.deepEqual(places, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.ok(r.stats.knocks > 0, 'niemand wurde niedergeschlagen');
+  console.log(`    Duo-Sieger: Team von ${r.winner.name} nach ${r.sim.matchTime.toFixed(0)} s · Niedergeschlagen ${r.stats.knocks} · Wiederbelebt ${r.stats.revives}`);
 });
 
 test('Leuchtfeuer: Host meldet seine Tunnel-Adresse, beim Beenden „offline“', async () => {

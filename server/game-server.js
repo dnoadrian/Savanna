@@ -1,15 +1,24 @@
 // Lobby-Server: Benutzernamen, Freunde, Party, Einladungen, Matchmaking (15 s Warteschlange,
-// dann mit Bots auf 12 auffüllen),
+// dann mit Bots auf 20 auffüllen; Solo oder Duo), jede Runde eine zufällige Insel,
 // server-autoritative Matches und Online-Hosting-Steuerung.
+import crypto from 'crypto';
 import { Store } from './store.js';
 import { ServerMatch } from './match.js';
 import { TunnelManager } from './tunnel.js';
 import { Beacon } from './beacon.js';
 import { AdminAuth } from './admin.js';
 import { validateName, suggestAlternatives } from '../shared/names.js';
-import { generateMap } from '../shared/map/mapgen.js';
+import { mapSteps, randomMapId } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
-import { MAP_SEED, MATCH_SIZE, PARTY_MAX, INVITE_TTL, SERVER_PORT, ADMIN_USER, ADMIN_PASS, ADMIN_MAX_COINS, clampQueueWait } from '../shared/constants.js';
+import { Simulation } from '../shared/sim/simulation.js';
+import { RNG } from '../shared/rng.js';
+import { MATCH_SIZE, PARTY_MAX, INVITE_TTL, SERVER_PORT, ADMIN_USER, ADMIN_PASS, ADMIN_MAX_COINS, SIM_DT, clampQueueWait } from '../shared/constants.js';
+
+const WARMUP_STEPS = 900; // 30 s Spielzeit
+// Lobby-Nachrichten: höchstens 5 gleichzeitig, 160 Zeichen, längstens 30 Tage (0 = dauerhaft)
+const ANN_MAX = 5;
+const ANN_MAX_LEN = 160;
+const ANN_MAX_MINS = 30 * 24 * 60;
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const PROXY_HEADERS = ['x-forwarded-for', 'cf-connecting-ip', 'x-real-ip', 'forwarded', 'cf-ray'];
@@ -26,15 +35,18 @@ export class GameServer {
     this.invites = new Map();
     this.queue = []; // Tickets
     this.matches = new Map();
-    const t0 = Date.now();
-    const map = generateMap(MAP_SEED);
-    const nav = new NavGrid(map.terrain, map.collision);
-    this.world = { terrain: map.terrain, collision: map.collision, nav, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot };
-    console.log(`Karte generiert in ${Date.now() - t0} ms (${map.collision.cols.length} Collider).`);
+    // Karten: jede Runde eine zufällige Insel; die nächste wird im Hintergrund vorbereitet
+    this.maps = new Map(); // id -> { id, ready, world, gen, waiters }
+    this.nextMap = randomMapId();
+    this.prepareMap(this.nextMap, (world) => {
+      // JIT aufwärmen: kurze Bot-Runde im Hintergrund, damit das erste echte Match nicht ruckelt
+      if (process.env.SHOWDOWN_WARMUP !== '0') setTimeout(() => this.warmup(world), 300);
+    });
     this.tunnel = new TunnelManager(port);
     this.tunnel.on('change', (st) => this.broadcastHost(st));
     this.beacon = new Beacon(this.tunnel);
     this.admin = new AdminAuth(this.store);
+    this.loginFails = new Map(); // Konto-ID -> Zeitpunkte falscher Anmeldungen
     // Angaben für die Lobby-Anzeige „Server“ (Name, Standort, Spieler online)
     this.info = {
       name: process.env.SHOWDOWN_SERVER_NAME || process.env.RENDER_SERVICE_NAME || null,
@@ -130,11 +142,12 @@ export class GameServer {
     }
     if (m.t === 'checkName') return this.onCheckName(c, m);
     if (m.t === 'hello') return this.onHello(c, m);
+    if (m.t === 'login') return this.onLogin(c, m);
     if (!c.pid) return;
     // Match-Nachrichten
     if (c.matchId) {
       const match = this.matches.get(c.matchId);
-      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'sel', 'swap', 'drop', 'dropAmmo', 'cheat', 'int', 'use', 'useCancel', 'leaveMatch', 'loaded'].includes(m.t)) {
+      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'sel', 'swap', 'drop', 'dropAmmo', 'cheat', 'int', 'use', 'useCancel', 'rev', 'leaveMatch', 'loaded'].includes(m.t)) {
         match.onMessage(c, m);
         return;
       }
@@ -143,6 +156,7 @@ export class GameServer {
       case 'setName': return this.onSetName(c, m);
       case 'profile': return this.onProfile(c, m);
       case 'resetAccount': return this.onResetAccount(c);
+      case 'logout': return this.onLogout(c);
       case 'friendRequest': return this.onFriendRequest(c, m);
       case 'friendAccept': return this.onFriendAccept(c, m.id);
       case 'friendDecline': return this.onFriendDecline(c, m.id);
@@ -159,6 +173,7 @@ export class GameServer {
       case 'partyPromote': return this.onPartyPromote(c, m.id);
       case 'partyReady': return this.onPartyReady(c, !!m.ready);
       case 'partyChat': return this.onPartyChat(c, m.text);
+      case 'partyMode': return this.onPartyMode(c, m.mode);
       case 'queue': return this.onQueue(c, m);
       case 'queueCancel': return this.onQueueCancel(c);
       case 'adminCoins': return this.onAdminCoins(c, m);
@@ -166,6 +181,7 @@ export class GameServer {
       case 'adminResume': return this.onAdminResume(c, m);
       case 'adminLogout': c.admin = null; return;
       case 'adminAccounts': return this.onAdminAccounts(c, m);
+      case 'adminAnnounce': return this.onAdminAnnounce(c, m);
       case 'cheat': c.cheats = { ia: !!m.ia }; return;
       case 'hostStatus': return this.sendHost(c);
       case 'hostStart':
@@ -206,6 +222,12 @@ export class GameServer {
       this.send(c, { t: 'nameTaken', err: r.err, suggestions: r.suggestions || suggestAlternatives(name || 'Spieler', (n) => this.store.nameTaken(n, id)) });
       return;
     }
+    const auth = AUTH_RE.test(String(m.auth || '')) ? m.auth : null;
+    // Konto mit Geburtsdatum: nur mit passendem Schlüssel (sonst neu anmelden lassen)
+    if (p && p.auth && (!auth || hashAuth(p.authSalt, auth) !== p.auth)) {
+      this.send(c, { t: 'authFail' });
+      return;
+    }
     if (!p) {
       p = { id, name, nameKey: name.toLowerCase(), friends: [], incoming: [], outgoing: [], blocked: [], profile: {}, createdAt: Date.now(), lastSeen: Date.now() };
       this.store.players[id] = p;
@@ -214,7 +236,13 @@ export class GameServer {
       p.name = name;
       p.nameKey = name.toLowerCase();
     }
+    if (auth && !p.auth) {
+      p.authSalt = crypto.randomBytes(8).toString('hex');
+      p.auth = hashAuth(p.authSalt, auth);
+    }
     p.profile = sanitizeProfile(m.profile);
+    const save = sanitizeSave(m.save);
+    if (save) p.save = save;
     // alte Verbindung desselben Spielers ersetzen
     const old = this.byPid.get(id);
     if (old && old !== c) {
@@ -225,7 +253,7 @@ export class GameServer {
     c.pid = id;
     this.byPid.set(id, c);
     this.store.save();
-    this.send(c, { t: 'welcome', name: p.name, isHost: c.isHost, srv: this.serverInfo() });
+    this.send(c, { t: 'welcome', name: p.name, isHost: c.isHost, srv: this.serverInfo(), ann: this.announcements() });
     this.sendSocial(id);
     const party = this.partyOf(id);
     this.send(c, { t: 'party', party: party ? this.partyView(party) : null });
@@ -258,10 +286,52 @@ export class GameServer {
     if (party) this.sendParty(party.id);
   }
 
+  // Anmelden auf einem anderen Gerät: Name + Schlüssel aus dem Geburtsdatum
+  onLogin(c, m) {
+    const reply = (r) => this.send(c, { t: 'result', rid: m.rid, ...r });
+    const now = Date.now();
+    // Bremse gegen Durchprobieren: 5 Fehlversuche pro Minute je Verbindung, 10 in 10 min je Konto
+    c.loginFails = (c.loginFails || []).filter((t) => now - t < 60000);
+    if (c.loginFails.length >= 5) return reply({ ok: false, key: 'loginSlow' });
+    const p = this.store.byName(String(m.name || '').trim());
+    if (!p) {
+      c.loginFails.push(now);
+      return reply({ ok: false, key: 'loginUnknown' });
+    }
+    const fails = (this.loginFails.get(p.id) || []).filter((t) => now - t < 600000);
+    this.loginFails.set(p.id, fails);
+    if (fails.length >= 10) return reply({ ok: false, key: 'loginSlow' });
+    const auth = String(m.auth || '');
+    if (!p.auth || !AUTH_RE.test(auth) || hashAuth(p.authSalt, auth) !== p.auth) {
+      c.loginFails.push(now);
+      fails.push(now);
+      return reply({ ok: false, key: p.auth ? 'loginWrong' : 'loginNoBirth' });
+    }
+    this.loginFails.delete(p.id);
+    console.log(`Anmeldung: ${p.name}`);
+    return reply({ ok: true, id: p.id, name: p.name, save: p.save || null });
+  }
+
+  // Abmelden (Konto bleibt bestehen): Verbindung wieder „anonym“
+  onLogout(c) {
+    const id = c.pid;
+    if (!id || c.matchId) return;
+    this.removeFromQueue(id, true);
+    this.leaveParty(id);
+    if (this.byPid.get(id) === c) this.byPid.delete(id);
+    c.pid = null;
+    const p = this.store.player(id);
+    if (p) p.lastSeen = Date.now();
+    this.pushPresence(id);
+    this.store.save();
+  }
+
   onProfile(c, m) {
     const p = this.store.player(c.pid);
     if (!p) return;
     p.profile = sanitizeProfile(m.profile);
+    const save = sanitizeSave(m.save);
+    if (save) p.save = save;
     this.store.save();
     const party = this.partyOf(c.pid);
     if (party) this.sendParty(party.id);
@@ -292,7 +362,7 @@ export class GameServer {
   publicProfile(pid) {
     const p = this.store.player(pid);
     const pr = (p && p.profile) || {};
-    return { id: pid, name: p ? p.name : '?', outfit: pr.outfit || 'cowboy', color: pr.color || 0, crownStyle: pr.crownStyle || 'gold', streak: pr.streak || 0, level: pr.level || 1 };
+    return { id: pid, name: p ? p.name : '?', outfit: pr.outfit || 'cowboy', color: pr.color || 0, crownStyle: pr.crownStyle || 'gold', streak: pr.streak || 0, rank: pr.rank || 0, knife: pr.knife || 'standard' };
   }
 
   nameOf(pid) {
@@ -355,6 +425,46 @@ export class GameServer {
     if (m.op === 'add') r = this.admin.add(m.user, m.pass, m.uses);
     else if (m.op === 'remove') r = this.admin.remove(m.user);
     reply({ ...r, accounts: this.admin.list() });
+  }
+
+  // ---------------- Lobby-Nachrichten (Haupt-Admin) ----------------
+  // Werden oben in der Mitte der Lobby angezeigt: dauerhaft (until = 0) oder bis zu einem Zeitpunkt
+  announcements() {
+    const now = Date.now();
+    const all = this.store.data.announcements || [];
+    const live = all.filter((a) => !a.until || a.until > now);
+    if (live.length !== all.length) {
+      this.store.data.announcements = live;
+      this.store.save();
+    }
+    return live.map((a) => ({ id: a.id, text: a.text, left: a.until ? a.until - now : 0 }));
+  }
+
+  onAdminAnnounce(c, m) {
+    const reply = (r) => this.send(c, { t: 'result', rid: m.rid, ...r, ann: this.announcements() });
+    if (!c.admin || c.admin.role !== 'master') return reply({ ok: false, key: 'adminNoRight' });
+    this.announcements(); // Abgelaufene entfernen
+    const list = (this.store.data.announcements = this.store.data.announcements || []);
+    if (m.op === 'add') {
+      const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, ANN_MAX_LEN);
+      if (!text) return reply({ ok: false, key: 'adminAnnEmpty' });
+      const mins = Math.round(Number(m.mins) || 0);
+      if (mins < 0 || mins > ANN_MAX_MINS) return reply({ ok: false, key: 'err_generic' });
+      if (list.length >= ANN_MAX) return reply({ ok: false, key: 'adminAnnFull' });
+      const id = (this.store.data.annId = (this.store.data.annId || 0) + 1);
+      list.push({ id, text, until: mins ? Date.now() + mins * 60000 : 0 });
+      console.log(`[admin] Lobby-Nachricht ${mins ? `für ${mins} min` : 'dauerhaft'}: ${text}`);
+    } else if (m.op === 'remove') {
+      this.store.data.announcements = list.filter((a) => a.id !== Number(m.id));
+    }
+    this.store.save();
+    this.broadcastAnnouncements();
+    return reply({ ok: true });
+  }
+
+  broadcastAnnouncements() {
+    const ann = this.announcements();
+    for (const c of this.clients) if (c.pid) this.send(c, { t: 'ann', ann });
   }
 
   onAdminCoins(c, m) {
@@ -477,11 +587,21 @@ export class GameServer {
     return null;
   }
 
+  // Spielmodus der Party (Solo/Duo) – nur der Leader wählt
+  onPartyMode(c, mode) {
+    const party = this.partyOf(c.pid);
+    if (!party || party.leader !== c.pid) return;
+    party.mode = mode === 'duo' ? 'duo' : 'solo';
+    this.store.save();
+    this.sendParty(party.id);
+  }
+
   partyView(party) {
     return {
       id: party.id,
       leader: party.leader,
       open: party.open,
+      mode: party.mode || 'solo',
       members: party.members.map((id) => ({ ...this.publicProfile(id), ready: !!(party.ready && party.ready[id]), online: this.byPid.has(id), status: this.status(id) })),
     };
   }
@@ -664,7 +784,9 @@ export class GameServer {
       members = party.members.filter((id) => this.byPid.has(id) && !this.byPid.get(id).matchId);
     }
     if (this.queue.some((tk) => tk.members.includes(c.pid))) return;
-    const ticket = { leader: c.pid, members, created: Date.now(), wait: clampQueueWait(m.wait) };
+    const mode = m.mode === 'duo' ? 'duo' : 'solo';
+    if (mode === 'duo' && members.length > 2) return this.err(c, 'duoTooMany');
+    const ticket = { leader: c.pid, members, created: Date.now(), wait: clampQueueWait(m.wait), mode };
     this.queue.push(ticket);
     this.tickQueue();
   }
@@ -698,10 +820,12 @@ export class GameServer {
       return ok;
     });
     if (!this.queue.length) return;
-    // Parties nie trennen: FIFO auffüllen bis max. 12 Menschen
+    // Parties nie trennen: FIFO auffüllen bis max. 20 Menschen (nur Tickets mit demselben Modus)
     const pick = [];
     let humans = 0;
+    const mode = this.queue[0].mode;
     for (const tk of this.queue) {
+      if (tk.mode !== mode) continue;
       if (humans + tk.members.length <= MATCH_SIZE) {
         pick.push(tk);
         humans += tk.members.length;
@@ -713,29 +837,40 @@ export class GameServer {
     const waited = (Date.now() - first.created) / 1000;
     if (humans >= MATCH_SIZE || waited >= first.wait) {
       this.queue = this.queue.filter((tk) => !pick.includes(tk));
-      this.startMatch(pick);
+      this.startMatch(pick, mode);
       return;
     }
     const secs = Math.max(0, first.wait - waited);
     for (const tk of this.queue) {
       const n = pick.includes(tk) ? humans : tk.members.length;
-      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs, wait: first.wait, humans: n, bots: MATCH_SIZE - n });
+      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs: pick.includes(tk) ? secs : Math.max(secs, tk.wait - (Date.now() - tk.created) / 1000), wait: pick.includes(tk) ? first.wait : tk.wait, humans: n, bots: MATCH_SIZE - n, map: this.nextMap, mode: tk.mode });
     }
   }
 
-  startMatch(tickets) {
+  startMatch(tickets, mode = 'solo') {
     const clients = [];
     for (const tk of tickets) for (const id of tk.members) {
       const c = this.byPid.get(id);
       if (c && !c.matchId) clients.push(c);
     }
     if (!clients.length) return;
-    const match = new ServerMatch(this, clients);
+    const mapId = this.nextMap;
+    const world = this.mapNow(mapId);
+    const match = new ServerMatch(this, clients, world, mode);
     this.matches.set(match.id, match);
+    // nächste Runde: andere zufällige Karte, im Hintergrund vorbereiten
+    this.nextMap = randomMapId(Math.random, mapId);
+    this.pruneMaps();
+    this.prepareMap(this.nextMap);
+    const parties = new Set();
     for (const c of clients) {
       this.send(c, { t: 'queue', state: 'idle' });
       this.pushPresence(c.pid);
+      const party = this.partyOf(c.pid);
+      if (party) parties.add(party.id);
     }
+    // Party-Mitglieder sehen, wer im Spiel ist (blaue Figur in der Lobby)
+    for (const id of parties) this.sendParty(id);
   }
 
   onClientLeftMatch(c) {
@@ -758,6 +893,7 @@ export class GameServer {
     }
     this.store.save();
     this.matches.delete(match.id);
+    this.pruneMaps();
     for (const c of match.clients.values()) {
       if (c.matchId === match.id) c.matchId = null;
       if (c.pid) {
@@ -780,6 +916,80 @@ export class GameServer {
 
   sendHost(c) {
     this.send(c, { t: 'host', status: { ...this.hostStatus(), isHostClient: c.isHost } });
+  }
+
+  // Probe-Simulation in kleinen Häppchen (blockiert den Server nicht)
+  warmup(world) {
+    const t0 = Date.now();
+    const rng = new RNG(99);
+    const sim = new Simulation(world, { seed: 99, players: Simulation.fillWithBots([], rng), storm: true });
+    let steps = 0;
+    const slice = () => {
+      for (let i = 0; i < 15 && steps < WARMUP_STEPS && sim.phase !== 'ended'; i++, steps++) {
+        sim.step(SIM_DT);
+        sim.drainEvents();
+      }
+      if (steps < WARMUP_STEPS && sim.phase !== 'ended') setImmediate(slice);
+      else console.log(`Server aufgewärmt (${Math.round(steps * SIM_DT)} s Probe-Runde in ${Date.now() - t0} ms).`);
+    };
+    slice();
+  }
+
+  // ---------------- Karten ----------------
+  // Karte in kleinen Häppchen erzeugen (laufende Matches ruckeln nicht); cb(world), wenn fertig
+  prepareMap(id, cb = null) {
+    let e = this.maps.get(id);
+    if (e) {
+      if (cb) (e.ready ? cb(e.world) : e.waiters.push(cb));
+      return e;
+    }
+    const t0 = Date.now();
+    e = { id, ready: false, world: null, waiters: cb ? [cb] : [], map: null, nav: null };
+    const mapGen = mapSteps(id);
+    let navGen = null;
+    // ein Arbeitsschritt; true = fertig
+    e.step = () => {
+      if (e.ready) return true;
+      if (!e.map) {
+        const r = mapGen.next();
+        if (r.done) {
+          e.map = r.value;
+          e.nav = new NavGrid(e.map.terrain, e.map.collision, true);
+          navGen = e.nav.steps();
+        }
+        return false;
+      }
+      if (!navGen.next().done) return false;
+      const m = e.map;
+      e.world = { id, name: m.name, terrain: m.terrain, collision: m.collision, nav: e.nav, pois: m.pois, chests: m.chests, floorLoot: m.floorLoot };
+      e.ready = true;
+      console.log(`Karte ${m.name} bereit in ${Date.now() - t0} ms (${m.collision.cols.length} Collider).`);
+      for (const w of e.waiters.splice(0)) w(e.world);
+      return true;
+    };
+    const slice = () => {
+      if (!this.maps.has(id) || e.ready) return;
+      const t = Date.now();
+      while (Date.now() - t < 10) if (e.step()) return;
+      setImmediate(slice);
+    };
+    this.maps.set(id, e);
+    setImmediate(slice);
+    return e;
+  }
+
+  // Karte sofort fertigstellen (nur falls die Vorbereitung noch läuft)
+  mapNow(id) {
+    const e = this.prepareMap(id);
+    while (!e.step()) { /* Rest synchron */ }
+    return e.world;
+  }
+
+  // nicht mehr gebrauchte Karten freigeben (laufende Matches behalten ihre Welt)
+  pruneMaps() {
+    const used = new Set([this.nextMap]);
+    for (const m of this.matches.values()) used.add(m.mapId);
+    for (const id of [...this.maps.keys()]) if (!used.has(id)) this.maps.delete(id);
   }
 
   serverInfo() {
@@ -809,6 +1019,21 @@ function remove(arr, v) {
   if (i >= 0) arr.splice(i, 1);
 }
 
+// Anmeldeschlüssel (SHA-256 des Geburtsdatums, vom Client) mit Salz noch einmal gehasht speichern
+const AUTH_RE = /^[0-9a-f]{64}$/;
+function hashAuth(salt, auth) {
+  return crypto.createHash('sha256').update(String(salt) + ':' + auth).digest('hex');
+}
+
+// Spielstand (Coins, Skins, Rang, Statistik …) als Kopie für die Anmeldung auf anderen Geräten
+function sanitizeSave(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  let json;
+  try { json = JSON.stringify(v); } catch { return null; }
+  if (json.length > 20000) return null;
+  return JSON.parse(json);
+}
+
 function sanitizeProfile(p) {
   p = p || {};
   const str = (v, d, max = 16) => (typeof v === 'string' ? v.slice(0, max) : d);
@@ -818,6 +1043,7 @@ function sanitizeProfile(p) {
     color: num(p.color, 0, 0, 7),
     crownStyle: str(p.crownStyle, 'gold'),
     streak: num(p.streak, 0, 0, 999),
-    level: num(p.level, 1, 1, 9999),
+    rank: num(p.rank, 0, 0, 14),
+    knife: str(p.knife, 'standard'),
   };
 }

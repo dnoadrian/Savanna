@@ -9,11 +9,18 @@ import { worldMaterial } from './geom.js';
 const SURF_COLORS = {
   [SURF.GRASS]: 0x86c956,
   [SURF.DRYGRASS]: 0xc9c062,
-  [SURF.DIRT]: 0xd99a62,
-  [SURF.ROCK]: 0xc2613d,
+  [SURF.DIRT]: 0xa8845a,
+  [SURF.ROCK]: 0x8e9196,
   [SURF.BEACH]: 0xf5c18f,
   [SURF.PATH]: 0xe7b37f,
   [SURF.SEAFLOOR]: 0xf3d7a6,
+  [SURF.ROAD]: 0x6b6e75,
+  [SURF.SNOW]: 0xf1f5fa,
+  [SURF.FIELD]: 0xe6c45a,
+  [SURF.PLAZA]: 0xc9c2b4,
+  [SURF.SWAMP]: 0x6f7f3e,
+  [SURF.FOREST]: 0x5f9a42,
+  [SURF.MUD]: 0x8a6a45,
 };
 
 export function surfaceColor(s) {
@@ -83,6 +90,16 @@ export function buildTerrain(map, chunkCells = 48) {
         col.lerp(tint.set(0xe2b98a), m * 0.35);
       }
       if (s === SURF.ROCK) br *= 0.95 + Math.min(0.15, h / 40);
+      if (s === SURF.FIELD) {
+        // Ackerfurchen: helle und dunkle Streifen
+        const k = Math.sin(x * 1.3) > 0 ? 1.05 : 0.88;
+        br *= k;
+      }
+      if (s === SURF.FOREST || s === SURF.SWAMP) {
+        const m = noise.noise(x / 9 + 3, z / 9) * 0.5 + 0.5;
+        col.lerp(tint.set(s === SURF.SWAMP ? 0x4d5f2e : 0x4a8236), m * 0.5);
+      }
+      if (s === SURF.ROAD) br *= 0.97 + noise.noise(x / 2, z / 2) * 0.03;
       br *= ao[idx];
       vc[idx * 3] = col.r * br;
       vc[idx * 3 + 1] = col.g * br;

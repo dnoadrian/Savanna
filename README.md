@@ -4,7 +4,7 @@
 
 > Direkt im Browser, ohne Installation: **https://dnoadrian.github.io/Savanna/docs/**
 
-Ein Low-Poly-Battle-Royale für den Browser. **12 Spieler** landen in einer Hafenbucht mitten in einem roten Canyon: türkises Wasser, Holzstege, ein Saloon auf Stelzen, ein rot-weißer Leuchtturm, ein blaues Blechdachhaus mit rauchendem Kamin, Wachtürme, Felsnadeln und Palmen. Truhen öffnen, Waffen sammeln, Schilde trinken – wer als Letzter steht, gewinnt.
+Ein Low-Poly-Battle-Royale für den Browser. **20 Spieler** – allein (**Solo**) oder zu zweit (**Duo**) – landen auf einer Insel mitten im Meer. **Jede Runde wird zufällig eine von 18 Inseln gewählt**, jede nach einem Ort aus Fortnite Chapter 2 Season 2 gebaut: Pleasant Park, Salty Springs, Sweaty Sands, Steamy Stacks, Frenzy Farm, Holly Hedges, Weeping Woods, Slurpy Swamp, Misty Meadows, Lazy Lake, Retail Row, Dirty Docks, Craggy Cliffs, The Agency, The Shark, The Yacht, The Rig und The Grotto. Truhen öffnen, Waffen sammeln, Schilde trinken – wer als Letzter (bzw. als letztes Team) steht, gewinnt.
 
 - **Client:** Three.js (lokal über npm, kein CDN), reines JavaScript mit ES-Modulen, Web Audio API
 - **Server:** Node.js + `ws` auf Port **4242** (Spiel ausliefern, Namen, Lobby, Freunde, Party, Warteschlange, server-autoritative Matches)
@@ -14,8 +14,8 @@ Ein Low-Poly-Battle-Royale für den Browser. **12 Spieler** landen in einer Hafe
 
 ## 🎮 So spielt man
 
-1. Namen wählen (🎲 = Zufallsname). Am Anfang hat man nur **„Kein Skin“** – weitere Skins gibt es im **Shop**.
-2. In der Lobby **BEREIT** drücken. Die Warteschlange wartet auf echte Spieler – **Standard 15 Sekunden**, einstellbar in *Einstellungen → Konto → Warteschlange* von **10 bis 120 Sekunden**. Die Zeit läuft immer voll ab, auch wenn jemand dazukommt. Danach startet das Match, freie Plätze füllen Bots (immer 12 Spieler).
+1. **Neu hier:** Namen wählen (🎲 = Zufallsname) und **Geburtsdatum** angeben. **Anmelden:** Mit Name + Geburtsdatum meldet man sich auf jedem Gerät wieder an – Coins, Skins, Messer, Rang und Statistik kommen mit (liegen als Kopie auf dem Server; das Geburtsdatum selbst wird nie gespeichert, nur ein gesalzener Schlüssel daraus). *Einstellungen → Konto → Abmelden* meldet nur dieses Gerät ab. Am Anfang hat man nur **„Kein Skin“** – weitere Skins gibt es im **Shop**.
+2. In der Lobby auf die **Karte über BEREIT** klicken, um zwischen **Solo** und **Duo** zu wechseln (in einer Party wählt der Leader). Dann **BEREIT** drücken. Die Warteschlange wartet auf echte Spieler – **Standard 15 Sekunden**, einstellbar in *Einstellungen → Konto → Warteschlange* von **10 bis 120 Sekunden**. Danach startet das Match, freie Plätze füllen Bots (immer 20 Spieler, im Duo 10 Zweierteams).
 3. Ins Bild klicken (Mausfang), am besten **Vollbild** nutzen.
 
 | Taste | Aktion |
@@ -27,8 +27,9 @@ Ein Low-Poly-Battle-Royale für den Browser. **12 Spieler** landen in einer Hafe
 | **Linke Maus** | Schießen / Schild oder Medikit benutzen (wirkt sofort) |
 | **Rechte Maus** | Zielen (Waffe bleibt seitlich wie in Valorant, leichter Zoom; Scharfschützengewehr: Zielfernrohr) |
 | **R** | Nachladen (nur manuell) |
-| **F** | Truhe öffnen / Gegenstand aufheben |
+| **F** | Truhe öffnen / Gegenstand aufheben · **Duo: gedrückt halten = Partner wiederbeleben** |
 | **1 – 5**, Mausrad | Inventarplatz wählen |
+| **Q** | Messer (Nahkampf, eigener Platz links neben der Hotbar) |
 | **V** | Ego- / Schulterperspektive |
 | **TAB** | Inventar (durchsichtiges Panel links, Maus frei): **Ziehen = sortieren**, **aus dem Menü ziehen = fallen lassen** (auch Munition), Doppelklick = in die Hand; Tasten: Platznummer, dann Zielnummer |
 | **M** | Große Karte · **ESC** Pause |
@@ -76,19 +77,27 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 - **Keine unendliche Munition:** Start mit grauer Pistole **20 + 60 = 80 Schuss**. Waffen aus Truhen bringen das **Dreifache ihres Magazins** an Munition mit (SCAR: 30 + 90 = 120).
 - **Jede Eliminierung** lässt zusätzlich **ein volles Magazin jeder Munitionsart** fallen (Leicht 40, Mittel 30, Schrot 8, Schwer 3). Die Munitionsarten haben eigene Modelle: graublaue Schachtel, grüne Munitionskiste, dunkelrote schwere Kiste, rote Schrotpatronen.
 
-**Truhen** (31 Stück) – goldenes Leuchten, Summen und Funkeln in der Nähe. Mit **F** öffnen: **1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition**.
+**Messer** – jeder hat es immer dabei (Taste **Q**): 40 Schaden, Kopf ×1,5, 2,4 Hiebe/s, Reichweite 2,8 m, keine Munition. Mit dem Messer in der Hand läuft man 8 % schneller. Messer-Skins (Taktisch, Neon, Goldklinge, Drachenzahn) gibt es im Shop, auswählen im Spind.
+
+**Truhen** (rund 40 pro Insel) – goldenes Leuchten, Summen und Funkeln in der Nähe. Mit **F** öffnen: **1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition**.
 
 **Inventar** – 5 Plätze (1–5) mit Kurznamen und Seltenheitsfarbe. Ist alles voll, tauscht **F** den Gegenstand in der Hand. Sortieren im TAB-Menü.
 
 **Bewegung** – schneller Sprint mit Ausdauer (ca. 7 s, erholt sich in 3 s), kräftiger Slide. Wer unter einen Steg rutscht, kriecht heraus.
 
-**Karte** – an den langen Stegen gibt es Fischerhütten und Kistenlager als Deckung für Nahkämpfe.
+**Karten** – 18 Inseln, doppelt so groß wie die alte Bucht, jede Runde zufällig. Jede Insel hat ihren Ort in der Mitte (z. B. Pleasant Park mit Fußballfeld und Pavillon, Steamy Stacks mit zwei Kühltürmen, Dirty Docks mit Containerlager, Kränen und Frachter, The Agency als Villa auf einer Insel im See mit drei Brücken, The Yacht, The Rig auf Stelzen im Meer, The Shark mit Haimaul-Basis, The Grotto mit Wasserfall-Eingang) und außen herum Wälder, Höfe, Hütten, Türme und Camps. Mehrstöckige Häuser haben Treppen; auf Stegen, Schiffen und Plattformen über tiefem Wasser kann man stehen.
 
-**Sturm** – 5 Phasen, der letzte Kreis schließt sich nach etwa 4 Minuten.
+**Sturm** – 5 Phasen, der letzte Kreis schließt sich nach etwa 5 Minuten.
 
-**Bots** – looten zuerst, öffnen Truhen, wählen die passende Waffe für die Entfernung, heilen sofort im Kampf, wechseln bei leerem Magazin auf die Zweitwaffe, nutzen die Pump-Kombo, sprinten/sliden/schleichen passend und gehen rechtzeitig vor dem Sturm los. Auf kurze Distanz zielen sie ca. 30 % schlechter. Die Lobby ist gemischt (leicht, normal, wenige starke).
+**Duo** – Teams aus 2 Spielern (Party-Partner zusammen, sonst ein zufälliger Partner oder ein Bot). Kein Eigenbeschuss. Wer mit 0 Leben umfällt, während der Partner noch steht, ist **niedergeschlagen**: kriechen, nicht schießen, 100 Leben, die langsam ausbluten. Der Partner belebt mit **F gedrückt halten** (5 s) wieder – danach 30 Leben. Liegen beide am Boden oder ist der Partner schon raus, ist das Team eliminiert. Partner sind blau markiert (Name, Leben, Minimap); unten links steht ihr Zustand. Siegt der Partner, hat das ganze Team gewonnen.
 
-**Coins & Shop** – **50 Coins pro Kill, 250 pro Sieg.** Im **Shop** (oben in der Lobby) gibt es 8 Skins von 600 bis 2.500 Coins; gekaufte Skins erscheinen im Spind.
+**Bots** – looten zuerst, öffnen Truhen, wählen die passende Waffe für die Entfernung, heilen sofort im Kampf, wechseln bei leerem Magazin auf die Zweitwaffe, nutzen die Pump-Kombo, sprinten/sliden/schleichen passend und gehen rechtzeitig vor dem Sturm los. Im Duo bleiben sie bei ihrem Partner, kriechen am Boden zu ihm und beleben ihn wieder. Die Lobby ist gemischt (leicht, normal, wenige starke).
+
+**Ranked** – statt Level gibt es Ränge wie im Original: **Bronze → Silber → Gold → Diamant** (je I–III) **→ Elite → Champion → Unreal**. Punkte gibt es für die Platzierung und Kills; ab Diamant kostet ein frühes Ausscheiden Punkte.
+
+**Coins & Shop** – **50 Coins pro Kill, 250 pro Sieg.** Im **Shop** (oben in der Lobby) gibt es 8 Skins von 600 bis 2.500 Coins und 4 Messer-Skins von 500 bis 2.500 Coins; gekaufte Skins erscheinen im Spind.
+
+**Lobby** – die eigene Figur steht in der Mitte, Party-Mitglieder daneben. Wer aus der Party noch im Spiel ist, erscheint als **blaues Hologramm**.
 
 **Sieg** – Siegerkamera um die jubelnde Figur, Lichtstrahlen, Konfetti und eine große, leuchtende Krone für die Siegesserie. Wer Zweiter wird, geht direkt zurück zur Lobby.
 
@@ -108,7 +117,8 @@ In der Lobby (oder im Spiel) die Taste **0** drücken. Die Taste steht absichtli
 - **Zugänge für andere:** Der Haupt-Admin legt Name + Passwort an und wählt, **wie oft** man sich damit anmelden kann (1×, 3×, 5×, 10×, 25× oder unbegrenzt). Mit Server gelten die Zugänge überall und werden dort gezählt; ohne Server nur auf diesem Gerät. Zugänge lassen sich jederzeit löschen.
 - Cheats, die der Server ausführt (unendliche Munition, OP-Loot, durch Wände schießen), gelten online nur für angemeldete Admins.
 - **Unendlich Munition** (Magazin wird nie leer), **OP-Loot** (goldene SCAR auf Platz 1, goldenes Scharfschützengewehr auf Platz 2, Rest leer – sofort und in jedem Match),
-- **Skelett-ESP** (rotes Skelett aller Gegner, durch Wände), **Aimbot** (rastet immer auf den nächsten Gegner ein, zielt auf den Kopf), **Durch Wände schießen**, **Spinbot**, **Fliegen** (Tempo einstellbar), **Tempo** (Laufgeschwindigkeit frei einstellbar)
+- **Skelett-ESP** (rotes Skelett aller Gegner, durch Wände), **Aimbot** (zielt auf den Kopf; mit **Radius**: ein einstellbarer Kreis ums Fadenkreuz – der Aimbot wirkt nur auf Gegner im Kreis, ohne Radius überall), **Durch Wände schießen**, **Spinbot**, **Fliegen** (Tempo einstellbar), **Tempo** (Laufgeschwindigkeit frei einstellbar)
+- **Lobby-Nachrichten** (nur Haupt-Admin): Text + Dauer (10 min bis 1 Woche oder dauerhaft) – erscheint bei allen Spielern oben in der Mitte der Lobby. Höchstens 5 gleichzeitig, jederzeit löschbar.
 - **Coins geben** (nur Haupt-Admin): Spielername + Menge – der Spieler muss mit dem Server verbunden sein (eigener Name geht auch offline)
 
 ---
@@ -117,7 +127,7 @@ In der Lobby (oder im Spiel) die Taste **0** drücken. Die Taste steht absichtli
 
 **👉 https://dnoadrian.github.io/Savanna/**
 
-Die Webseite läuft komplett im Browser: **BEREIT** → 15 s Warteschlange → Match gegen 11 Bots.
+Die Webseite läuft komplett im Browser: **BEREIT** → 15 s Warteschlange → Match gegen 19 Bots (im Duo mit einem Bot als Partner).
 
 Für **Mehrspieler mit Freunden** braucht es einen laufenden Spielserver (GitHub Pages liefert nur Dateien aus):
 1. **Einer hostet:** `npm install` und `npm run online` (oder in der Lobby **≡ → „Online hosten“**). **Wer danach einfach die normale Webseite öffnet, wird automatisch mit diesem Host verbunden** – der Server meldet seine Tunnel-Adresse jede Minute über [ntfy.sh](https://ntfy.sh) (Thema `showdownbay-dnoadrian-savanna`), die Webseite fragt dort nach. Abschalten: `SHOWDOWN_BEACON=0` oder `"showdown": { "beacon": false }` in `package.json`; eigenes Thema über `"beaconTopic"`. Das Hosting-Panel zeigt dann einen *„Link über die Webseite“* wie `https://dnoadrian.github.io/Savanna/?server=https://xyz.trycloudflare.com`. Auf der Webseite kann man den Server auch über **≡ → „Server / Online spielen“** eintragen.
@@ -178,7 +188,9 @@ Dann **http://localhost:4242** öffnen.
 
 **Mehrspieler-Technik:** Server-autoritativ für Treffer, Schaden, Beute, Truhen, Inventar, Munition und Sturm. Clients senden 30×/s, der Server schickt 20 Snapshots/s, andere Spieler werden mit 100 ms Puffer interpoliert, Treffer mit Lag-Kompensation (bis 300 ms).
 
-Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsammeln, Ausdauer, Slide-Befreiung, Objekt-Hitboxen, Waffenwerte inkl. SCAR 7,2/s, keine unendliche Munition, Inventar + Sortieren + Fallenlassen, Admin-Zugänge, unendliche Munition + OP-Loot, Truhen, Sofort-Heilung, 12 Spieler, Karte mit 3 Orten, komplettes Bot-Match, Leuchtfeuer, Syntax aller Dateien, Server mit 15-s-Warteschlange, Webseite aktuell).
+Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsammeln, Ausdauer, Slide-Befreiung, Objekt-Hitboxen, Waffenwerte, Messer, keine unendliche Munition, Inventar + Sortieren + Fallenlassen, Admin-Zugänge, unendliche Munition + OP-Loot, Truhen, Sofort-Heilung, 20 Spieler, Duo-Teams + Niederschlagen + Wiederbeleben, alle 18 Inseln, komplettes Solo- und Duo-Bot-Match, Leuchtfeuer, Syntax aller Dateien, Server mit Warteschlange, Duo-Party, Anmeldung mit Geburtsdatum, Webseite aktuell).
+
+Karten entstehen deterministisch aus Code (Server und Client bauen dieselbe Insel). Der Server bereitet die nächste zufällige Insel im Hintergrund in kleinen Häppchen vor, damit laufende Matches nicht ruckeln; die Wartenden bekommen sie schon während der Warteschlange angesagt und laden sie vor.
 
 ---
 
@@ -187,9 +199,11 @@ Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsamm
 ```
 ├── server/               HTTP + WebSocket (Port 4242), Konten, Freunde, Party, Warteschlange, Matches, Tunnel
 ├── shared/               läuft auf Server UND im Browser
-│   ├── constants.js      Spielwerte (12 Spieler, Leben/Schild, Sturm, Warteschlange …)
-│   ├── items.js          Waffen, Seltenheiten, Munition, Schilde/Medikits, Beutetabellen
-│   ├── map/              Hafenbucht-Generator, 3 Orte, Baukasten, Deko
+│   ├── constants.js      Spielwerte (20 Spieler, Leben/Schild, Sturm, Duo, Warteschlange …)
+│   ├── items.js          Waffen, Messer, Seltenheiten, Munition, Schilde/Medikits, Beutetabellen
+│   ├── ranks.js          Ranked (Bronze bis Unreal)
+│   ├── sha256.js         Anmeldeschlüssel aus dem Geburtsdatum
+│   ├── map/              Insel-Generator (island.js), 18 Chapter-2-Orte (c2maps.js), Baukasten (structures.js), Deko
 │   ├── physics/          Kollisionswelt (Boxen, Zylinder, Raycasts)
 │   └── sim/              Simulation, Bewegung, Waffen, Inventar, Beute/Truhen, Sturm, Navigation, Bot-KI
 ├── client/

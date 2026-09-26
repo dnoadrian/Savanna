@@ -1,7 +1,13 @@
 // Spielerprofil im localStorage: Name, Spieler-ID (UUID), Spind, Statistik, Krone.
-import { xpForLevel, OUTFITS, DEFAULT_OUTFIT, SKIN_SHOP, COINS_PER_KILL, COINS_PER_WIN } from '../shared/constants.js';
+// Mit Server wird eine Kopie dort gespeichert: Anmelden auf jedem Gerät mit Name + Geburtsdatum.
+import { clampRank, applyRankResult } from '../shared/ranks.js';
+import { OUTFITS, DEFAULT_OUTFIT, SKIN_SHOP, KNIFE_SHOP, COINS_PER_KILL, COINS_PER_WIN } from '../shared/constants.js';
 
-const BASE_KEY = 'showdown.profile.v1';
+// v2: alle Konten wurden zurückgesetzt (Anmeldung mit Geburtsdatum)
+const BASE_KEY = 'showdown.profile.v2';
+const OLD_KEYS = ['showdown.profile.v1'];
+// Felder, die als Spielstand auf dem Server liegen (alles außer ID/Name/Anmeldeschlüssel)
+const SAVE_FIELDS = ['outfit', 'coins', 'owned', 'rank', 'bestRank', 'knife', 'ownedKnives', 'color', 'crownStyle', 'winStreak', 'soloChampion', 'stats', 'createdAt'];
 
 // Profil-Slots pro Tab: Ist ein Profil bereits in einem anderen offenen Tab aktiv, bekommt
 // dieser Tab ein eigenes Profil (z. B. zum Testen von Freunden/Party mit zwei Tabs).
@@ -39,6 +45,13 @@ function pickSlot() {
 }
 export const PROFILE_SLOT = pickSlot();
 const KEY = PROFILE_SLOT === 0 ? BASE_KEY : BASE_KEY + '.s' + PROFILE_SLOT;
+// alte Profile (vor dem Zurücksetzen) aufräumen
+try {
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (k && OLD_KEYS.some((o) => k === o || k.startsWith(o + '.s'))) localStorage.removeItem(k);
+  }
+} catch { /* ignorieren */ }
 
 export function uuid() {
   if (window.crypto && crypto.randomUUID) {
@@ -65,15 +78,29 @@ export class Profile {
     } catch {
       this.data = null;
     }
-    if (this.data) {
-      this.data.stats = { ...freshStats(), ...(this.data.stats || {}) };
-      if (!this.data.id) this.data.id = uuid();
-      // Coins + gekaufte Skins (ältere Profile: nur der Standard-Skin)
-      if (!Number.isFinite(this.data.coins)) this.data.coins = 0;
-      // bestehende Profile behalten ihr bisheriges Outfit (vor dem Shop kostenlos gewählt)
-      if (!Array.isArray(this.data.owned)) this.data.owned = [...new Set([DEFAULT_OUTFIT, this.data.outfit].filter((o) => OUTFITS.includes(o)))];
-      if (!this.data.owned.includes(this.data.outfit)) this.data.outfit = DEFAULT_OUTFIT;
-    }
+    if (this.data) this.migrate();
+    this.onChange = null;
+  }
+
+  // fehlende/alte Felder ergänzen (auch für Spielstände vom Server)
+  migrate() {
+    const d = this.data;
+    d.stats = { ...freshStats(), ...(d.stats && typeof d.stats === 'object' ? d.stats : {}) };
+    if (!d.id) d.id = uuid();
+    if (!Number.isFinite(d.coins)) d.coins = 0;
+    if (!Array.isArray(d.owned)) d.owned = [DEFAULT_OUTFIT];
+    d.owned = [...new Set([DEFAULT_OUTFIT, ...d.owned.filter((o) => OUTFITS.includes(o))])];
+    if (!d.owned.includes(d.outfit)) d.outfit = DEFAULT_OUTFIT;
+    // Messer-Skins (Standard hat jeder)
+    if (!Array.isArray(d.ownedKnives)) d.ownedKnives = ['standard'];
+    d.ownedKnives = [...new Set(['standard', ...d.ownedKnives.filter((k) => k === 'standard' || KNIFE_SHOP[k])])];
+    if (!d.ownedKnives.includes(d.knife)) d.knife = 'standard';
+    // Ranked: jeder startet bei Bronze I
+    d.rank = clampRank(d.rank);
+    if (!Number.isFinite(d.bestRank)) d.bestRank = d.rank.i;
+    if (!Number.isInteger(d.color) || d.color < 0 || d.color > 7) d.color = 0;
+    if (!Number.isFinite(d.winStreak)) d.winStreak = 0;
+    if (!d.crownStyle) d.crownStyle = 'gold';
   }
 
   get hasName() {
@@ -83,13 +110,19 @@ export class Profile {
   get id() { return this.data?.id; }
   get name() { return this.data?.name; }
 
-  create(name) {
+  create(name, auth = null) {
     this.data = {
       id: uuid(),
       name,
+      auth,
+      createdAt: Date.now(),
       outfit: DEFAULT_OUTFIT,
       coins: 0,
       owned: [DEFAULT_OUTFIT],
+      rank: { i: 0, p: 0 },
+      bestRank: 0,
+      knife: 'standard',
+      ownedKnives: ['standard'],
       color: Math.floor(Math.random() * 8),
       crownStyle: 'gold',
       winStreak: 0,
@@ -105,12 +138,30 @@ export class Profile {
     this.save();
   }
 
+  // Anmeldung auf einem anderen Gerät: Spielstand vom Server übernehmen
+  adopt(id, name, auth, save) {
+    const src = save && typeof save === 'object' ? save : {};
+    const d = { id, name, auth, registered: true };
+    for (const k of SAVE_FIELDS) if (src[k] !== undefined) d[k] = src[k];
+    this.data = d;
+    this.migrate();
+    this.save();
+  }
+
+  // Spielstand für den Server
+  saveBlob() {
+    const out = {};
+    for (const k of SAVE_FIELDS) if (this.data[k] !== undefined) out[k] = this.data[k];
+    return out;
+  }
+
   save() {
     try {
       localStorage.setItem(KEY, JSON.stringify(this.data));
     } catch {
       /* ignorieren */
     }
+    if (this.onChange) this.onChange();
   }
 
   reset() {
@@ -132,7 +183,8 @@ export class Profile {
       color: d.color,
       crownStyle: d.crownStyle,
       streak: d.winStreak,
-      level: d.stats.level,
+      rank: d.rank ? d.rank.i : 0,
+      knife: d.knife || 'standard',
     };
   }
 
@@ -155,18 +207,27 @@ export class Profile {
     return true;
   }
 
-  // XP gutschreiben, gibt Anzahl Level-Ups zurück
-  addXp(xp) {
-    const s = this.data.stats;
-    s.xp += xp;
-    let ups = 0;
-    while (s.xp >= xpForLevel(s.level)) {
-      s.xp -= xpForLevel(s.level);
-      s.level++;
-      ups++;
-    }
+  ownsKnife(k) {
+    return (this.data.ownedKnives || ['standard']).includes(k);
+  }
+
+  // Messer-Skin kaufen
+  buyKnife(k) {
+    const item = KNIFE_SHOP[k];
+    if (!item || this.ownsKnife(k) || this.data.coins < item.price) return false;
+    this.data.coins -= item.price;
+    this.data.ownedKnives.push(k);
     this.save();
-    return ups;
+    return true;
+  }
+
+  // Ranked-Fortschritt eines Matches: { before, after, gain, promoted }
+  applyRank(r) {
+    const res = applyRankResult(this.data.rank, r.placement, r.kills);
+    this.data.rank = res.after;
+    this.data.bestRank = Math.max(this.data.bestRank || 0, res.after.i);
+    this.save();
+    return res;
   }
 
   // Ergebnis eines Matches übernehmen
@@ -191,15 +252,6 @@ export class Profile {
   }
 }
 
-export function computeXp(r) {
-  const parts = [];
-  const place = r.placement || 12;
-  parts.push({ key: 'xpPlacement', xp: Math.round((13 - place) * 25) });
-  if (r.kills) parts.push({ key: 'xpKills', xp: r.kills * 60 });
-  if (r.damage) parts.push({ key: 'xpDamage', xp: Math.round(r.damage / 5) });
-  if (place === 1) parts.push({ key: 'xpWin', xp: 400 });
-  return { parts, total: parts.reduce((a, b) => a + b.xp, 0) };
-}
 
 // Coins einer Runde: 50 pro Kill, 250 für den Sieg
 export function computeCoins(r) {

@@ -33,7 +33,7 @@ export class AimAssist {
     let best = null;
     let bestScore = Infinity;
     for (const s of states) {
-      if (s.id === selfId || !s.alive || (s.flags & F.DEAD)) continue;
+      if (s.id === selfId || !s.alive || (s.flags & F.DEAD) || (this.isMate && this.isMate(s.id))) continue;
       const chestY = s.y + ((s.flags & (F.CROUCH | F.SLIDE)) ? 0.75 : 1.2);
       const dx = s.x - cam.x, dy = chestY - cam.y, dz = s.z - cam.z;
       const dist = Math.hypot(dx, dy, dz);

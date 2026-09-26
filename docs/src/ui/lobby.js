@@ -4,9 +4,53 @@
 import { h, esc } from './dom.js';
 import { ICON, logo } from './icons.js';
 import { t } from '../i18n.js';
-import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, SKIN_SHOP, DEFAULT_OUTFIT, xpForLevel, clampQueueWait } from '../../shared/constants.js';
-import { RARITY_COLORS } from '../../shared/items.js';
+import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, SKIN_SHOP, KNIFE_SHOP, DEFAULT_OUTFIT, clampQueueWait } from '../../shared/constants.js';
+import { RARITY_COLORS, KNIFE_SKINS, knifeItem } from '../../shared/items.js';
+import { itemIcon } from '../render/itemIcons.js';
 import { skinPortrait } from '../render/skinPortraits.js';
+import { rankBadge, rankName, rankColor } from './rankBadge.js';
+import { UNREAL } from '../../shared/ranks.js';
+import { mapDef, MAPS } from '../../shared/map/mapgen.js';
+
+// stilisierte Insel mit Fragezeichen (die Karte wird jede Runde zufällig gewählt)
+function drawRandomIsland(g, S) {
+  const grd = g.createLinearGradient(0, 0, S, S);
+  grd.addColorStop(0, '#39c5d6');
+  grd.addColorStop(1, '#1f8fbf');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, S, S);
+  const pts = [];
+  for (let k = 0; k < 28; k++) {
+    const a = (k / 28) * Math.PI * 2;
+    const r = S * (0.34 + Math.sin(a * 3 + 1) * 0.035 + Math.sin(a * 5) * 0.025);
+    pts.push([S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r]);
+  }
+  const path = (scale) => {
+    g.beginPath();
+    pts.forEach(([x, y], i) => {
+      const px = S / 2 + (x - S / 2) * scale, py = S / 2 + (y - S / 2) * scale;
+      if (i) g.lineTo(px, py); else g.moveTo(px, py);
+    });
+    g.closePath();
+  };
+  path(1.08); g.fillStyle = 'rgba(255,255,255,0.25)'; g.fill();
+  path(1.0); g.fillStyle = '#f2cf96'; g.fill();
+  path(0.9); g.fillStyle = '#7cc453'; g.fill();
+  g.fillStyle = 'rgba(40,110,50,0.55)';
+  for (const [x, y, r] of [[0.36, 0.38, 0.07], [0.62, 0.66, 0.08], [0.66, 0.34, 0.05]]) { g.beginPath(); g.arc(x * S, y * S, r * S, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = '#6b6e75';
+  g.fillRect(S * 0.2, S * 0.49, S * 0.6, S * 0.025);
+  g.font = `900 ${Math.round(S * 0.42)}px "Barlow Condensed", sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(0,0,0,0.35)';
+  g.fillText('?', S / 2 + 4, S / 2 + 6);
+  g.fillStyle = '#ffe14d';
+  g.fillText('?', S / 2, S / 2 + 2);
+  g.font = `800 ${Math.round(S * 0.075)}px "Barlow Condensed", sans-serif`;
+  g.fillStyle = '#fff';
+  g.fillText(MAPS.length + ' ORTE', S / 2, S * 0.9);
+}
 
 export class LobbyScreen {
   constructor(ui) {
@@ -21,10 +65,12 @@ export class LobbyScreen {
   show() {
     this.hide();
     const app = this.app;
+    this.lockerOpen = false;
+    app.lobbyScene?.setPanelOpen(false);
     this.el = h('div', { class: 'screen lobby-screen' });
     // ---- Kopfzeile ----
     this.nameBtn = h('button', { class: 'pc-name', title: t('clickName'), onclick: () => { app.audio.uiClick(); this.ui.renameDialog(); } });
-    this.levelEl = h('div', { class: 'pc-level' });
+    this.levelEl = h('div', { class: 'pc-level pc-rank' });
     this.xpFill = h('div', { class: 'xp-fill' });
     this.xpText = h('div', { class: 'pc-xp' });
     const card = h('div', { class: 'player-card' }, this.levelEl,
@@ -66,12 +112,13 @@ export class LobbyScreen {
     // ---- rechts: Modus + BEREIT ----
     this.mapThumb = h('canvas', { class: 'mode-map', width: 240, height: 240 });
     this.countEl = h('div', { class: 'mode-count' });
-    const mode = h('div', { class: 'mode-card' },
+    this.kickerEl = h('div', { class: 'mode-kicker' });
+    this.modeTitle = h('div', { class: 'mode-title' });
+    this.modeSwitch = h('div', { class: 'mode-switch' });
+    // Klick auf die Karte über BEREIT: Solo ↔ Duo
+    const mode = h('button', { class: 'mode-card', title: t('modeSwitchHint'), onclick: () => this.toggleMode(), onmouseenter: () => app.audio.uiHover() },
       this.mapThumb,
-      h('div', { class: 'mode-info' },
-        h('div', { class: 'mode-kicker' }, t('modeKicker')),
-        h('div', { class: 'mode-title' }, 'SHOWDOWN BAY'),
-        this.countEl));
+      h('div', { class: 'mode-info' }, this.kickerEl, this.modeTitle, this.countEl, this.modeSwitch));
     this.queueEl = h('div', { class: 'queue-box hidden' });
     this.readyBtn = h('button', { class: 'ready-btn', onclick: () => this.onReady(), onmouseenter: () => app.audio.uiHover() });
     this.readyHint = h('div', { class: 'ready-hint' });
@@ -82,9 +129,12 @@ export class LobbyScreen {
     this.labelsEl = h('div', { class: 'member-labels' });
     // unten links: mit welchem Server man verbunden ist
     this.serverBox = h('div', { class: 'lobby-server' });
-    this.el.append(this.labelsEl, top, left, right, this.lockerEl, this.serverBox);
+    // oben in der Mitte: Nachrichten vom Admin
+    this.annEl = h('div', { class: 'lobby-ann' });
+    this.el.append(this.labelsEl, top, left, right, this.lockerEl, this.serverBox, this.annEl);
     clearInterval(this.serverTimer);
-    this.serverTimer = setInterval(() => this.updateServerBox(), 1000);
+    this.serverTimer = setInterval(() => { this.updateServerBox(); this.renderAnnouncements(); }, 1000);
+    this.renderAnnouncements();
     this.ui.screenRoot.appendChild(this.el);
     this.closeMenuFn = () => this.toggleMenu(false);
     document.addEventListener('click', this.closeMenuFn);
@@ -122,6 +172,17 @@ export class LobbyScreen {
       document.removeEventListener('click', this.closeMenuFn);
     }
     this.el = null;
+  }
+
+  // Admin-Nachrichten oben in der Mitte (abgelaufene verschwinden von selbst)
+  renderAnnouncements() {
+    if (!this.annEl) return;
+    const list = this.app.liveAnnouncements();
+    const key = list.map((a) => a.id + ':' + a.text).join('|');
+    if (this.annEl._k === key) return;
+    this.annEl._k = key;
+    this.annEl.innerHTML = '';
+    for (const a of list) this.annEl.appendChild(h('div', { class: 'ann-item' }, h('span', { class: 'icon', html: ICON.megaphone }), h('span', { class: 'ann-msg' }, a.text)));
   }
 
   // Server-Anzeige unten links: Name/Standort, Adresse, Ping, Spieler online
@@ -172,10 +233,13 @@ export class LobbyScreen {
     if (!prof) return;
     const st = prof.stats;
     this.nameBtn.innerHTML = `${prof.winStreak > 0 ? `<span class="crown-mini">${ICON.crown}</span>` : ''}<span>${esc(prof.name)}</span><span class="edit">✎</span>`;
-    this.levelEl.innerHTML = `<small>${t('level')}</small><b>${st.level}</b>`;
-    const need = xpForLevel(st.level);
-    this.xpFill.style.width = Math.min(100, (st.xp / need) * 100) + '%';
-    this.xpText.textContent = `${st.xp} / ${need} XP`;
+    // Rang statt Level
+    const rk = prof.rank || { i: 0, p: 0 };
+    this.levelEl.innerHTML = rankBadge(rk.i, 58);
+    this.levelEl.title = rankName(rk.i);
+    this.xpFill.style.width = (rk.i === UNREAL ? 100 : rk.p) + '%';
+    this.xpFill.style.background = `linear-gradient(90deg, ${rankColor(rk.i)}, #fff)`;
+    this.xpText.textContent = rk.i === UNREAL ? rankName(rk.i) : `${rankName(rk.i)} · ${Math.floor(rk.p)} %`;
     this.statsEl.innerHTML = `
       <div class="stat-chip"><b>${st.wins}</b><small>${t('wins')}</small></div>
       <div class="stat-chip"><b>${st.kills}</b><small>${t('kills')}</small></div>
@@ -201,7 +265,12 @@ export class LobbyScreen {
     const inParty = party && party.members.length > 1;
     const q = app.queue;
     const humans = q ? q.humans : Math.max(1, inParty ? party.members.length : 1);
-    this.countEl.textContent = t('playersCount', { n: MATCH_SIZE, h: humans, b: MATCH_SIZE - humans });
+    const gm = app.gameMode();
+    this.kickerEl.textContent = t('modeKicker_' + gm);
+    const nextMap = q && q.map ? mapDef(q.map).name : null;
+    this.modeTitle.textContent = nextMap ? nextMap.toUpperCase() : t('randomIsland');
+    this.countEl.textContent = gm === 'duo' ? t('playersCountDuo', { n: MATCH_SIZE, t: MATCH_SIZE / 2 }) : t('playersCount', { n: MATCH_SIZE, h: humans, b: MATCH_SIZE - humans });
+    this.modeSwitch.innerHTML = `<span class="${gm === 'solo' ? 'on' : ''}">SOLO</span><span class="${gm === 'duo' ? 'on' : ''}">DUO</span>`;
     // BEREIT-Knopf
     const myId = prof.id;
     const leader = party ? party.leader === myId : true;
@@ -240,12 +309,40 @@ export class LobbyScreen {
     this.updateServerBox();
   }
 
+  // Karte oben: nächste Insel (sobald der Server sie ansagt), sonst eine stilisierte Zufallsinsel
   drawMapThumb() {
-    const data = this.app.mapData;
-    if (!data || this.thumbDone === data) return;
-    this.thumbDone = data;
+    const q = this.app.queue;
+    const e = q && q.map ? this.app.mapCache.get(q.map) : null;
+    const img = e && e.data ? e.data.mapImage : null;
+    const key = img ? q.map : 'random';
+    if (this.thumbDone === key) return;
+    this.thumbDone = key;
     const g = this.mapThumb.getContext('2d');
-    g.drawImage(data.mapImage, 0, 0, 240, 240);
+    if (img) {
+      g.drawImage(img, 0, 0, 240, 240);
+      return;
+    }
+    drawRandomIsland(g, 240);
+  }
+
+  toggleMode() {
+    const app = this.app;
+    const party = app.party;
+    if (app.queue) { app.audio.uiError(); return; }
+    if (party && party.members.length > 1 && party.leader !== app.profile.id) {
+      app.audio.uiError();
+      this.ui.toast(t('onlyLeaderMode'), 'error');
+      return;
+    }
+    const next = app.gameMode() === 'duo' ? 'solo' : 'duo';
+    if (next === 'duo' && party && party.members.length > 2) {
+      app.audio.uiError();
+      this.ui.toast(t('duoTooMany'), 'error');
+      return;
+    }
+    app.audio.uiClick();
+    app.setGameMode(next);
+    this.refresh();
   }
 
   onReady() {
@@ -284,7 +381,9 @@ export class LobbyScreen {
       const row = h('div', { class: 'pp-row' + (m.id === myId ? ' me' : '') },
         m.id === party.leader ? h('span', { class: 'leader-star', title: t('leader'), html: ICON.star }) : h('span', { class: 'leader-star empty' }),
         h('span', { class: 'pp-name' }, m.name),
-        h('span', { class: 'pp-ready ' + (m.ready || m.id === party.leader ? 'on' : '') }, m.id === party.leader ? t('leader') : m.ready ? t('ready') : t('notReady')));
+        m.status === 'game' && m.id !== myId
+          ? h('span', { class: 'pp-ready ingame' }, t('inGame'))
+          : h('span', { class: 'pp-ready ' + (m.ready || m.id === party.leader ? 'on' : '') }, m.id === party.leader ? t('leader') : m.ready ? t('ready') : t('notReady')));
       if (leader && m.id !== myId) {
         row.appendChild(h('button', { class: 'mini', title: t('partyPromote'), onclick: () => this.app.net.send({ t: 'partyPromote', id: m.id }), html: ICON.star }));
         row.appendChild(h('button', { class: 'mini danger', title: t('partyKick'), onclick: () => this.app.net.send({ t: 'partyKick', id: m.id }) }, '✕'));
@@ -322,6 +421,7 @@ export class LobbyScreen {
     this.lockerEl.classList.toggle('hidden', !this.lockerOpen);
     this.lockerEl.classList.toggle('shop', kind === 'shop');
     this.el.classList.toggle('locker-open', this.lockerOpen);
+    this.app.lobbyScene?.setPanelOpen(this.lockerOpen);
     if (this.lockerOpen) this.renderPanel();
     this.updateNav();
   }
@@ -346,6 +446,10 @@ export class LobbyScreen {
       h('span', { class: 'shop-coins' }, h('span', { class: 'icon', html: ICON.coin }), h('b', {}, prof.coins.toLocaleString('de-DE'))),
       h('button', { class: 'close-x', onclick: () => { app.audio.uiClick(); this.toggleLocker(false); } }, '✕')));
     el.appendChild(h('div', { class: 'hint small' }, t('shopHint')));
+    const scroll = h('div', { class: 'shop-scroll' });
+    const coin = (n) => h('span', {}, h('span', { class: 'icon', html: ICON.coin }), ' ' + n.toLocaleString('de-DE'));
+    // Skins
+    scroll.appendChild(h('div', { class: 'shop-sec' }, t('shopSkins')));
     const grid = h('div', { class: 'shop-grid' });
     for (const o of OUTFITS) {
       if (o === DEFAULT_OUTFIT) continue;
@@ -361,9 +465,62 @@ export class LobbyScreen {
       h('img', { src: skinPortrait(o, prof.color), alt: '' }),
       h('div', { class: 'sc-name' }, t('outfit_' + o)),
       h('div', { class: 'sc-rar' }, t('rar_' + it.rarity)),
-      h('div', { class: 'sc-price' }, worn ? t('equipped') : owned ? t('owned') : h('span', {}, h('span', { class: 'icon', html: ICON.coin }), ' ' + it.price.toLocaleString('de-DE')))));
+      h('div', { class: 'sc-price' }, worn ? t('equipped') : owned ? t('owned') : coin(it.price))));
     }
-    el.appendChild(grid);
+    scroll.appendChild(grid);
+    // Messer
+    scroll.appendChild(h('div', { class: 'shop-sec' }, t('knives')));
+    const kgrid = h('div', { class: 'shop-grid knife-grid' });
+    for (const k of KNIFE_SKINS) {
+      if (k === 'standard') continue;
+      const it = KNIFE_SHOP[k];
+      const owned = app.profile.ownsKnife(k);
+      const worn = prof.knife === k;
+      kgrid.appendChild(h('button', {
+        class: 'shop-card knife-card' + (owned ? ' owned' : '') + (worn ? ' worn' : ''),
+        style: { '--rar': RARITY_COLORS[it.rarity] },
+        onmouseenter: () => app.audio.uiHover(),
+        onclick: () => this.knifeClick(k),
+      },
+      h('div', { class: 'kc-img' }, h('img', { src: itemIcon(knifeItem(k)), alt: '' })),
+      h('div', { class: 'sc-name' }, t('knife_' + k)),
+      h('div', { class: 'sc-rar' }, t('rar_' + it.rarity)),
+      h('div', { class: 'sc-price' }, worn ? t('equipped') : owned ? t('owned') : coin(it.price))));
+    }
+    scroll.appendChild(kgrid);
+    el.appendChild(scroll);
+  }
+
+  knifeClick(k) {
+    const app = this.app;
+    const it = KNIFE_SHOP[k];
+    if (app.profile.ownsKnife(k)) {
+      app.audio.uiClick();
+      this.equipKnife(k);
+      return;
+    }
+    if (app.profile.data.coins < it.price) {
+      app.audio.uiError();
+      this.ui.toast(t('notEnoughCoins', { n: it.price - app.profile.data.coins }), 'error');
+      return;
+    }
+    app.audio.uiClick();
+    this.ui.confirm(t('buyConfirm', { name: t('knife_' + k), n: it.price }), () => {
+      if (app.profile.buyKnife(k)) {
+        app.audio.uiConfirm();
+        this.ui.confettiBurst(80);
+        this.ui.toast(t('bought', { name: t('knife_' + k) }), 'ok');
+        this.equipKnife(k);
+      }
+    });
+  }
+
+  equipKnife(k) {
+    const app = this.app;
+    app.profile.set('knife', k);
+    app.sendProfile();
+    this.updateCoins();
+    this.renderPanel();
   }
 
   shopClick(o) {
@@ -435,6 +592,19 @@ export class LobbyScreen {
       crowns.appendChild(h('button', { class: 'chip-btn' + (prof.crownStyle === s ? ' sel' : ''), onclick: () => set('crownStyle', s) }, h('i', { style: { background: cc[s] } }), t('crown_' + s)));
     }
     el.appendChild(crowns);
+    el.appendChild(h('div', { class: 'lbl' }, t('knife')));
+    const knives = h('div', { class: 'knife-row' });
+    for (const k of KNIFE_SKINS) {
+      const owned = app.profile.ownsKnife(k);
+      knives.appendChild(h('button', {
+        class: 'knife-btn' + (prof.knife === k ? ' sel' : '') + (owned ? '' : ' locked'),
+        style: { '--rar': RARITY_COLORS[k === 'standard' ? 0 : KNIFE_SHOP[k].rarity] },
+        title: t('knife_' + k),
+        onclick: () => (owned ? set('knife', k) : (app.audio.uiClick(), this.toggleLocker(true, 'shop'))),
+        onmouseenter: () => app.audio.uiHover(),
+      }, h('img', { src: itemIcon(knifeItem(k)), alt: '' }), h('span', {}, owned ? null : h('span', { class: 'icon', html: ICON.lock }), t('knife_' + k))));
+    }
+    el.appendChild(knives);
   }
 
   // Namen + Bereit-Status über den 3D-Figuren
@@ -463,7 +633,9 @@ export class LobbyScreen {
       const isLeader = party && party.leader === m.id && party.members.length > 1;
       const ready = party && party.members.length > 1 ? (isLeader || m.ready) : null;
       const streak = m.id === prof.id ? prof.winStreak : m.streak;
-      const html = `${streak > 0 ? `<span class="ml-crown">${ICON.crown}${streak}</span>` : ''}${isLeader ? `<span class="ml-star">${ICON.star}</span>` : ''}<span class="ml-name">${esc(m.name)}</span>${ready !== null ? `<span class="ml-ready ${ready ? 'on' : ''}">${ready ? t('ready') : t('notReady')}</span>` : ''}`;
+      const ingame = m.id !== prof.id && m.status === 'game';
+      const tag = ingame ? `<span class="ml-ready ingame">${t('inGame')}</span>` : ready !== null ? `<span class="ml-ready ${ready ? 'on' : ''}">${ready ? t('ready') : t('notReady')}</span>` : '';
+      const html = `${streak > 0 ? `<span class="ml-crown">${ICON.crown}${streak}</span>` : ''}${isLeader ? `<span class="ml-star">${ICON.star}</span>` : ''}<span class="ml-name">${esc(m.name)}</span>${tag}`;
       if (el._h !== html) {
         el._h = html;
         el.innerHTML = html;

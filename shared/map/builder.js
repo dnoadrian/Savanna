@@ -65,6 +65,37 @@ export const C = {
   BOARD_LIGHT: 0xb68254,
   BOARD_DARK: 0x6e4a31,
   BUOY: 0xf5c518,
+  // Inseln (Chapter-2-Orte)
+  CONCRETE: 0xc4bfb4,
+  CONCRETE_DARK: 0x8f8b84,
+  BRICK: 0xb05a40,
+  BRICK_DARK: 0x81412f,
+  ROOF_GREY: 0x5d626b,
+  ROOF_BLUE: 0x3f6f9f,
+  ROOF_DARK: 0x3f3a38,
+  WALL_GREEN: 0x92c27f,
+  WALL_PINK: 0xf0a9b6,
+  WALL_CREAM: 0xf3e3bd,
+  WALL_GREY: 0xb9bdc3,
+  WALL_ORANGE: 0xf0a25a,
+  WALL_PURPLE: 0xa98bd6,
+  STEEL: 0x9aa3ad,
+  STEEL_DARK: 0x5f6873,
+  SLURP: 0x46f2ff,
+  SLURP_DARK: 0x238fb3,
+  NEON: 0xff5ec4,
+  TOWER: 0xd9d5cd,
+  HEDGE: 0x3f8f3c,
+  HEDGE_DARK: 0x2f7432,
+  GOLD_TRIM: 0xdcb24c,
+  NAVY: 0x2d406c,
+  LINE: 0xf4f4f0,
+  POOL: 0x4ecbe8,
+  YELLOW: 0xf2c230,
+  ORANGE: 0xe8792f,
+  GREEN: 0x3f9a4a,
+  BLUE: 0x2f6fd0,
+  TEAL: 0x2a9d8f,
 };
 
 export class Builder {
@@ -306,7 +337,7 @@ export class Builder {
       const x = lx - w / 2 + (i / n) * w;
       this.box(x, ly + 0.07, lz, 0.1, 0.07, len, i % 2 ? C.TIN_DARK : c, { rx: slope, col: false });
     }
-    this.blocker(lx, ly - 0.05, lz, w, rise * 0.5 + 0.2, d);
+    this.blocker(lx, ly - 0.05, lz, w, Math.abs(rise) * 0.5 + 0.2, d);
     return this;
   }
 

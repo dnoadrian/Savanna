@@ -1,7 +1,7 @@
 // Server-autoritatives Match: gemeinsame Simulation mit 30 Hz, Snapshots mit 20 Hz,
 // Ereignisse sofort, Lag-Kompensation beim Treffertest.
 import { Simulation } from '../shared/sim/simulation.js';
-import { encodeItem } from '../shared/items.js';
+import { encodeItem , KNIFE_SKINS } from '../shared/items.js';
 import { RNG } from '../shared/rng.js';
 import { SIM_DT, SIM_HZ, SNAPSHOT_HZ, MATCH_SIZE, MAX_REWIND } from '../shared/constants.js';
 
@@ -11,16 +11,18 @@ let nextMatch = 1;
 // Extra-Simulationsschritte pro Tick, wenn keine Menschen mehr im Match sind (SHOWDOWN_FAST_STEPS)
 const FAST_STEPS = Math.max(0, Math.min(20, Number(process.env.SHOWDOWN_FAST_STEPS ?? 2)));
 export class ServerMatch {
-  constructor(gs, clients) {
+  constructor(gs, clients, world, mode = 'solo') {
     this.gs = gs;
     this.id = 'm' + nextMatch++ + '_' + Date.now().toString(36);
     this.seed = (Math.random() * 0xffffffff) >>> 0;
     const rng = new RNG(this.seed ^ 0xabc);
-    const humans = clients.slice(0, MATCH_SIZE).map((c) => ({ ...gs.publicProfile(c.pid), isBot: false }));
+    this.mode = mode === 'duo' ? 'duo' : 'solo';
+    const humans = clients.slice(0, MATCH_SIZE).map((c) => ({ ...gs.publicProfile(c.pid), isBot: false, party: gs.partyOf(c.pid)?.id || null }));
     const champ = gs.store.data.champion;
-    // freie Plätze bis 12 mit Bots auffüllen
-    const players = Simulation.fillWithBots(humans, rng, champ ? { ...champ, crownStyle: 'gold' } : null);
-    this.sim = new Simulation(gs.world, { seed: this.seed, players });
+    // freie Plätze bis 20 mit Bots auffüllen (Duo: Zweierteams)
+    const players = Simulation.fillWithBots(humans, rng, champ ? { ...champ, crownStyle: 'gold' } : null, this.mode);
+    this.mapId = world.id;
+    this.sim = new Simulation(world, { seed: this.seed, players, mode: this.mode });
     this.clients = new Map(clients.map((c) => [c.pid, c]));
     this.loaded = new Set();
     this.started = false;
@@ -28,16 +30,19 @@ export class ServerMatch {
     this.tick = 0;
     this.ended = false;
     this.endSent = false;
-    this.players = this.sim.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, outfit: p.outfit, color: p.color, crownStyle: p.crownStyle, streak: p.streak }));
+    this.players = this.sim.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, outfit: p.outfit, color: p.color, crownStyle: p.crownStyle, streak: p.streak, knife: KNIFE_SKINS[p.inv.knife.r], team: p.team }));
     this.sentRev = new Map();
     const spawns = {};
     for (const p of this.sim.players) spawns[p.id] = [r2(p.body.x), r2(p.body.y), r2(p.body.z), r2(p.body.yaw)];
     for (const c of this.clients.values()) {
       c.matchId = this.id;
-      gs.send(c, { t: 'matchStart', matchId: this.id, seed: this.seed, players: this.players, spawns, you: c.pid });
+      gs.send(c, { t: 'matchStart', matchId: this.id, seed: this.seed, map: this.mapId, mode: this.mode, players: this.players, spawns, you: c.pid });
     }
-    this.timer = setInterval(() => this.update(), 1000 / SIM_HZ);
-    console.log(`Match ${this.id} gestartet: ${humans.length} ${humans.length === 1 ? 'Mensch' : 'Menschen'} + ${this.sim.players.length - humans.length} Bots = ${this.sim.players.length}`);
+    // fester Takt mit Aufholen: bekommt der Server kurz keine Rechenzeit (kleine Cloud-Server),
+    // werden verpasste Schritte nachgeholt – die Spielzeit bleibt im Gleichschritt mit der Echtzeit
+    this.nextTick = performance.now();
+    this.timer = setInterval(() => this.pump(), 1000 / SIM_HZ / 2);
+    console.log(`Match ${this.id} (${world.name}, ${this.mode}) gestartet: ${humans.length} ${humans.length === 1 ? 'Mensch' : 'Menschen'} + ${this.sim.players.length - humans.length} Bots = ${this.sim.players.length}`);
   }
 
   humanCount() {
@@ -51,7 +56,21 @@ export class ServerMatch {
     if (c.admin && c.cheats && c.cheats.ia) this.sim.humanCheat(c.pid, { infAmmo: true });
   }
 
-  update() {
+  pump() {
+    const now = performance.now();
+    const step = 1000 / SIM_HZ;
+    if (now - this.nextTick > 250) this.nextTick = now - step; // zu großer Rückstand: nicht alles nachholen
+    let n = 0;
+    while (this.nextTick <= now && n < 6 && this.timer) {
+      this.nextTick += step;
+      n++;
+      this.update(this.nextTick > now);
+    }
+  }
+
+  // last: letzter Schritt dieses Durchlaufs – nur dann einen Snapshot schicken (beim Aufholen spart
+  // das Bandbreite, der Client interpoliert ohnehin)
+  update(last = true) {
     // Warten, bis alle Clients die Welt geladen haben (max. 15 s)
     if (!this.started) {
       const all = [...this.clients.keys()].every((id) => this.loaded.has(id) || !this.clients.get(id).ws);
@@ -66,8 +85,10 @@ export class ServerMatch {
     const ev = this.sim.drainEvents();
     if (ev.length) this.broadcast({ t: 'ev', mid: this.id, e: ev });
     // Snapshots mit 20 Hz
-    if (Math.floor(this.tick * SNAPSHOT_HZ / SIM_HZ) !== Math.floor((this.tick - 1) * SNAPSHOT_HZ / SIM_HZ)) {
-      this.broadcastSnapshot(this.tick % 15 === 0);
+    if (Math.floor(this.tick * SNAPSHOT_HZ / SIM_HZ) !== Math.floor((this.tick - 1) * SNAPSHOT_HZ / SIM_HZ)) this.snapDue = true;
+    if (this.snapDue && last) {
+      this.snapDue = false;
+      this.broadcastSnapshot(this.tick % 15 < 2);
     }
     if (this.sim.phase === 'ended' && !this.ended) {
       this.ended = true;
@@ -79,23 +100,23 @@ export class ServerMatch {
   }
 
   broadcastSnapshot(withScores) {
-    const s = this.sim.snapshot();
-    let sc = null;
-    if (withScores) sc = this.sim.players.map((p) => [p.id, p.kills, p.damage, p.isBot ? 0 : Math.round((this.clients.get(p.id)?.ping) || 0)]);
+    // gemeinsamer Teil nur einmal in JSON umwandeln, pro Spieler nur „me“ anhängen
+    let head = '{"t":"snap","mid":' + JSON.stringify(this.id) + ',"s":' + JSON.stringify(this.sim.snapshot());
+    if (withScores) head += ',"sc":' + JSON.stringify(this.sim.players.map((p) => [p.id, p.kills, Math.round(p.damage), p.isBot ? 0 : Math.round((this.clients.get(p.id)?.ping) || 0)]));
     for (const c of this.clients.values()) {
       if (c.matchId !== this.id) continue;
       const p = this.sim.byId.get(c.pid);
-      const msg = { t: 'snap', mid: this.id, s };
-      if (sc) msg.sc = sc;
+      let data = head;
       if (p) {
-        msg.me = { u: p.useT >= 0 ? Math.round(p.useT * 100) / 100 : -1 };
+        const me = { u: p.useT >= 0 ? Math.round(p.useT * 100) / 100 : -1 };
         // Inventar nur bei Änderungen
         if (this.sentRev.get(c.pid) !== p.inv.rev) {
           this.sentRev.set(c.pid, p.inv.rev);
-          msg.me.inv = { s: p.inv.slots.map((it) => (it ? encodeItem(it) : null)), sel: p.inv.sel, a: p.inv.ammo, rev: p.inv.rev };
+          me.inv = { s: p.inv.slots.map((it) => (it ? encodeItem(it) : null)), sel: p.inv.sel, a: p.inv.ammo, rev: p.inv.rev };
         }
+        data += ',"me":' + JSON.stringify(me);
       }
-      this.gs.send(c, msg);
+      this.gs.sendRaw(c, data + '}');
     }
   }
 
@@ -140,6 +161,7 @@ export class ServerMatch {
         else if (Number.isInteger(m.l)) sim.humanInteract(c.pid, { l: m.l });
         break;
       case 'use': sim.humanUse(c.pid, m.s | 0); break;
+      case 'rev': sim.humanRevive(c.pid, typeof m.v === 'string' ? m.v.slice(0, 64) : null); break;
       case 'useCancel': sim.humanCancelUse(c.pid); break;
       case 'leaveMatch': this.leave(c); break;
       default: break;
@@ -174,6 +196,7 @@ export class ServerMatch {
   finish() {
     this.endSent = true;
     clearInterval(this.timer);
+    this.timer = null;
     const sim = this.sim;
     const results = sim.players.map((p) => sim.stats(p));
     const winner = sim.winnerId;
@@ -185,6 +208,7 @@ export class ServerMatch {
 
   destroy() {
     clearInterval(this.timer);
+    this.timer = null;
   }
 }
 

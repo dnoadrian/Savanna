@@ -1,7 +1,7 @@
 {
   "name": "showdown-bay",
   "version": "1.0.0",
-  "description": "SHOWDOWN BAY – Low-Poly Battle-Royale im Browser: Hafenbucht im Canyon, Truhen, 6 Waffen, Schilde (Three.js + Web Audio + Node.js/WebSocket)",
+  "description": "SHOWDOWN BAY – Low-Poly Battle-Royale im Browser: 18 Inseln nach Fortnite-Orten, Solo & Duo, 20 Spieler, Truhen, Waffen, Schilde (Three.js + Web Audio + Node.js/WebSocket)",
   "type": "module",
   "main": "server/index.js",
   "scripts": {

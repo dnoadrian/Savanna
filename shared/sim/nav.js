@@ -1,17 +1,23 @@
 // Navigationsgitter (1 m) mit A*-Wegfindung für Bots. Begehbare Flächen sind Terrain oder
 // niedrige Collider-Oberseiten (Stege, Böden); zu hohe Stufen (z. B. aus dem Wasser auf einen Steg) sind gesperrt.
-import { MAX_WALK_SLOPE } from '../constants.js';
+import { MAX_WALK_SLOPE, BOUNDARY_RADIUS } from '../constants.js';
 import { CollisionWorld } from '../physics/collision.js';
 
-const HALF = 104;
+const HALF = BOUNDARY_RADIUS + 2;
 const CELL = 1;
 const N = (HALF * 2) / CELL;
 const SQ2 = Math.SQRT2;
 
 const FREE = 0, STEEP = 1, BLOCKED = 2;
+// Wegsuche: Obergrenzen für die Zahl untersuchter Zellen; leicht gewichtete Heuristik findet
+// Wege viel schneller, die Wege sind höchstens ~20 % länger als optimal
+export const PATH_MAX_EXPAND = 9000;
+const PATH_OTHER_REGION = 1200;
+const PATH_H_WEIGHT = 1.2;
 
 export class NavGrid {
-  constructor(terrain, collision) {
+  // lazy = true: Aufbau erst über steps() (Server rechnet ihn in kleinen Häppchen)
+  constructor(terrain, collision, lazy = false) {
     this.terrain = terrain;
     this.collision = collision;
     this.n = N;
@@ -25,16 +31,57 @@ export class NavGrid {
     this.closedStamp = new Uint32Array(N * N);
     this.search = 0;
     this.heap = new Int32Array(N * N);
-    this.build();
+    this.lastExpand = 0;
+    if (!lazy) for (const _ of this.steps()) { /* sofort komplett */ }
+  }
+
+  * steps() {
+    yield* this.buildSteps();
+    this.buildRegions();
+  }
+
+  // Zusammenhängende Bereiche (in beide Richtungen begehbar). Liegen Start und Ziel in
+  // verschiedenen Bereichen, ist das Ziel höchstens über einen Sprung nach unten erreichbar –
+  // dann gibt es nur eine kleine Suche statt einer über die halbe Karte (Server-Lastspitzen).
+  buildRegions() {
+    const region = (this.region = new Int32Array(N * N).fill(-1));
+    const stack = new Int32Array(N * N);
+    let id = 0;
+    for (let s = 0; s < N * N; s++) {
+      if (region[s] >= 0 || this.walk[s] === BLOCKED) continue;
+      let top = 0;
+      stack[top++] = s;
+      region[s] = id;
+      while (top > 0) {
+        const cur = stack[--top];
+        const ci = cur % N, cj = (cur / N) | 0;
+        for (let dj = -1; dj <= 1; dj++) {
+          const nj = cj + dj;
+          if (nj < 0 || nj >= N) continue;
+          for (let di = -1; di <= 1; di++) {
+            if (!di && !dj) continue;
+            const ni = ci + di;
+            if (ni < 0 || ni >= N) continue;
+            const nb = nj * N + ni;
+            if (region[nb] >= 0 || !this.canStep(cur, nb) || !this.canStep(nb, cur)) continue;
+            region[nb] = id;
+            stack[top++] = nb;
+          }
+        }
+      }
+      id++;
+    }
+    this.regionCount = id;
   }
 
   cellX(i) { return -HALF + (i + 0.5) * CELL; }
   toCell(x) { return Math.floor((x + HALF) / CELL); }
 
-  build() {
+  * buildSteps() {
     const t = this.terrain;
     const nrm = { x: 0, y: 1, z: 0 };
     for (let j = 0; j < N; j++) {
+      if (j % 24 === 23) yield j / N;
       const z = this.cellX(j);
       for (let i = 0; i < N; i++) {
         const x = this.cellX(i);
@@ -149,7 +196,7 @@ export class NavGrid {
   }
 
   // A*; gibt Wegpunkte [[x,z],...] zurück (geglättet) oder null
-  findPath(sx, sz, tx, tz, maxExpand = 50000) {
+  findPath(sx, sz, tx, tz, maxExpand = PATH_MAX_EXPAND) {
     let start = this.nearestFree(sx, sz, 6);
     if (start < 0) {
       const i = this.toCell(sx), j = this.toCell(sz);
@@ -157,12 +204,15 @@ export class NavGrid {
       start = j * N + i;
     }
     const goal = this.nearestFree(tx, tz, 12);
+    this.lastExpand = 0;
     if (goal < 0) return null;
+    // anderer Bereich: nur eine kurze Suche (Ziel ist evtl. gar nicht erreichbar)
+    if (this.region[start] !== this.region[goal]) maxExpand = Math.min(maxExpand, PATH_OTHER_REGION);
     const s = ++this.search;
     const gi = goal % N, gj = (goal / N) | 0;
     const hfun = (idx) => {
       const di = Math.abs((idx % N) - gi), dj = Math.abs(((idx / N) | 0) - gj);
-      return (di + dj + (SQ2 - 2) * Math.min(di, dj)) * 1.05;
+      return (di + dj + (SQ2 - 2) * Math.min(di, dj)) * PATH_H_WEIGHT;
     };
     this.g[start] = 0;
     this.f[start] = hfun(start);
@@ -210,6 +260,7 @@ export class NavGrid {
         }
       }
     }
+    this.lastExpand = expand;
     // Pfad rekonstruieren
     const cells = [];
     let c = best;

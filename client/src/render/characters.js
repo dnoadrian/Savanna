@@ -404,6 +404,8 @@ export class Character {
     this.sprintK = k(flags & F.SPRINT ? 1 : 0, this.sprintK, 8);
     this.airK = k(flags & F.AIR ? 1 : 0, this.airK, 8);
     this.useK = k(flags & F.USING ? 1 : 0, this.useK, 10);
+    // Duo: niedergeschlagen – auf dem Bauch kriechen
+    this.knockK = k(flags & F.KNOCKED ? 1 : 0, this.knockK || 0, 6);
     if (st.hand !== undefined) this.setHand(st.hand);
     if (flags & F.RELOAD) {
       if (this.reloadT < 0) this.reloadT = 0;
@@ -505,10 +507,35 @@ export class Character {
     else if (leftTarget) lt = _v2.copy(leftTarget).applyMatrix4(this.gun.matrix);
     else lt = _v2.set(0, 0.0, -0.4).applyMatrix4(this.gun.matrix);
     this.solveArm(this.arms[0], lt, -1);
+    if (this.knockK > 0.01) this.poseKnocked(t);
+    else if (!this.gun.visible && (!this.hand || this.hand.k === 'w') && !this.dead) this.gun.visible = true;
     // Krone schwebt
     if (this.crown) {
       this.crown.rotation.y += dt * 0.8;
       this.crown.position.y = (this.def.hatTop ?? 0.3) + 0.2 + Math.sin(t * 2) * 0.03;
+    }
+  }
+
+  // am Boden: Oberkörper nach vorne gekippt, Arme ziehen abwechselnd nach vorne
+  poseKnocked(t) {
+    const kk = this.knockK;
+    this.fall.rotation.x = -kk * 1.3;
+    this.fall.position.y = kk * 0.06;
+    this.gun.visible = kk < 0.3 && (!this.hand || this.hand.k === 'w');
+    this.medkit.visible = false;
+    const crawl = Math.min(1, this.speed / 1.5);
+    for (const L of this.legs) {
+      const sw = Math.sin(this.phase * 1.4 + (L.side > 0 ? 0 : Math.PI)) * 0.35 * crawl;
+      L.upper.rotation.x = L.upper.rotation.x * (1 - kk) + (0.05 + sw) * kk;
+      L.knee.rotation.x = L.knee.rotation.x * (1 - kk) + (0.15 + Math.max(0, sw)) * kk;
+    }
+    const a = this.phase * 1.4;
+    this.solveArm(this.arms[1], _v1.set(0.28, 0.72 + Math.sin(a) * 0.12 * crawl, -0.18 - Math.cos(a) * 0.1 * crawl), 1);
+    this.solveArm(this.arms[0], _v2.set(-0.28, 0.72 - Math.sin(a) * 0.12 * crawl, -0.18 + Math.cos(a) * 0.1 * crawl), -1);
+    this.head.rotation.x = 0.9 * kk;
+    if (kk < 0.02) {
+      this.fall.rotation.x = 0;
+      this.fall.position.y = 0;
     }
   }
 
@@ -537,6 +564,12 @@ export class Character {
     this.fallAxis = Math.random() < 0.5 ? 'x' : 'z';
     this.fallSign = Math.random() < 0.5 ? 1 : -1;
     if (this.fallAxis === 'x') this.fallSign = 1;
+    // lag schon am Boden (Duo): einfach liegen bleiben
+    if ((this.knockK || 0) > 0.5) {
+      this.fallAxis = 'x';
+      this.fallSign = -1;
+      this.deathT = 0.58;
+    }
     this.medkit.visible = false;
   }
 

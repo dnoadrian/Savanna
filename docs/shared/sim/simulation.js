@@ -4,12 +4,13 @@
 import {
   MATCH_SIZE, COUNTDOWN, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, F,
   SPAWN_MIN_DIST, MAX_REWIND, EYE_STAND, EYE_CROUCH, PLAY_RADIUS, INTERACT_RANGE, AUTO_PICKUP_RANGE, SEA_LEVEL,
+  KNOCK_HP, KNOCK_BLEED, REVIVE_TIME, REVIVE_HP, REVIVE_RANGE,
 } from '../constants.js';
 import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem, AMMO_TYPES, AMMO_MAX, KILL_AMMO, ammoItem, consumableItem, weaponItem } from '../items.js';
 import { RNG } from '../rng.js';
 import { createBody, stepMovement, bodyFlags } from './movement.js';
 import { createWeaponRuntime, equipWeapon, fireWeapon, startReload, cancelReload, updateWeapon, weaponSpread, botWeaponSpread } from './weapon.js';
-import { createInventory, addItem, dropAll, selectedItem, stackRoom } from './inventory.js';
+import { createInventory, addItem, dropAll, selectedItem, stackRoom, KNIFE_SLOT } from './inventory.js';
 import { Loot } from './loot.js';
 import { rayPlayer, dirFromAngles, applySpread } from './combat.js';
 import { Zone } from './zone.js';
@@ -33,10 +34,25 @@ export function decodeHand(code) {
   return null;
 }
 
+// Rechenbudget der Bot-Wegsuche pro Simulationsschritt (untersuchte Navigationszellen)
+const EXPAND_PER_TICK = 5000;
+
+// Richtungen für einen Messerhieb: Mitte zuerst, dann ein kleiner Fächer (±9° seitlich, ±6° hoch/runter)
+function meleeFan(d) {
+  const out = [d];
+  const yaw = Math.atan2(d.x, d.z), pitch = Math.asin(Math.max(-1, Math.min(1, d.y)));
+  for (const [dy, dp] of [[0.16, 0], [-0.16, 0], [0, 0.1], [0, -0.1], [0.1, 0.07], [-0.1, 0.07], [0.1, -0.07], [-0.1, -0.07]]) {
+    const cy = Math.cos(pitch + dp);
+    out.push({ x: Math.sin(yaw + dy) * cy, y: Math.sin(pitch + dp), z: Math.cos(yaw + dy) * cy });
+  }
+  return out;
+}
+
 export class Simulation {
   /**
    * world: { terrain, collision, nav, pois, chests, floorLoot }
-   * cfg: { seed, players:[{id,name,isBot,outfit,color,crownStyle,streak}], storm, botDifficulty }
+   * cfg: { seed, players:[{id,name,isBot,outfit,color,crownStyle,streak,team}], storm, botDifficulty, mode }
+   * mode 'duo': Zweierteams (kein Eigenbeschuss, Niederschlagen + Wiederbeleben, Team-Platzierung)
    */
   constructor(world, cfg) {
     this.world = world;
@@ -44,6 +60,7 @@ export class Simulation {
     this.seed = cfg.seed >>> 0;
     this.rng = new RNG(this.seed ^ 0x9e3779b9);
     this.opts = { storm: cfg.storm !== false, botDifficulty: cfg.botDifficulty || 'mixed' };
+    this.mode = cfg.mode === 'duo' ? 'duo' : 'solo';
     this.zone = new Zone(this.seed, world.terrain, this.opts.storm);
     this.zone.update(0);
     this.loot = new Loot(world, this.seed);
@@ -54,13 +71,26 @@ export class Simulation {
     this.events = [];
     this.recentShots = [];
     this.pathBudget = 2;
+    this.expandBudget = EXPAND_PER_TICK;
     this.winnerId = null;
     this.players = [];
     this.byId = new Map();
     this.stepCount = 0;
     if (cfg.players.length < 1 || cfg.players.length > MATCH_SIZE) throw new Error('Match braucht 1 bis ' + MATCH_SIZE + ' Spieler');
-    const spawns = this.pickSpawns(cfg.players.length);
-    cfg.players.forEach((pc, i) => this.addPlayer(pc, spawns[i]));
+    // Teams: Solo = jeder für sich; Duo = Team-Nummer aus der Aufstellung (Partner starten zusammen)
+    const teamOf = cfg.players.map((pc, i) => (this.mode === 'duo' && Number.isInteger(pc.team) ? pc.team : 1000 + i));
+    const teamIds = [...new Set(teamOf)];
+    const spawns = this.pickSpawns(teamIds.length);
+    const used = new Map();
+    cfg.players.forEach((pc, i) => {
+      const k = teamIds.indexOf(teamOf[i]);
+      const n = used.get(k) || 0;
+      used.set(k, n + 1);
+      const sp = spawns[k];
+      const off = n ? this.teamSpawnOffset(sp, n) : sp;
+      const p = this.addPlayer(pc, off);
+      p.team = k;
+    });
   }
 
   // Bodenhöhe inkl. Stege/Böden
@@ -94,6 +124,21 @@ export class Simulation {
     return out;
   }
 
+  // Partner neben dem Startpunkt (freie Stelle in 2–4 m Abstand)
+  teamSpawnOffset(sp, n) {
+    const col = this.world.collision;
+    for (let k = 0; k < 16; k++) {
+      const a = sp.yaw + Math.PI / 2 + k * 0.8 + n;
+      const r = 2.2 + (k % 4) * 0.6;
+      const x = sp.x + Math.cos(a) * r, z = sp.z + Math.sin(a) * r;
+      const h = this.groundAt(x, z);
+      if (h < SEA_LEVEL + 0.15 || Math.abs(h - sp.y) > 1.2) continue;
+      if (col.overlaps(x, z, 0.6, h + 0.1, h + 2.2)) continue;
+      return { x, y: h, z, yaw: sp.yaw };
+    }
+    return { ...sp, x: sp.x + 0.8 };
+  }
+
   addPlayer(pc, sp) {
     const body = createBody(sp.x, sp.y, sp.z);
     body.yaw = sp.yaw;
@@ -116,7 +161,7 @@ export class Simulation {
       damage: 0,
       headshots: 0,
       shotsHit: 0,
-      inv: createInventory(),
+      inv: createInventory(pc.knife),
       wr: createWeaponRuntime(),
       useT: -1,
       useSlot: -1,
@@ -132,6 +177,11 @@ export class Simulation {
       histHead: 0,
       connected: true,
       ping: 0,
+      team: 0,
+      knocked: false,
+      knockedBy: null,
+      reviving: null, // ID des Partners, der gerade wiederbelebt wird
+      reviveT: 0,
     };
     if (p.isBot) {
       // gemischte Lobby: viele leichte/normale Bots, wenige starke
@@ -153,6 +203,21 @@ export class Simulation {
     return n;
   }
 
+  // Anzahl Teams mit mindestens einem lebenden Mitglied
+  aliveTeamCount() {
+    const t = new Set();
+    for (const p of this.players) if (p.alive) t.add(p.team);
+    return t.size;
+  }
+
+  mates(p) {
+    return this.players.filter((o) => o !== p && o.team === p.team);
+  }
+
+  isMate(a, b) {
+    return this.mode === 'duo' && a !== b && a.team === b.team;
+  }
+
   emit(e) {
     this.events.push(e);
   }
@@ -168,6 +233,7 @@ export class Simulation {
     this.time += dt;
     this.stepCount++;
     this.pathBudget = 2;
+    this.expandBudget = EXPAND_PER_TICK;
     if (this.phase === 'countdown') {
       this.countdown -= dt;
       for (const p of this.players) {
@@ -207,9 +273,11 @@ export class Simulation {
         if (!it || it.k !== 'c' || p.inv.sel !== p.useSlot) this.cancelUse(p);
         else if (p.useT >= CONSUMABLES[it.c].use) this.finishUse(p, it);
       }
-      if (autoPickup) this.autoPickupAmmo(p);
+      if (autoPickup && !p.knocked) this.autoPickupAmmo(p);
       if (p.isBot) this.stepBot(p, dt);
     }
+
+    if (this.mode === 'duo' && this.phase === 'playing') this.stepDuo(dt);
 
     // Sturmschaden (nur Gesundheit)
     if (this.phase === 'playing' && this.zone.enabled) {
@@ -232,11 +300,84 @@ export class Simulation {
     this.recordHistory();
   }
 
+  // Duo: Ausbluten am Boden und Wiederbeleben
+  stepDuo(dt) {
+    for (const p of this.players) {
+      if (!p.alive) continue;
+      if (p.knocked) {
+        p.health -= KNOCK_BLEED * dt;
+        if (p.health <= 0) {
+          const k = p.knockedBy ? this.byId.get(p.knockedBy) : null;
+          this.kill(p, k && k !== p ? k : null, false, 'bleed');
+          if (this.phase === 'ended') return;
+        }
+        continue;
+      }
+      if (!p.reviving) continue;
+      const t = this.byId.get(p.reviving);
+      const ok = t && t.alive && t.knocked && t.team === p.team && p.useT < 0 &&
+        Math.hypot(t.body.x - p.body.x, t.body.z - p.body.z) <= REVIVE_RANGE + 0.6 && Math.abs(t.body.y - p.body.y) < 2;
+      if (!ok) { this.cancelRevive(p); continue; }
+      p.reviveT += dt;
+      if (p.reviveT >= REVIVE_TIME) this.revive(t, p);
+    }
+  }
+
+  revive(t, by) {
+    t.knocked = false;
+    t.knockedBy = null;
+    t.health = REVIVE_HP;
+    t.stormAcc = 0;
+    by.reviving = null;
+    by.reviveT = 0;
+    this.emit({ t: 'revive', id: t.id, by: by.id });
+  }
+
+  cancelRevive(p) {
+    if (!p.reviving) return;
+    const id = p.reviving;
+    p.reviving = null;
+    p.reviveT = 0;
+    this.emit({ t: 'reviveStop', id: p.id, v: id });
+  }
+
+  // Wiederbeleben beginnen (Partner am Boden in Reichweite) bzw. mit null abbrechen
+  startRevive(p, targetId) {
+    if (!targetId) { this.cancelRevive(p); return false; }
+    const t = this.byId.get(targetId);
+    if (!p.alive || p.knocked || !t || !t.alive || !t.knocked || t.team !== p.team || p === t) return false;
+    if (Math.hypot(t.body.x - p.body.x, t.body.z - p.body.z) > REVIVE_RANGE + 0.8) return false;
+    if (p.reviving === t.id) return true;
+    this.cancelUse(p);
+    cancelReload(p.wr);
+    p.reviving = t.id;
+    p.reviveT = 0;
+    this.emit({ t: 'reviveStart', id: p.id, v: t.id });
+    return true;
+  }
+
+  humanRevive(id, targetId) {
+    const p = this.byId.get(id);
+    return p ? this.startRevive(p, targetId) : false;
+  }
+
   stepBot(p, dt) {
     const brain = p.brain;
     const input = brain.update(dt);
     const act = brain.actions;
     if (this.phase !== 'playing') return;
+    if (p.knocked || p.reviving) {
+      // am Boden: nur kriechen; beim Wiederbeleben stillhalten
+      if (p.knocked) { input.crouch = true; input.speedMul = 0.8; } else { input.mx = 0; input.mz = 0; }
+      input.sprint = false; input.jump = false; input.crouchPressed = false; input.ads = false;
+      if (!p.knocked && act.revive !== undefined && act.revive !== p.reviving) this.startRevive(p, act.revive);
+      stepMovement(p.body, input, dt, this.world);
+      p.pitch = input.pitch;
+      p.flags = bodyFlags(p.body, 0);
+      return;
+    }
+    input.speedMul = 0;
+    if (act.revive) this.startRevive(p, act.revive);
     if (act.select >= 0 && act.select !== p.inv.sel) this.selectSlot(p, act.select);
     if (act.use >= 0) this.startUse(p, act.use);
     if (act.interact) this.interact(p, act.interact);
@@ -336,7 +477,12 @@ export class Simulation {
     }
     const hits = new Map();
     const ends = [];
+    // Messer: großzügiger Nahkampf – ein Strahl in der Mitte plus ein Fächer drumherum,
+    // der erste getroffene Spieler bekommt den vollen Schaden (nur einmal pro Hieb)
+    if (def.melee && dirs.length) dirs = meleeFan(dirs[0]);
+    let meleeHit = false;
     for (const d of dirs) {
+      if (meleeHit) break;
       let tWorld = wall ? -1 : col.raycast(ox, oy, oz, d.x, d.y, d.z, range, true, true);
       let mat = tWorld >= 0 ? col.hitOut.mat : -1;
       if (tWorld < 0) tWorld = range;
@@ -357,14 +503,15 @@ export class Simulation {
       const ex = ox + d.x * best, ey = oy + d.y * best, ez = oz + d.z * best;
       ends.push([r2(ex), r2(ey), r2(ez), hitP ? MAT.PLAYER : mat]);
       if (hitP) {
+        if (def.melee) meleeHit = true;
         let h = hits.get(hitP);
         if (!h) hits.set(hitP, (h = { dmg: 0, head: false, part: hitPart, pos: [r2(ex), r2(ey), r2(ez)] }));
-        h.dmg += weaponDamage(item.w, item.r, hitPart, best);
+        h.dmg += def.melee ? def.dmg[0] * (hitPart === 'h' ? def.hs : 1) : weaponDamage(item.w, item.r, hitPart, best);
         if (hitPart === 'h') { h.head = true; h.pos = [r2(ex), r2(ey), r2(ez)]; }
       }
     }
     this.recentShots.push({ x: ox, y: oy, z: oz, t: this.time, id: shooter.id });
-    this.emit({ t: 'shot', id: shooter.id, w: item.w, o: [r2(ox), r2(oy), r2(oz)], e: ends });
+    this.emit({ t: 'shot', id: shooter.id, w: item.w, o: [r2(ox), r2(oy), r2(oz)], e: def.melee ? ends.slice(0, 1) : ends });
     for (const [target, h] of hits) {
       shooter.shotsHit++;
       this.applyDamage(target, Math.max(1, Math.round(h.dmg)), shooter.id, h.head ? 'h' : h.part, h.pos, item.w);
@@ -376,6 +523,18 @@ export class Simulation {
   applyDamage(target, dmg, attackerId, part, pos, weapon) {
     if (!target.alive || this.phase === 'ended') return;
     const attacker = attackerId && attackerId !== 'storm' ? this.byId.get(attackerId) : null;
+    if (attacker && this.isMate(attacker, target)) return; // kein Eigenbeschuss im Duo
+    if (target.knocked) {
+      // am Boden: Schaden direkt aufs Leben (Schilde sind weg)
+      target.health -= dmg;
+      if (attacker) attacker.damage += Math.min(dmg, Math.max(0, target.health + dmg));
+      const ev = { t: 'hit', a: attackerId, v: target.id, d: dmg, sd: 0, p: part, hp: Math.max(0, target.health), sh: 0, os: 0, dn: 1 };
+      if (pos) ev.pos = pos;
+      if (attacker) ev.from = [r2(attacker.body.x), r2(attacker.body.z)];
+      this.emit(ev);
+      if (target.health <= 0) this.kill(target, attacker || (target.knockedBy && this.byId.get(target.knockedBy)) || null, part === 'h', attackerId === 'storm' ? 'storm' : weapon || 'ar');
+      return;
+    }
     let rest = dmg;
     let sd = 0;
     const hadShield = target.shield + target.overshield > 0;
@@ -403,23 +562,51 @@ export class Simulation {
     if (hadShield && sd > 0 && target.shield + target.overshield <= 0 && target.health > 0) ev.br = 1;
     if (pos) ev.pos = pos;
     if (attacker) ev.from = [r2(attacker.body.x), r2(attacker.body.z)];
+    if (weapon === 'knife') ev.w = 'knife';
     this.emit(ev);
-    if (target.health <= 0) this.kill(target, attacker, part === 'h', attackerId === 'storm' ? 'storm' : weapon || 'ar');
+    if (target.health <= 0) {
+      if (this.canKnock(target)) this.knock(target, attacker, part === 'h', attackerId === 'storm' ? 'storm' : weapon || 'ar');
+      else this.kill(target, attacker, part === 'h', attackerId === 'storm' ? 'storm' : weapon || 'ar');
+    }
+  }
+
+  // Duo: niederschlagen statt eliminieren, solange ein Partner noch steht
+  canKnock(p) {
+    return this.mode === 'duo' && this.mates(p).some((m) => m.alive && !m.knocked);
+  }
+
+  knock(target, attacker, headshot, cause) {
+    target.knocked = true;
+    target.knockedBy = attacker ? attacker.id : null;
+    target.health = KNOCK_HP;
+    target.shield = 0;
+    target.overshield = 0;
+    target.stormAcc = 0;
+    this.cancelUse(target);
+    cancelReload(target.wr);
+    this.cancelRevive(target);
+    // wer diesen Spieler gerade wiederbelebt, bricht nicht ab (er selbst ist nicht betroffen)
+    this.emit({ t: 'knock', k: attacker ? attacker.id : null, v: target.id, hs: !!headshot, w: cause });
   }
 
   kill(target, killer, headshot, cause) {
     if (!target.alive) return;
-    const before = this.aliveCount();
+    const before = this.aliveTeamCount();
     target.alive = false;
+    target.knocked = false;
     target.health = 0;
     target.shield = 0;
     target.overshield = 0;
     target.useT = -1;
-    target.placement = before;
+    this.cancelRevive(target);
+    // Team ausgeschieden? (niemand mehr auf den Beinen → Partner am Boden scheiden mit aus)
+    const mates = this.mates(target).filter((m) => m.alive);
+    const teamOut = !mates.some((m) => !m.knocked);
+    target.placement = teamOut ? before : 0;
     target.deathT = this.matchTime;
     target.killerId = killer ? killer.id : null;
     target.flags = F.DEAD;
-    this.emit({ t: 'kill', k: killer ? killer.id : null, v: target.id, hs: !!headshot, w: cause, place: before });
+    this.emit({ t: 'kill', k: killer ? killer.id : null, v: target.id, hs: !!headshot, w: cause, place: teamOut ? before : 0 });
     if (killer && killer !== target && killer.alive) {
       killer.kills++;
       // Siphon: +50, erst Gesundheit, Rest als Schild
@@ -437,7 +624,13 @@ export class Simulation {
       else items.push(ammoItem(a, KILL_AMMO[a]));
     }
     if (items.length) this.spawnLoot(items, target.body.x, target.body.y, target.body.z, null, 1.3);
-    if (before - 1 <= 1) this.finish();
+    if (teamOut) {
+      for (const m of this.mates(target)) {
+        if (m.alive) this.kill(m, killer, false, 'bleed');
+        m.placement = before;
+      }
+      if (this.phase !== 'ended' && before - 1 <= 1) this.finish();
+    }
   }
 
   finish() {
@@ -448,7 +641,9 @@ export class Simulation {
     this.phase = 'ended';
     this.winnerId = winner.id;
     winner.placement = 1;
-    this.emit({ t: 'win', id: winner.id });
+    // Duo: das ganze Team gewinnt (auch ein bereits eliminierter Partner)
+    for (const m of this.mates(winner)) m.placement = 1;
+    this.emit({ t: 'win', id: winner.id, team: winner.team });
   }
 
   // ---------------- Beute ----------------
@@ -463,7 +658,7 @@ export class Simulation {
   }
 
   interact(p, target) {
-    if (!p.alive || this.phase !== 'playing') return false;
+    if (!p.alive || p.knocked || this.phase !== 'playing') return false;
     const b = p.body;
     const reach = INTERACT_RANGE + (p.isBot ? 0 : 1.0); // Menschen: Toleranz für Netzwerkverzögerung
     if (target.c !== undefined) {
@@ -532,7 +727,7 @@ export class Simulation {
   }
 
   selectSlot(p, slot) {
-    if (slot < 0 || slot > 4 || slot === p.inv.sel) return;
+    if (slot < 0 || slot > KNIFE_SLOT || slot === p.inv.sel || p.knocked) return;
     this.cancelUse(p);
     p.inv.sel = slot;
     equipWeapon(p.wr, selectedItem(p.inv));
@@ -548,7 +743,7 @@ export class Simulation {
   }
 
   startUse(p, slot) {
-    if (!p.alive || p.useT >= 0 || this.phase !== 'playing') return false;
+    if (!p.alive || p.knocked || p.useT >= 0 || this.phase !== 'playing') return false;
     const it = p.inv.slots[slot];
     if (!this.canUse(p, it)) return false;
     if (p.inv.sel !== slot) this.selectSlot(p, slot);
@@ -610,8 +805,9 @@ export class Simulation {
   // shot: { s: Platz, ox, oy, oz, dirs: [{x,y,z}, …], rewind }
   humanFire(id, shot) {
     const p = this.byId.get(id);
-    if (!p || !p.alive || this.phase !== 'playing') return false;
-    if (shot.s !== p.inv.sel && shot.s >= 0 && shot.s < 5) {
+    if (!p || !p.alive || p.knocked || this.phase !== 'playing') return false;
+    if (p.reviving) this.cancelRevive(p);
+    if (shot.s !== p.inv.sel && shot.s >= 0 && shot.s <= KNIFE_SLOT) {
       p.inv.sel = shot.s;
       equipWeapon(p.wr, selectedItem(p.inv));
       p.wr.equipT = 0;
@@ -643,7 +839,7 @@ export class Simulation {
 
   humanReload(id) {
     const p = this.byId.get(id);
-    if (!p || !p.alive || p.useT >= 0) return;
+    if (!p || !p.alive || p.knocked || p.useT >= 0) return;
     if (startReload(p.wr, selectedItem(p.inv), p.inv.ammo)) this.emit({ t: 'reload', id: p.id });
   }
 
@@ -766,12 +962,21 @@ export class Simulation {
       ph: this.phase,
       cd: r2(this.countdown),
       p: this.players.map((p) => [
-        p.id, r2(p.body.x), r2(p.body.y), r2(p.body.z), r3(p.body.yaw), r3(p.pitch), p.alive ? p.flags : F.DEAD,
+        p.id, r2(p.body.x), r2(p.body.y), r2(p.body.z), r3(p.body.yaw), r3(p.pitch), p.alive ? this.netFlags(p) : F.DEAD,
         Math.ceil(p.health), Math.ceil(p.shield), Math.ceil(p.overshield), r2(p.body.vx), r2(p.body.vz),
         p.alive ? handCode(selectedItem(p.inv)) : 0,
       ]),
       z: [r2(z.x), r2(z.z), r2(z.r)],
     };
+  }
+
+  netFlags(p) {
+    let f = p.flags & ~(F.KNOCKED | F.REVIVING);
+    if (p.knocked) {
+      f |= F.KNOCKED;
+      if (this.players.some((o) => o.reviving === p.id)) f |= F.REVIVING;
+    }
+    return f;
   }
 
   // Statistik pro Spieler (Ergebnisbildschirm)
@@ -783,14 +988,15 @@ export class Simulation {
       kills: p.kills,
       damage: Math.round(p.damage),
       headshots: p.headshots,
-      placement: p.alive ? (this.phase === 'ended' ? 1 : 0) : p.placement,
+      placement: p.placement === 1 || (p.alive && this.phase === 'ended') ? 1 : p.alive ? 0 : p.placement,
+      team: p.team,
       survival: p.alive ? this.matchTime : p.deathT,
       killerId: p.killerId,
     };
   }
 
-  // Bot-Aufstellung: fehlende Plätze mit Bots füllen (genau 12)
-  static fillWithBots(humans, rng, champion = null) {
+  // Bot-Aufstellung: fehlende Plätze mit Bots füllen (genau 20); Duo: Zweierteams bilden
+  static fillWithBots(humans, rng, champion = null, mode = 'solo') {
     const players = humans.slice(0, MATCH_SIZE);
     const used = new Set(players.map((p) => p.name.toLowerCase()));
     const names = rng.shuffle(BOT_NAMES.slice());
@@ -815,6 +1021,33 @@ export class Simulation {
         crownStyle: 'gold',
         streak: 0,
       });
+    }
+    if (mode === 'duo') Simulation.assignTeams(players);
+    return players;
+  }
+
+  // Duo: Party-Partner zusammen, sonst Einzelspieler miteinander, Rest mit Bots (Menschen stehen vorne)
+  static assignTeams(players) {
+    let team = 0;
+    const done = new Set();
+    const parties = new Map();
+    for (const p of players) {
+      if (p.isBot || !p.party) continue;
+      if (!parties.has(p.party)) parties.set(p.party, []);
+      parties.get(p.party).push(p);
+    }
+    for (const list of parties.values()) {
+      for (let i = 0; i + 1 < list.length; i += 2) {
+        list[i].team = list[i + 1].team = team++;
+        done.add(list[i]);
+        done.add(list[i + 1]);
+      }
+    }
+    const rest = players.filter((p) => !done.has(p));
+    for (let i = 0; i < rest.length; i += 2) {
+      rest[i].team = team;
+      if (rest[i + 1]) rest[i + 1].team = team;
+      team++;
     }
     return players;
   }

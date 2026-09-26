@@ -32,7 +32,7 @@ export function fireWeapon(rt, item, ignoreCooldown = false) {
     rt.reloading = false;
   }
   if (!ignoreCooldown && (rt.cooldown > 0 || rt.equipT > 0)) return false;
-  item.mag--;
+  if (!def.melee) item.mag--; // Messer braucht keine Munition
   const interval = 1 / def.fireRate;
   // negativen Rest übernehmen, damit die Feuerrate unabhängig von der Framerate stimmt
   rt.cooldown = rt.cooldown > 0 ? interval : rt.cooldown + interval;
@@ -46,6 +46,7 @@ export function fireWeapon(rt, item, ignoreCooldown = false) {
 export function canReload(rt, item, ammo) {
   if (!item || item.k !== 'w' || rt.reloading) return false;
   const def = WEAPONS[item.w];
+  if (def.melee) return false;
   return item.mag < def.mag && ammo[def.ammo] > 0;
 }
 

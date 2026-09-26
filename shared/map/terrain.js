@@ -10,6 +10,13 @@ export const SURF = {
   PATH: 5,
   SEAFLOOR: 6,
   DRYGRASS: 8,
+  ROAD: 9, // Asphalt
+  SNOW: 10,
+  FIELD: 11, // Getreidefeld
+  PLAZA: 12, // gepflasterter Platz / Parkplatz
+  SWAMP: 13,
+  FOREST: 14, // Waldboden
+  MUD: 15,
 };
 
 export class Terrain {

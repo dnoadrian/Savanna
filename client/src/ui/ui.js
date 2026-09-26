@@ -8,7 +8,9 @@ import { SettingsPanel } from './settingsPanel.js';
 import { FriendsPanel } from './friendsPanel.js';
 import { HostPanel } from './hostPanel.js';
 import { validateName } from '../../shared/names.js';
-import { xpForLevel, INVITE_TTL } from '../../shared/constants.js';
+import { INVITE_TTL } from '../../shared/constants.js';
+import { rankBadge, rankName, rankColor } from './rankBadge.js';
+import { UNREAL } from '../../shared/ranks.js';
 import { toggleFullscreen, exitFullscreen } from '../game/input.js';
 
 export class UI {
@@ -70,12 +72,12 @@ export class UI {
     if (this.clickEl) { this.clickEl.remove(); this.clickEl = null; }
   }
 
-  showWelcome() {
+  showWelcome(opts) {
     this.clearScreens();
     this.settings.close();
     this.friends.close();
     this.host.close();
-    this.welcome.show();
+    this.welcome.show(opts);
   }
 
   showLobby() {
@@ -196,7 +198,7 @@ export class UI {
     const s = this.app.profile.data.stats;
     const kd = (s.kills / Math.max(1, s.deaths)).toFixed(2);
     const rows = [
-      ['st_level', s.level], ['st_matches', s.matches], ['st_wins', s.wins], ['st_crownWins', s.crownWins], ['st_kills', s.kills], ['st_deaths', s.deaths],
+      ['st_rank', rankName((this.app.profile.data.rank || {}).i || 0)], ['st_bestRank', rankName(this.app.profile.data.bestRank || 0)], ['st_matches', s.matches], ['st_wins', s.wins], ['st_crownWins', s.crownWins], ['st_kills', s.kills], ['st_deaths', s.deaths],
       ['st_kd', kd], ['st_damage', s.damage], ['st_headshots', s.headshots], ['st_best', s.bestPlacement ? '#' + s.bestPlacement : '–'],
       ['st_bestStreak', s.bestStreak], ['st_time', fmtTime(s.timePlayed)],
     ];
@@ -306,7 +308,9 @@ export class UI {
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
     ok.addEventListener('click', save);
-    const body = h('div', { class: 'rename' }, input, status, sug, h('div', { class: 'row end' }, forced ? null : h('button', { class: 'btn ghost', onclick: () => this.closeModal() }, t('cancel')), ok));
+    // Name gehört schon einem Konto: vielleicht das eigene (anderes Gerät) → anmelden
+    const mine = forced ? h('button', { class: 'btn ghost', onclick: () => { this.closeModal(); app.signOut({ mode: 'login', name: app.profile.name }); } }, t('wcIsMine')) : null;
+    const body = h('div', { class: 'rename' }, input, status, sug, h('div', { class: 'row end' }, forced ? mine : h('button', { class: 'btn ghost', onclick: () => this.closeModal() }, t('cancel')), ok));
     this.openModal(forced ? t('nameTaken') : t('sChangeName'), body, { cls: 'small', sticky: forced });
     showSug(suggestions);
     check();
@@ -387,20 +391,20 @@ export class UI {
     if (!fromLock) this.app.lockGame();
   }
 
-  showDeath({ text, placement, total, stats, onSpectate, onLobby }) {
+  showDeath({ text, placement, total, stats, onSpectate, onLobby, teamAlive = false }) {
     const app = this.app;
     const el = h('div', { class: 'game-overlay death' },
       h('div', { class: 'death-box' },
         h('div', { class: 'death-title' }, text),
-        h('div', { class: 'death-place' }, t('placement', { n: placement || '?', total })),
+        h('div', { class: 'death-place' }, teamAlive ? t('teamStillIn') : t('placement', { n: placement || '?', total })),
         h('div', { class: 'death-stats' },
           h('div', {}, h('b', {}, String(stats.kills)), h('small', {}, t('killsLabel'))),
           h('div', {}, h('b', {}, String(stats.damage)), h('small', {}, t('damage'))),
           h('div', {}, h('b', {}, String(stats.headshots || 0)), h('small', {}, t('headshots')))),
         h('div', { class: 'row center' },
           // Platz 2: nur noch der Sieger übrig – kein Zuschauen, direkt zurück in die Lobby
-          placement > 2 ? h('button', { class: 'btn yellow', onclick: () => { app.audio.uiClick(); this.closeGameOverlay(); onSpectate(); } }, t('spectate')) : null,
-          h('button', { class: placement > 2 ? 'btn' : 'btn yellow', onclick: () => { app.audio.uiClick(); this.closeGameOverlay(); onLobby(); } }, t('backToLobby')))));
+          teamAlive || placement > 2 ? h('button', { class: 'btn yellow', onclick: () => { app.audio.uiClick(); this.closeGameOverlay(); onSpectate(); } }, teamAlive ? t('spectateMate') : t('spectate')) : null,
+          h('button', { class: teamAlive || placement > 2 ? 'btn' : 'btn yellow', onclick: () => { app.audio.uiClick(); this.closeGameOverlay(); onLobby(); } }, t('backToLobby')))));
     setTimeout(() => this.setGameOverlay('death', el), 1600);
   }
 
@@ -441,9 +445,10 @@ export class UI {
   showResults({ mine, total, xp, winner, youId, onDone }) {
     this.clearScreens();
     const app = this.app;
-    const st = app.profile.data.stats;
-    const need = xpForLevel(st.level);
+    const rk = xp.rank;
     const fill = h('div', { class: 'xp-fill' });
+    if (rk) fill.style.background = `linear-gradient(90deg, ${rankColor(rk.after.i)}, #fff)`;
+    const pct = (v) => (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(v) + ' %';
     const won = mine.placement === 1;
     const el = h('div', { class: 'screen results-screen' },
       h('div', { class: 'results-card' },
@@ -455,17 +460,31 @@ export class UI {
           h('div', {}, h('b', {}, String(mine.damage)), h('small', {}, t('damage'))),
           h('div', {}, h('b', {}, String(mine.headshots || 0)), h('small', {}, t('headshots'))),
           h('div', {}, h('b', {}, fmtTime(mine.survival || 0)), h('small', {}, t('survived')))),
-        h('div', { class: 'xp-list' }, ...xp.parts.map((p) => h('div', { class: 'xp-line' }, h('span', {}, t(p.key)), h('b', {}, '+' + p.xp + ' XP')))),
-        h('div', { class: 'xp-total' }, t('xpEarned'), ': ', h('b', {}, '+' + xp.total + ' XP')),
+        // Ranked: Fortschritt dieses Matches
+        rk ? h('div', { class: 'rank-result' + (rk.promoted ? ' up' : '') },
+          h('div', { class: 'rr-badge', html: rankBadge(rk.after.i, 86) }),
+          h('div', { class: 'rr-body' },
+            h('div', { class: 'rr-name', style: { color: rankColor(rk.after.i) } }, rankName(rk.after.i)),
+            h('div', { class: 'xp-list' }, ...rk.gain.parts.map((p) => h('div', { class: 'xp-line' + (p.v < 0 ? ' neg' : '') }, h('span', {}, t(p.key)), h('b', {}, pct(p.v))))),
+            h('div', { class: 'xp-total' }, t('rkProgress'), ': ', h('b', {}, pct(rk.gain.total))))) : null,
+        rk && rk.promoted ? h('div', { class: 'level-up rank-up', style: { color: rankColor(rk.after.i) } }, t('rankUp'), ' ', rankName(rk.after.i)) : null,
+        rk ? h('div', { class: 'xp-bar big' }, fill, h('div', { class: 'xp-text' }, rk.after.i === UNREAL ? rankName(UNREAL) : `${rankName(rk.after.i)} · ${Math.floor(rk.after.p)} %`)) : null,
         xp.coins ? h('div', { class: 'coin-earned' }, h('span', { class: 'icon', html: ICON.coin }), h('b', {}, '+' + xp.coins), ' ' + t('coins')) : null,
-        xp.levelUps ? h('div', { class: 'level-up' }, t('levelUp'), ' ', t('level'), ' ', String(xp.level)) : null,
-        h('div', { class: 'xp-bar big' }, fill, h('div', { class: 'xp-text' }, `${t('level')} ${st.level} · ${st.xp} / ${need} XP`)),
         app.profile.data.winStreak > 0 ? h('div', { class: 'streak-note' }, h('span', { class: 'icon', html: ICON.crown }), ' ', t('killStreakCrown', { n: app.profile.data.winStreak })) : null,
         h('button', { class: 'btn yellow big', onclick: () => { app.audio.uiClick(); this.resultsEl.remove(); this.resultsEl = null; onDone(); } }, t('continue'))));
     this.resultsEl = el;
     this.screenRoot.appendChild(el);
-    requestAnimationFrame(() => { fill.style.width = Math.min(100, (st.xp / need) * 100) + '%'; });
-    if (xp.levelUps) { app.audio.uiConfirm(); this.confettiBurst(120); }
+    // Balken: vom alten Stand aus füllen (bei Aufstieg erst voll, dann neuer Rang)
+    if (rk) {
+      const startW = rk.promoted ? 0 : rk.before.p;
+      fill.style.transition = 'none';
+      fill.style.width = startW + '%';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        fill.style.transition = '';
+        fill.style.width = (rk.after.i === UNREAL ? 100 : rk.after.p) + '%';
+      }));
+      if (rk.promoted) { app.audio.uiConfirm(); this.confettiBurst(160); }
+    }
   }
 
   // ---------------- Konfetti ----------------

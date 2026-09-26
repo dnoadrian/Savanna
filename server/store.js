@@ -7,10 +7,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SHOWDOWN_DATA_DIR || path.join(__dirname, 'data');
 // neue Datei für Showdown Bay: alle Spielerkonten starten frisch
 const FILE = path.join(DATA_DIR, 'showdownbay.json');
+// Version 2: alle Spielerkonten zurückgesetzt (neu: Anmeldung mit Name + Geburtsdatum)
+const DATA_VERSION = 2;
 
 export class Store {
   constructor() {
-    this.data = { players: {}, parties: {}, champion: null, version: 1 };
+    this.data = { players: {}, parties: {}, champion: null, version: DATA_VERSION };
     this.timer = null;
     this.load();
   }
@@ -20,6 +22,14 @@ export class Store {
       if (fs.existsSync(FILE)) {
         const d = JSON.parse(fs.readFileSync(FILE, 'utf8'));
         this.data = { players: {}, parties: {}, champion: null, ...d };
+        if ((this.data.version || 1) < DATA_VERSION) {
+          console.log('Alle Spielerkonten werden zurückgesetzt (neue Datenversion).');
+          this.data.players = {};
+          this.data.parties = {};
+          this.data.champion = null;
+          this.data.version = DATA_VERSION;
+          this.save();
+        }
         // Bereit-Status nach Neustart zurücksetzen
         for (const p of Object.values(this.data.parties)) p.ready = {};
       }

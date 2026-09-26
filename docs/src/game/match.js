@@ -188,7 +188,7 @@ export class MatchClient {
           const b = this.player.body;
           c.setHand(st.hand);
           c.root.position.set(b.x, b.y, b.z);
-          if (tp) c.update(dt, { vx: b.vx, vz: b.vz, yaw: this.player.bodyYaw, pitch: this.player.pitch, flags: this.player.flags });
+          if (tp) c.update(dt, { vx: b.vx, vz: b.vz, yaw: this.player.bodyYaw, pitch: this.player.pitch, flags: this.player.flags | (this.player.knocked ? F.KNOCKED : 0) });
         } else {
           c.root.position.set(st.x, st.y, st.z);
           c.update(dt, { ...st, flags: F.DEAD });
@@ -235,6 +235,7 @@ export class MatchClient {
       this.viewmodel.update({
         dt, time: now, ads: pl.adsK > 0.5, scoped: pl.scoped, sprint: pl.body.sprinting, speed: Math.hypot(pl.body.vx, pl.body.vz), grounded: pl.body.grounded,
         slide: pl.body.stance === 'slide', reload01, use01, lookDX: pl.lastLook.dx, lookDY: pl.lastLook.dy, fov: true,
+        hidden: !!pl.knocked || !!pl.reviving,
       });
     }
 
@@ -282,6 +283,7 @@ export class MatchClient {
 
     // HUD
     const alive = states.filter((q) => q.alive).length;
+    const myState = states.find((q) => q.id === s.youId);
     const def = pl.weaponDef;
     const speed = Math.hypot(pl.body.vx, pl.body.vz);
     const living = this.state === 'alive';
@@ -296,7 +298,14 @@ export class MatchClient {
       vfov: this.camera.fov, weapon: def ? item.w : null, spread: living && def ? weaponSpread(pl.rt, item, pl.flags, speed) : 0,
       overEnemy: pl.overEnemy, scoped: living && pl.scoped,
       px: living ? pl.body.x : cp.x, pz: living ? pl.body.z : cp.z,
-      yaw: living ? pl.yaw : this.camera.rotation.y, hideCross: !living || pl.scoped,
+      yaw: living ? pl.yaw : this.camera.rotation.y, hideCross: !living || pl.scoped || !!self.knocked,
+      fovRadius: living && app.admin.active('aimbotFov') ? app.admin.value('fovRadius') : 0,
+      // Duo
+      knocked: living && self.knocked, beingRevived: !!(living && self.knocked && myState && (myState.flags & F.REVIVING)),
+      revive01: living ? self.revive01 : -1,
+      reviveTarget: living && pl.reviveTarget ? { id: pl.reviveTarget.id, name: this.nameOf(pl.reviveTarget.id) } : null,
+      team: this.teamInfo(states),
+      mates: s.mode === 'duo' ? states.filter((q) => q.alive && s.isMate(q.id)).map((q) => ({ x: q.x, z: q.z, knocked: !!(q.flags & F.KNOCKED) })) : null,
     });
     const W = window.innerWidth, H = window.innerHeight;
     this.hud.project(this.camera, W, H);
@@ -308,7 +317,7 @@ export class MatchClient {
       else if (this.invScreen.open) {
         this.invScreen.handleInput(input, this.player);
         this.invRefresh = (this.invRefresh || 0) - dt;
-        if (this.invRefresh <= 0) { this.invRefresh = 0.3; this.invScreen.render(); }
+        if (this.invRefresh <= 0) { this.invRefresh = 0.25; this.invScreen.refresh(); }
       }
       if (!this.invScreen.open && input.pressed('map')) this.hud.toggleBigMap(!this.hud.bigMapOpen);
     }
@@ -347,7 +356,7 @@ export class MatchClient {
     };
     const w = (obj, x, y, z, out) => { obj.updateWorldMatrix(true, false); return out.set(x, y, z).applyMatrix4(obj.matrixWorld); };
     for (const st of states) {
-      if (st.id === this.session.youId || !st.alive) continue;
+      if (st.id === this.session.youId || !st.alive || this.session.isMate(st.id)) continue;
       const c = this.chars.get(st.id);
       if (!c || !c.root.visible) continue;
       const [head, neck, pelvis, sL, sR, eL, eR, hL, hR, hipL, hipR, kL, kR, fL, fR, crown] = E.v;
@@ -385,6 +394,16 @@ export class MatchClient {
     });
   }
 
+  // Duo: Partner-Liste für das HUD
+  teamInfo(states) {
+    const s = this.session;
+    if (s.mode !== 'duo') return null;
+    return s.mateIds().map((id) => {
+      const st = states.find((q) => q.id === id);
+      return { id, name: this.nameOf(id), health: st ? st.health : 0, shield: st ? st.shield + st.overshield : 0, alive: !!(st && st.alive), knocked: !!(st && st.alive && st.flags & F.KNOCKED) };
+    });
+  }
+
   updateNameTags(states, now, W, H) {
     const cp = this.camera.position;
     const tags = [];
@@ -393,8 +412,9 @@ export class MatchClient {
       const dx = st.x - cp.x, dz = st.z - cp.z;
       const dist = Math.hypot(dx, dz);
       const hb = this.hitBars.get(st.id);
-      const showBar = hb && now - hb < 3;
-      const spectated = this.state === 'spectate' && st.id === this.spectateId;
+      const mate = this.session.isMate(st.id);
+      const showBar = (hb && now - hb < 3) || mate;
+      const spectated = (this.state === 'spectate' && st.id === this.spectateId) || mate;
       if (dist > 70 && !showBar) continue;
       let vis = this.visCache.get(st.id);
       if (!vis || now - vis.t > 0.25) {
@@ -403,9 +423,10 @@ export class MatchClient {
       }
       if (!vis.v && !spectated) continue;
       const info = this.info(st.id);
+      const knocked = !!(st.flags & F.KNOCKED);
       tags.push({
-        id: st.id, name: info.name, x: st.x, y: st.y - (st.flags & F.CROUCH ? 0.5 : 0), z: st.z,
-        health: st.health, shield: st.shield + st.overshield, showBar: showBar || spectated, crown: info.streak > 0, dist,
+        id: st.id, name: info.name, x: st.x, y: st.y - (knocked ? 1.2 : st.flags & F.CROUCH ? 0.5 : 0), z: st.z,
+        health: st.health, shield: st.shield + st.overshield, showBar: showBar || spectated, crown: info.streak > 0, dist, mate, knocked,
       });
     }
     this.hud.updateTags(this.camera, W, H, tags);
@@ -422,6 +443,13 @@ export class MatchClient {
   onLocalShot(eye, dirs, item, wall = false) {
     const def = WEAPONS[item.w];
     const col = this.map.collision;
+    if (def.melee) {
+      // Messer: kein Mündungsfeuer/Leuchtspur – nur Funken, wenn die Klinge etwas trifft
+      const d = dirs[0];
+      const tHit = col.raycast(eye.x, eye.y, eye.z, d.x, d.y, d.z, def.range, true, true);
+      if (tHit >= 0) this.effects.impact(new THREE.Vector3(eye.x + d.x * tHit, eye.y + d.y * tHit, eye.z + d.z * tHit), new THREE.Vector3(col.hitOut.nx, col.hitOut.ny, col.hitOut.nz), col.hitOut.mat);
+      return;
+    }
     const states = this.session.states();
     const muzzle = new THREE.Vector3();
     if (this.player.thirdPerson) this.charMuzzle(this.chars.get(this.session.youId), item.w, muzzle);
@@ -476,6 +504,14 @@ export class MatchClient {
         break;
       case 'shot': {
         if (e.id === me) break;
+        if (WEAPONS[e.w] && WEAPONS[e.w].melee) {
+          // Messerhieb eines anderen: nur Wusch (und Treffer-Effekt), kein Mündungsfeuer/Leuchtspur
+          const en = e.e[0];
+          const pos = { x: e.o[0], y: e.o[1], z: e.o[2] };
+          app.audio.knifeSwing(pos);
+          if (en && en[3] === MAT.PLAYER) this.effects.blood(new THREE.Vector3(en[0], en[1], en[2]));
+          break;
+        }
         const o = new THREE.Vector3(e.o[0], e.o[1], e.o[2]);
         const first = e.e[0];
         const end0 = new THREE.Vector3(first[0], first[1], first[2]);
@@ -507,6 +543,7 @@ export class MatchClient {
       case 'hit': {
         const vst = states.find((q) => q.id === e.v);
         if (e.a === me && e.v !== me) {
+          if (e.w === 'knife') app.audio.knifeHit();
           const head = e.p === 'h';
           const killing = e.hp <= 0;
           const shieldHit = e.sd > 0;
@@ -558,6 +595,41 @@ export class MatchClient {
           c.killDir = kst ? Math.atan2(kst.x - c.root.position.x, kst.z - c.root.position.z) : 0;
         }
         if (e.v === me) this.onDeath(e);
+        break;
+      }
+      case 'knock': {
+        const ki = e.k ? this.info(e.k) : null;
+        const vi = this.info(e.v);
+        this.hud.killfeed({
+          knock: true, killer: ki ? ki.name : null, victim: vi.name, headshot: e.hs, cause: e.w,
+          killerCrown: ki && ki.streak > 0, victimCrown: vi.streak > 0, killerMe: e.k === me, victimMe: e.v === me,
+          killerBot: ki && ki.isBot, victimBot: vi.isBot,
+        });
+        if (e.k === me) {
+          this.hud.hitmarker(e.hs, true);
+          app.audio.killConfirm();
+        }
+        if (e.v === me) {
+          app.audio.hurt(1);
+          app.audio.shieldBreak(null);
+          this.player.cancelUse();
+          this.hud.bigMessage(t('youKnocked'));
+        } else if (this.session.isMate(e.v)) {
+          app.audio.notify?.();
+          this.hud.message(t('mateKnocked', { name: vi.name }));
+        }
+        break;
+      }
+      case 'revive': {
+        if (e.id === me) {
+          app.audio.useDone('medkit', true);
+          this.hud.message(t('youRevived', { name: this.nameOf(e.by) }));
+        } else if (e.by === me) {
+          app.audio.useDone('medkit', true);
+          this.hud.message(t('mateRevived', { name: this.nameOf(e.id) }));
+        }
+        const st = states.find((q) => q.id === e.id);
+        if (st && Math.hypot(st.x - cp.x, st.z - cp.z) < 60) this.effects.healBurst(_v.set(st.x, st.y, st.z));
         break;
       }
       case 'siphon': {
@@ -633,21 +705,31 @@ export class MatchClient {
     this.deathPos = new THREE.Vector3(this.player.body.x, this.player.body.y, this.player.body.z);
     this.hud.showScoreboard(false);
     const text = this.killedBy ? t('eliminatedBy', { name: this.nameOf(this.killedBy) }) : this.deathCause === 'storm' ? t('eliminatedStorm') : t('eliminatedLeft');
+    // Duo: Partner lebt noch → Platzierung steht erst am Ende fest
+    const teamAlive = this.session.mode === 'duo' && this.session.states().some((q) => q.alive && this.session.isMate(q.id));
     this.app.ui.showDeath({
       text,
       placement: this.placement,
-      total: this.session.players.length,
+      teamAlive,
+      total: this.totalEntries(),
       stats: this.session.self(),
       onSpectate: () => this.startSpectate(),
       onLobby: () => this.leaveToLobby(),
     });
   }
 
+  // Anzahl Platzierungen: Solo = Spieler, Duo = Teams
+  totalEntries() {
+    const s = this.session;
+    return s.mode === 'duo' ? new Set(s.players.map((p) => p.team)).size : s.players.length;
+  }
+
   startSpectate() {
     this.state = 'spectate';
     const states = this.session.states();
     const killer = this.killedBy && states.find((q) => q.id === this.killedBy && q.alive);
-    this.spectateId = killer ? killer.id : (states.find((q) => q.alive && q.id !== this.session.youId) || {}).id;
+    const mate = states.find((q) => q.alive && this.session.isMate(q.id));
+    this.spectateId = mate ? mate.id : killer ? killer.id : (states.find((q) => q.alive && q.id !== this.session.youId) || {}).id;
     this.updateSpectateLabel();
   }
 
@@ -717,7 +799,13 @@ export class MatchClient {
     // Sieger jubelt (auch für Zuschauer sichtbar)
     const wc = this.chars.get(winner);
     if (wc) wc.celebrate = true;
-    if (winner === me) {
+    // Duo: gewinnt der Partner, hat das ganze Team gewonnen
+    const teamWon = winner === me || s.isMate(winner);
+    if (teamWon && winner !== me && this.state === 'alive') {
+      const mc = this.chars.get(me);
+      if (mc) mc.celebrate = true;
+    }
+    if (teamWon) {
       // Siegerkamera: dritte Person, langsame Fahrt um die eigene Figur
       this.player.thirdPerson = true;
       this.player.victoryCam = { t: 0, yaw: this.player.yaw + Math.PI };
@@ -738,9 +826,9 @@ export class MatchClient {
     const s = this.session;
     const results = s.results();
     const finalize = (res, winnerId) => {
-      const mine = res.find((r) => r.id === s.youId) || { kills: 0, damage: 0, headshots: 0, placement: 12, survival: 0 };
+      const mine = res.find((r) => r.id === s.youId) || { kills: 0, damage: 0, headshots: 0, placement: this.totalEntries(), survival: 0 };
       const winnerInfo = this.info(winnerId);
-      this.app.endMatch({ mode: this.mode, mine, results: res, winner: winnerInfo, winnerId, youId: s.youId, players: s.players });
+      this.app.endMatch({ mode: this.mode, mine, results: res, winner: winnerInfo, winnerId, youId: s.youId, players: s.players, total: this.totalEntries(), duo: s.mode === 'duo' });
     };
     if (results) finalize(results, s.winnerId);
     else {
@@ -758,13 +846,18 @@ export class MatchClient {
     // Mehrspieler: Server immer informieren (auch als Zuschauer), damit man sofort wieder in die Warteschlange kann
     if (!s.isLocal) s.leave();
     else if (this.state === 'alive' && !this.ended) s.leave();
+    // Duo mit lebendem Partner: Platz = Zahl der Teams, die gerade noch im Spiel sind
+    const states = s.states();
+    const aliveTeams = new Set(s.players.filter((p) => states.find((q) => q.id === p.id && q.alive)).map((p) => (s.mode === 'duo' ? p.team : p.id))).size;
+    const total = this.totalEntries();
     if (s.isLocal && s.phase !== 'ended') {
       const mineNow = s.sim.stats(s.sim.byId.get(s.youId));
-      this.app.returnToLobby({ mine: mineNow, mode: 'solo', partial: true });
+      if (!mineNow.placement) mineNow.placement = Math.max(1, aliveTeams);
+      this.app.returnToLobby({ mine: mineNow, mode: 'solo', partial: true, total });
       return;
     }
     if (!s.isLocal && !this.ended) {
-      this.app.returnToLobby({ mine: { ...s.self(), placement: this.placement || 0, survival: s.matchTime }, mode: 'party', partial: true });
+      this.app.returnToLobby({ mine: { ...s.self(), placement: this.placement || Math.max(1, aliveTeams), survival: s.matchTime }, mode: 'party', partial: true, total });
       return;
     }
     this.finish();

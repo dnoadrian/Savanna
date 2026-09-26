@@ -283,7 +283,8 @@ function subStep(b, inp, h, world, first) {
   // Tiefes Wasser / Inselgrenze: treibt zurück
   const wlN = terrain.waterLevelAt(nx, nz);
   const depthN = wlN - terrain.heightAt(nx, nz);
-  if (wlN === SEA_LEVEL && depthN > DEEP_WATER) {
+  // (auf Stegen, Schiffen und Plattformen über tiefem Wasser darf man stehen)
+  if (wlN === SEA_LEVEL && depthN > DEEP_WATER && b.y < SEA_LEVEL + 0.3) {
     const dl = Math.hypot(nx, nz) || 1;
     const inX = -nx / dl, inZ = -nz / dl;
     const out = b.vx * -inX + b.vz * -inZ;

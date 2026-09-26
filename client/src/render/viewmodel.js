@@ -127,6 +127,12 @@ export class Viewmodel {
 
   fire(type) {
     const def = WEAPONS[type];
+    if (def.melee) {
+      // Messer: Hieb abwechselnd von rechts und links
+      this.swingT = 1;
+      this.swingDir = -(this.swingDir || 1);
+      return;
+    }
     const heavy = def.pellets > 1 || def.scope;
     this.kick = Math.min(1.6, this.kick + (heavy ? 1.5 : 1));
     this.kickRot = Math.min(2, this.kickRot + (heavy ? 1.8 : 1));
@@ -168,10 +174,11 @@ export class Viewmodel {
     this.kick = Math.max(0, this.kick - dt * 9);
     this.kickRot = Math.max(0, this.kickRot - dt * 7);
     this.actionT = Math.max(0, this.actionT - dt * 1.9);
+    this.swingT = Math.max(0, (this.swingT || 0) - dt / 0.3);
     this.land = Math.max(0, this.land - dt * 3);
     this.equipT = Math.max(0, this.equipT - dt * 3.2);
     // Im Zielfernrohr ist die Waffe unsichtbar (Overlay im HUD)
-    this.sway.visible = !s.scoped;
+    this.sway.visible = !s.scoped && !s.hidden; // am Boden (Duo): keine Waffe in der Hand
     if (s.fov) {
       const f = 56 - this.adsK * 4;
       if (Math.abs(this.camera.fov - f) > 0.01) {
@@ -245,6 +252,17 @@ export class Viewmodel {
     py -= this.equipT * 0.25;
     rx -= this.equipT * 0.5;
     py -= this.land * 0.04;
+    // Messerhieb: Bogen quer durchs Bild
+    if (this.swingT > 0) {
+      const a = Math.sin((1 - this.swingT) * Math.PI);
+      const dir = this.swingDir || 1;
+      px += a * 0.2 * dir;
+      py += a * 0.05;
+      pz -= a * 0.12;
+      ry += a * 0.9 * dir;
+      rz += a * 0.7 * dir;
+      rx -= a * 0.35;
+    }
     // Rückstoß nur als kleiner Ruck nach hinten/unten – die Mündung kippt nicht ins Bild
     pz += this.kick * 0.018 * (1 - ads * 0.5);
     py -= this.kick * 0.004;
@@ -278,15 +296,16 @@ export class Viewmodel {
       lp = new THREE.Vector3(-0.08, 0.08, 0.0).applyMatrix4(this.held.matrix);
       this.placeArm(this.armL, lp, new THREE.Vector3(-0.2, -0.66, -0.3));
     } else {
-      rp = new THREE.Vector3(0, -0.07, 0.05).applyMatrix4(g);
+      rp = new THREE.Vector3(0, meta.melee ? -0.01 : -0.07, 0.05).applyMatrix4(g);
       const fore = meta.fore ? V(meta.fore) : new THREE.Vector3(0, -0.06, 0.0);
       if (leftTarget === 'mag' && meta.mag) lp = this.mag.position.clone().add(new THREE.Vector3(0, -0.12, 0.02)).applyMatrix4(g);
       else if (leftTarget === 'charge') lp = new THREE.Vector3(0.06, 0.06, -0.02).applyMatrix4(g);
       else if (leftTarget === 'bolt') lp = new THREE.Vector3(0.08, 0.05, 0.0).applyMatrix4(g);
       else if (leftTarget === 'belt') lp = new THREE.Vector3(-0.12, -0.12, 0.1).applyMatrix4(g);
       else if (leftTarget === 'port') lp = new THREE.Vector3(0.0, -0.05, -0.12).applyMatrix4(g);
+      else if (meta.melee) lp = new THREE.Vector3(-0.32, -0.46, -0.3); // Messer: linke Hand unten am Rand
       else lp = fore.add(new THREE.Vector3(0, 0, pumpOff)).applyMatrix4(g);
-      this.placeArm(this.armL, lp, new THREE.Vector3(0.0, -0.58, -0.4));
+      this.placeArm(this.armL, lp, new THREE.Vector3(meta.melee ? -0.3 : 0.0, -0.58, -0.4));
     }
     this.placeArm(this.armR, rp, new THREE.Vector3(0.34, -0.66, -0.34));
     this.flashT -= dt;

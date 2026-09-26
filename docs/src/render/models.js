@@ -1,5 +1,5 @@
-// Prozedurale Low-Poly-Modelle für Deko-Objekte (mit LOD-Varianten) – Hafenbucht-Stil:
-// geschwungene Palmen, rote Canyon-Felsen, Fässer, Kisten, Bojen, Strandgras.
+// Prozedurale Low-Poly-Modelle für Deko-Objekte (mit LOD-Varianten): Palmen, Felsen, Fässer,
+// Kisten, Bojen, Strandgras sowie Laubbäume, Tannen, graue Felsen, Autos und Heuballen der Inseln.
 import { GeoBuilder } from './geom.js';
 import { PROP_TYPES } from '../../shared/map/props.js';
 
@@ -146,6 +146,120 @@ function buoy(v) {
   return g;
 }
 
+// ---------- Inseln (Chapter-2-Orte) ----------
+const LEAF = [0x4f9e3a, 0x5fae42, 0x3f8c34];
+const LEAF_DARK = [0x2f6e3a, 0x3a7a3f, 0x285f33];
+const BARK = [0x7a5537, 0x6b4a30, 0x86603e];
+const STONE = [0x9aa0a6, 0x8a9096, 0xa9adb2];
+const CAR = [0xd6453a, 0x3a78d6, 0xe8e2d6];
+
+// runder Laubbaum: Stamm + mehrere Blätterkugeln
+function tree(v, lod) {
+  const g = new GeoBuilder();
+  g.cyl(0, 1.6, 0, 0.3, 3.2, BARK[v], { rt: 0.24, seg: lod ? 5 : 7 });
+  if (!lod) {
+    g.cyl(0.35, 2.6, 0, 0.12, 1.2, BARK[v], { rz: -0.7, seg: 5 });
+    g.cyl(-0.3, 2.9, 0.2, 0.1, 1.0, BARK[v], { rz: 0.7, seg: 5 });
+  }
+  g.ico(0, 4.4, 0, 2.0, LEAF[v], { sy: 0.85, detail: lod ? 0 : 1, jseed: v + 60 });
+  if (!lod) {
+    g.ico(1.2, 3.8, 0.4, 1.3, LEAF[(v + 1) % 3], { sy: 0.8, jseed: v + 61 });
+    g.ico(-1.1, 3.9, -0.5, 1.25, LEAF[(v + 2) % 3], { sy: 0.8, jseed: v + 62 });
+    g.ico(0.2, 5.3, -0.3, 1.2, LEAF[v], { sy: 0.8, jseed: v + 63 });
+  }
+  return g;
+}
+
+// Tanne aus drei Kegeln (optional verschneit)
+function pine(v, lod, snow) {
+  const g = new GeoBuilder();
+  g.cyl(0, 0.8, 0, 0.26, 1.6, BARK[(v + 1) % 3], { seg: 5 });
+  const tiers = lod ? [[1.2, 1.7, 2.6], [3.2, 1.1, 2.6]] : [[1.2, 1.8, 2.2], [2.6, 1.4, 2.0], [3.9, 1.0, 1.8], [5.0, 0.6, 1.4]];
+  tiers.forEach(([y, r, h], i) => {
+    g.cyl(0, y + h / 2, 0, r, h, LEAF_DARK[(v + i) % 3], { rt: 0.05, seg: lod ? 6 : 8 });
+    if (snow && !lod) g.cyl(0, y + h * 0.78, 0, r * 0.42, h * 0.3, 0xf4f8fb, { rt: 0.04, seg: 8 });
+  });
+  return g;
+}
+
+function stone(size, v, lod) {
+  const g = new GeoBuilder();
+  const c = STONE[v];
+  if (size === 0) {
+    g.ico(0, 0.1, 0, 0.45, c, { sy: 0.6, jitter: 0.4, jseed: v + 70 });
+  } else if (size === 1) {
+    g.ico(0, 0.35, 0, 1.2, c, { sy: 0.75, jitter: 0.35, jseed: v + 71 });
+    if (!lod) g.ico(0.7, 0.2, 0.4, 0.6, STONE[(v + 1) % 3], { sy: 0.7, jseed: v + 72 });
+  } else {
+    g.slab(0, 0.6, 0, 3.8, 1.6, 3.2, c, { ry: v, taper: 0.85 });
+    g.slab(0.2, 1.8, -0.1, 3.0, 1.0, 2.6, STONE[(v + 1) % 3], { ry: v + 0.4, taper: 0.8 });
+    if (!lod) {
+      g.slab(-0.1, 2.6, 0.1, 2.0, 0.7, 1.8, STONE[(v + 2) % 3], { ry: v + 0.9, taper: 0.7 });
+      g.ico(1.9, 0.3, 1.0, 0.8, STONE[(v + 1) % 3], { sy: 0.7, jseed: v + 74 });
+    }
+  }
+  return g;
+}
+
+// Auto (Länge entlang X)
+function car(v, lod) {
+  const g = new GeoBuilder();
+  const c = CAR[v];
+  g.box(0, 0.72, 0, 4.3, 0.75, 1.9, c);
+  g.box(-0.25, 1.45, 0, 2.3, 0.7, 1.7, c);
+  g.box(-0.25, 1.47, 0, 2.34, 0.5, 1.74, 0x2c3e50, { vary: 0 });
+  g.box(-0.25, 1.83, 0, 2.1, 0.06, 1.6, c);
+  for (const [x, z] of [[1.35, 0.9], [-1.35, 0.9], [1.35, -0.9], [-1.35, -0.9]]) g.cyl(x, 0.38, z, 0.38, 0.3, 0x1f1f1f, { rx: Math.PI / 2, seg: lod ? 6 : 10 });
+  if (!lod) {
+    g.box(2.16, 0.78, 0.6, 0.04, 0.2, 0.36, 0xfff1a8, { e: 1 });
+    g.box(2.16, 0.78, -0.6, 0.04, 0.2, 0.36, 0xfff1a8, { e: 1 });
+    g.box(-2.16, 0.8, 0.62, 0.04, 0.18, 0.3, 0xd6222a);
+    g.box(-2.16, 0.8, -0.62, 0.04, 0.18, 0.3, 0xd6222a);
+    g.box(0, 0.4, 0, 4.36, 0.12, 1.94, 0x3a3a3a);
+  }
+  return g;
+}
+
+// runder Heuballen (liegend)
+function hay(v) {
+  const g = new GeoBuilder();
+  const c = [0xe2bd52, 0xd8b048, 0xebc75c][v];
+  g.cyl(0, 0.75, 0, 0.75, 1.5, c, { rx: Math.PI / 2, seg: 12 });
+  g.cyl(0, 0.75, 0.76, 0.6, 0.02, 0xc79a3a, { rx: Math.PI / 2, seg: 12 });
+  g.cyl(0, 0.75, -0.76, 0.6, 0.02, 0xc79a3a, { rx: Math.PI / 2, seg: 12 });
+  return g;
+}
+
+function flower(v) {
+  const g = new GeoBuilder();
+  const c = [0xf25c78, 0xffd23f, 0xb46bf2][v];
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + v;
+    const x = Math.cos(a) * 0.25, z = Math.sin(a) * 0.25;
+    g.box(x, 0.18, z, 0.03, 0.36, 0.03, 0x4f9e3a);
+    g.ico(x, 0.4, z, 0.09, i % 2 ? c : 0xffffff, { detail: 0 });
+  }
+  return g;
+}
+
+function reed(v) {
+  const g = new GeoBuilder();
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + v;
+    const h = 1.0 + ((i * 13) % 5) * 0.12;
+    g.box(Math.cos(a) * 0.18, h / 2, Math.sin(a) * 0.18, 0.05, h, 0.05, [0x6f8f3a, 0x7fa048, 0x5f7f32][(i + v) % 3], { rz: Math.cos(a) * 0.15, rx: -Math.sin(a) * 0.15 });
+    if (i % 2 === 0) g.box(Math.cos(a) * 0.22, h + 0.1, Math.sin(a) * 0.22, 0.09, 0.25, 0.09, 0x6b4a26);
+  }
+  return g;
+}
+
+function stump(v) {
+  const g = new GeoBuilder();
+  g.cyl(0, 0.27, 0, 0.45, 0.55, BARK[v], { rt: 0.4, seg: 8 });
+  g.cyl(0, 0.56, 0, 0.4, 0.02, 0xd8b98a, { seg: 8 });
+  return g;
+}
+
 // Liefert kompiliertes Modell {pos, col, emi} für Typ/Variante/LOD
 export function propModel(type, v, lod = 0) {
   const key = type * 10 + v + lod * 1000;
@@ -166,6 +280,17 @@ export function propModel(type, v, lod = 0) {
     case 'log': g = log(v); break;
     case 'buoy': g = buoy(v); break;
     case 'fern': g = fern(v, lod); break;
+    case 'tree': g = tree(v, lod); break;
+    case 'pine': g = pine(v, lod, false); break;
+    case 'snowpine': g = pine(v, lod, true); break;
+    case 'stone_s': g = stone(0, v, lod); break;
+    case 'stone_m': g = stone(1, v, lod); break;
+    case 'stone_l': g = stone(2, v, lod); break;
+    case 'car': g = car(v, lod); break;
+    case 'hay': g = hay(v); break;
+    case 'flower': g = flower(v); break;
+    case 'reed': g = reed(v); break;
+    case 'stump': g = stump(v); break;
     default: g = new GeoBuilder().box(0, 0.5, 0, 1, 1, 1, 0xff00ff);
   }
   m = g.compile();
@@ -174,6 +299,6 @@ export function propModel(type, v, lod = 0) {
 }
 
 // Welche Typen werden im Fern-LOD weggelassen?
-export const LOD_SKIP = new Set(['rock_s', 'beachgrass', 'fern', 'barrel', 'crate', 'log', 'buoy']);
+export const LOD_SKIP = new Set(['rock_s', 'beachgrass', 'fern', 'barrel', 'crate', 'log', 'buoy', 'stone_s', 'flower', 'reed', 'stump', 'hay']);
 
 export { palm as palmBuilder, bush as bushBuilder };

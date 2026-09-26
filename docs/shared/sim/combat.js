@@ -15,6 +15,7 @@ export const PARTS = [
 ];
 
 export function stanceScale(flags) {
+  if (flags & F.KNOCKED) return 0.45;
   if (flags & F.SLIDE) return 0.55;
   if (flags & F.CROUCH) return 0.67;
   return 1;

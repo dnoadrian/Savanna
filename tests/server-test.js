@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { QUEUE_WAIT } from '../shared/constants.js';
+import { birthKey } from '../shared/sha256.js';
 
 export async function runServerTest() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'showdown-test-'));
@@ -83,7 +84,7 @@ export async function runServerTest() {
   A.msg({ t: 'queue' });
   assert.equal(A.last('queue').state, 'waiting');
   assert.equal(A.last('queue').humans, 2);
-  assert.equal(A.last('queue').bots, 10);
+  assert.equal(A.last('queue').bots, 18);
   assert.equal(A.last('queue').wait, QUEUE_WAIT, 'Standard-Wartezeit 15 s');
   // ein weiterer Spieler kommt dazu: trotzdem die vollen 15 s warten
   const C = connect();
@@ -97,7 +98,9 @@ export async function runServerTest() {
   ageQueue();
   const ms = A.last('matchStart');
   assert.ok(ms, 'Match nicht gestartet');
-  assert.equal(ms.players.length, 12);
+  assert.equal(ms.players.length, 20);
+  assert.ok(ms.map, 'Karte fehlt');
+  assert.equal(ms.mode, 'solo');
   assert.equal(ms.players.filter((p) => !p.isBot).length, 3);
   assert.ok(B.last('matchStart'));
   assert.ok(C.last('matchStart'));
@@ -137,14 +140,70 @@ export async function runServerTest() {
   const end = A.last('matchEnd');
   assert.ok(end, 'kein matchEnd');
   assert.equal(end.winner, 'aaaa-1');
-  assert.equal(end.results.length, 12);
+  assert.equal(end.results.length, 20);
   assert.equal(end.results.find((r) => r.id === 'aaaa-1').placement, 1);
   assert.equal(gs.status('aaaa-1'), 'lobby');
+
+  // Duo: Party (A + B) wählt Duo → beide im selben Team, Rest mit Bots aufgefüllt
+  A.msg({ t: 'partyMode', mode: 'duo' });
+  assert.equal(B.last('party').party.mode, 'duo');
+  B.msg({ t: 'partyReady', ready: true });
+  const mc = gs.matches.size;
+  A.msg({ t: 'queue', mode: 'duo' });
+  assert.equal(A.last('queue').mode, 'duo');
+  ageQueue();
+  const ds = A.all('matchStart').pop();
+  assert.equal(ds.mode, 'duo');
+  assert.equal(gs.matches.size, mc + 1);
+  const ta = ds.players.find((p) => p.id === 'aaaa-1').team, tb = ds.players.find((p) => p.id === 'bbbb-2').team;
+  assert.equal(ta, tb, 'Party-Partner im selben Team');
+  const dm = gs.matches.get(ds.matchId);
+  assert.equal(dm.sim.mode, 'duo');
+  for (const X of [A, B]) X.msg({ t: 'loaded', mid: ds.matchId });
+  await wait(200);
+  while (dm.sim.phase === 'countdown') await wait(50);
+  const pa = dm.sim.byId.get('aaaa-1'), pb = dm.sim.byId.get('bbbb-2');
+  dm.sim.applyDamage(pa, 500, 'bot_3', 'b', null, 'ar');
+  assert.ok(pa.knocked, 'A am Boden');
+  pb.body.x = pa.body.x + 1; pb.body.z = pa.body.z; pb.body.y = pa.body.y;
+  B.msg({ t: 'rev', v: 'aaaa-1' });
+  assert.equal(pb.reviving, 'aaaa-1');
+  A.msg({ t: 'leaveMatch' });
+  B.msg({ t: 'leaveMatch' });
+  await wait(100);
+  B.msg({ t: 'partyMode', mode: 'solo' });
+
+  // Anmelden mit Name + Geburtsdatum auf einem anderen Gerät
+  const key = birthKey('2011-04-03');
+  const D = connect();
+  D.msg({ t: 'hello', id: 'dddd-4', name: 'Delta', auth: key, save: { coins: 1234, rank: { i: 3, p: 40 } } });
+  assert.ok(D.last('welcome'));
+  const E = connect();
+  E.msg({ t: 'login', rid: 9, name: 'delta', auth: birthKey('2011-04-04') });
+  assert.equal(E.last('result').key, 'loginWrong');
+  E.msg({ t: 'login', rid: 10, name: 'DELTA', auth: key });
+  const lr = E.last('result');
+  assert.ok(lr.ok, 'Anmeldung fehlgeschlagen');
+  assert.equal(lr.id, 'dddd-4');
+  assert.equal(lr.save.coins, 1234);
+  assert.equal(lr.save.rank.i, 3);
+  // wer nur die ID kennt (ohne Geburtsdatum), übernimmt das Konto nicht
+  const F2 = connect();
+  F2.msg({ t: 'hello', id: 'dddd-4', name: 'Delta' });
+  assert.ok(F2.last('authFail'));
+  E.msg({ t: 'hello', id: 'dddd-4', name: 'Delta', auth: key, save: { ...lr.save, coins: 1500 } });
+  assert.ok(E.last('welcome'));
+  assert.equal(gs.store.player('dddd-4').save.coins, 1500);
+  // Bremse gegen Durchprobieren
+  for (let i = 0; i < 6; i++) F2.msg({ t: 'login', rid: 20 + i, name: 'Delta', auth: birthKey('2000-01-0' + (i + 1)) });
+  assert.equal(F2.last('result').key, 'loginSlow');
 
   // Persistenz
   gs.saveNow();
   const db = JSON.parse(fs.readFileSync(path.join(dir, 'showdownbay.json'), 'utf8'));
-  assert.equal(Object.keys(db.players).length, 3);
+  assert.equal(Object.keys(db.players).length, 4);
+  assert.ok(!JSON.stringify(db).includes('2011-04-03'), 'Geburtsdatum darf nicht gespeichert werden');
+  assert.notEqual(db.players['dddd-4'].auth, key, 'Schlüssel nur gesalzen gespeichert');
   assert.equal(db.players['aaaa-1'].friends[0], 'bbbb-2');
   assert.equal(Object.keys(db.parties).length, 1);
   fs.rmSync(dir, { recursive: true, force: true });

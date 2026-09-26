@@ -4,14 +4,17 @@ import { BOT_FOV, BOT_VIEW_DIST, BOT_HEAR_DIST, F, EYE_STAND, EYE_CROUCH, INTERA
 import { WEAPONS, CONSUMABLES } from '../items.js';
 import { anglesFromDir } from './combat.js';
 import { weaponScore } from './inventory.js';
+import { PATH_MAX_EXPAND } from './nav.js';
+
+const PATH_MIN_BUDGET = 1500;
 
 const DEG = Math.PI / 180;
-// Nahkampf-Nerf (≈30 % weniger Treffer auf kurze Distanz)
+// Nahkampf-Nerf (abgeschwächt: Bots treffen auf kurze Distanz wieder ca. 25 % öfter als mit dem vollen Nerf)
 const CLOSE_NERF_NEAR = 10; // m – volle Wirkung
 const CLOSE_NERF_FAR = 22; // m – keine Wirkung mehr
-const CLOSE_ERR = 1.1; // zusätzlicher Zielfehler
-const CLOSE_TURN = 0.3; // langsameres Nachdrehen
-const CLOSE_SPREAD = 1.15; // zusätzliche Streuung der Schüsse
+const CLOSE_ERR = 0.45; // zusätzlicher Zielfehler
+const CLOSE_TURN = 0.12; // langsameres Nachdrehen
+const CLOSE_SPREAD = 0.45; // zusätzliche Streuung der Schüsse
 
 export const DIFF = {
   easy: { react: [0.8, 1.25], aimErr: 7.5, turn: 150, hs: 0.04, strafe: 0.3, burst: [3, 5], pause: [0.55, 1.0], settle: 1.6, crouch: 0.08, jump: 0.04, slide: 0.05, lead: 0.2, recoilComp: 0.3 },
@@ -107,7 +110,7 @@ export class BotBrain {
     this.lootCd = this.rng.range(0, 1.5);
     this.useCd = 0;
     this.input = { mx: 0, mz: 0, yaw: 0, pitch: 0, jump: false, sprint: false, crouch: false, crouchPressed: false, ads: false, using: false };
-    this.actions = { fire: false, reload: false, select: -1, use: -1, interact: null };
+    this.actions = { fire: false, reload: false, select: -1, use: -1, interact: null, revive: null };
   }
 
   eye(p) {
@@ -127,7 +130,7 @@ export class BotBrain {
     const fx = -Math.sin(this.aimYaw), fz = -Math.cos(this.aimYaw);
     const early = sim.matchTime < EARLY_LOOT;
     for (const o of sim.players) {
-      if (o === me || !o.alive) continue;
+      if (o === me || !o.alive || sim.isMate(me, o)) continue;
       const dx = o.body.x - b.x, dz = o.body.z - b.z;
       const d = Math.hypot(dx, dz);
       const recentlyHurtBy = me.lastDamagedBy === o.id && sim.time - me.lastDamageT < 2.5;
@@ -151,6 +154,7 @@ export class BotBrain {
       if (this.target && v.o.id === this.target.id) score *= 0.5;
       if (me.lastDamagedBy === v.o.id && sim.time - me.lastDamageT < 3) score *= 0.4;
       score *= 0.55 + ((v.o.health + v.o.shield) / 200) * 0.45;
+      if (v.o.knocked) score *= v.d < 12 ? 0.7 : 1.8; // Niedergeschlagene nur aus der Nähe erledigen
       if (score < bestScore) { bestScore = score; best = v.o; }
     }
     if (best && (!this.target || best.id !== this.target.id)) {
@@ -316,10 +320,13 @@ export class BotBrain {
   followPath(input) {
     const b = this.p.body;
     if (!this.dest) return false;
-    if (this.pathPending && this.sim.pathBudget > 0) {
+    // Wegsuche mit Rechenbudget pro Takt (Suchen + untersuchte Zellen), sonst im nächsten Takt
+    if (this.pathPending && this.sim.pathBudget > 0 && this.sim.expandBudget >= PATH_MIN_BUDGET) {
       this.sim.pathBudget--;
       this.pathPending = false;
-      const res = this.sim.nav ? this.sim.nav.findPath(b.x, b.z, this.dest.x, this.dest.z) : null;
+      const nav = this.sim.nav;
+      const res = nav ? nav.findPath(b.x, b.z, this.dest.x, this.dest.z, Math.min(PATH_MAX_EXPAND, this.sim.expandBudget)) : null;
+      if (nav) this.sim.expandBudget -= nav.lastExpand;
       if (res && res.points.length) {
         this.path = res.points;
         this.pathIdx = 1;
@@ -409,7 +416,7 @@ export class BotBrain {
     const act = this.actions;
     input.mx = 0; input.mz = 0; input.jump = false; input.crouchPressed = false; input.ads = false; input.using = me.useT >= 0;
     input.sprint = false;
-    act.fire = false; act.reload = false; act.select = -1; act.use = -1; act.interact = null;
+    act.fire = false; act.reload = false; act.select = -1; act.use = -1; act.interact = null; act.revive = null;
     this.wantJump = this.wantJump && this.jumpCd <= 0;
     this.jumpCd -= dt;
     this.slideCd -= dt;
@@ -427,6 +434,19 @@ export class BotBrain {
     if (this.perceiveT <= 0) {
       this.perceiveT = 0.2 + this.rng.next() * 0.12;
       this.perceive();
+    }
+
+    // Duo: am Boden zum Partner kriechen; Partner am Boden wiederbeleben
+    if (sim.mode === 'duo') {
+      const mate = sim.mates(me).find((m) => m.alive) || null;
+      if (me.knocked) return this.updateKnocked(dt, mate);
+      if (mate && mate.knocked && this.updateRevive(dt, mate)) {
+        this.checkStuck(dt, !!this.dest);
+        input.yaw = this.aimYaw;
+        input.pitch = this.aimPitch;
+        return input;
+      }
+      this.mate = mate;
     }
 
     const zone = sim.zone.state;
@@ -764,6 +784,58 @@ export class BotBrain {
     return input;
   }
 
+  // am Boden: zum Partner kriechen (oder weg vom Gegner), nicht schießen
+  updateKnocked(dt, mate) {
+    const b = this.p.body, input = this.input;
+    this.state = 'knocked';
+    let tx = null, tz = null;
+    if (mate && !mate.knocked) { tx = mate.body.x; tz = mate.body.z; }
+    else if (this.target && this.target.alive) { tx = b.x - (this.target.body.x - b.x); tz = b.z - (this.target.body.z - b.z); }
+    if (tx !== null && Math.hypot(tx - b.x, tz - b.z) > 1.8) {
+      if (!this.dest || Math.hypot(this.dest.x - tx, this.dest.z - tz) > 6) this.setDest(tx, tz);
+      const moving = this.followPath(input);
+      if (!moving) this.moveToward(input, tx, tz, 1);
+      const adiff = angDiff(this.moveYaw ?? this.aimYaw, this.aimYaw);
+      this.aimYaw += Math.max(-3 * dt, Math.min(3 * dt, adiff));
+      input.mz = Math.cos(adiff);
+      input.mx = -Math.sin(adiff);
+    }
+    input.yaw = this.aimYaw;
+    input.pitch = 0;
+    return input;
+  }
+
+  // Partner liegt am Boden: hinlaufen und wiederbeleben (außer ein Gegner ist ganz nah)
+  // true = Bot kümmert sich gerade darum (restliche Logik überspringen)
+  updateRevive(dt, mate) {
+    const sim = this.sim, me = this.p, b = me.body, input = this.input;
+    const d = Math.hypot(mate.body.x - b.x, mate.body.z - b.z);
+    const threat = this.visible.find((v) => !v.o.knocked && v.d < (me.reviving ? 12 : 22));
+    if (threat || d > 90) {
+      if (me.reviving) this.actions.revive = null;
+      return false;
+    }
+    this.state = 'revive';
+    this.target = null;
+    if (d <= 2.0) {
+      this.actions.revive = mate.id;
+      input.crouch = true;
+      const want = Math.atan2(-(mate.body.x - b.x), -(mate.body.z - b.z));
+      this.aimYaw += Math.max(-4 * dt, Math.min(4 * dt, angDiff(want, this.aimYaw)));
+      this.dest = null;
+      return true;
+    }
+    if (!this.dest || Math.hypot(this.dest.x - mate.body.x, this.dest.z - mate.body.z) > 2.5) this.setDest(mate.body.x, mate.body.z);
+    input.sprint = d > 6 && this.canSprint(b);
+    const moving = this.followPath(input);
+    if (!moving) this.moveToward(input, mate.body.x, mate.body.z, 1);
+    const adiff = angDiff(this.moveYaw ?? this.aimYaw, this.aimYaw);
+    this.aimYaw += Math.max(-6 * dt, Math.min(6 * dt, adiff));
+    input.mz = Math.cos(angDiff(this.moveYaw ?? this.aimYaw, this.aimYaw));
+    input.mx = -Math.sin(angDiff(this.moveYaw ?? this.aimYaw, this.aimYaw));
+    return true;
+  }
+
   // Slide nur, wenn es passt: beim Sprinten bergab (schneller und weiter) oder selten zwischendurch
   maybeSlide(input, b, d, dt) {
     if (!input.sprint || !b.sprinting || !b.grounded || this.slideCd > 0 || b.stance !== 'stand') return;
@@ -788,7 +860,13 @@ export class BotBrain {
     const z = sim.zone.state;
     const safe = sim.zone.enabled && z.next ? z.next : { x: 0, z: 0, r: 80 };
     let x, zz;
-    if (this.rng.chance(0.5)) {
+    // Duo: in der Nähe des Partners bleiben
+    const mate = this.mate;
+    if (mate && mate.alive && !mate.knocked && Math.hypot(mate.body.x - b.x, mate.body.z - b.z) > 22) {
+      x = mate.body.x + this.rng.range(-8, 8);
+      zz = mate.body.z + this.rng.range(-8, 8);
+    }
+    if (x === undefined && this.rng.chance(0.5)) {
       const pois = sim.world.pois.filter((p) => Math.hypot(p.x - safe.x, p.z - safe.z) < safe.r * 0.9 + 10);
       if (pois.length) {
         const p = this.rng.pick(pois);

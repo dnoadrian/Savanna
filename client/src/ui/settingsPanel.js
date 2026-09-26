@@ -154,6 +154,16 @@ export class SettingsPanel {
       onclick: () => { navigator.clipboard?.writeText(prof.id).catch(() => {}); this.ui.toast(t('copied')); },
     }, t('copy'))));
     this.row(t('sLanguage'), this.seg('language', ['de', 'en'], (o) => (o === 'de' ? 'Deutsch' : 'English')));
+    this.row(t('sSignOut'), h('button', {
+      class: 'btn small ghost',
+      onclick: () => {
+        app.audio.uiClick();
+        this.ui.confirm(t('sSignOutConfirm'), () => {
+          this.close();
+          app.signOut();
+        });
+      },
+    }, t('sSignOut')), t('sSignOutHint'));
     this.row(t('sReset'), h('button', {
       class: 'btn small danger',
       onclick: () => {

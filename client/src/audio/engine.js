@@ -227,7 +227,28 @@ export class AudioEngine {
   }
 
   // type: pistol | ar | drum | tac | pump | sniper
+  // Messer: scharfes Wusch durch die Luft (leicht zufällige Tonhöhe)
+  knifeSwing(pos = null) {
+    if (!this.ready) return;
+    const d = this.out('sfx', pos, { gain: pos ? 1 : 0.8, ref: 3 });
+    const t = this.now;
+    const f = 2200 + Math.random() * 900;
+    this.noiseHit(d, t, { dur: 0.16, type: 'bandpass', freq: f * 0.6, freqEnd: f * 1.6, q: 2.2, gain: 0.35, attack: 0.03 });
+    this.noiseHit(d, t + 0.05, { dur: 0.08, type: 'highpass', freq: 5000, gain: 0.08 });
+  }
+
+  // Messer trifft: dumpfer Einschlag + kurzes metallisches Klingen
+  knifeHit() {
+    if (!this.ready) return;
+    const d = this.out('sfx');
+    const t = this.now;
+    this.tone(d, t, { type: 'sine', freq: 180, freqEnd: 70, dur: 0.12, gain: 0.45 });
+    this.noiseHit(d, t, { dur: 0.07, type: 'lowpass', freq: 1400, gain: 0.35 });
+    this.tone(d, t + 0.01, { type: 'triangle', freq: 2600, freqEnd: 2300, dur: 0.18, gain: 0.07 });
+  }
+
   gunshot(pos = null, dist = 0, type = 'ar') {
+    if (type === 'knife') { this.knifeSwing(pos); return; }
     if (!this.ready) return;
     const own = !pos;
     const delay = own ? 0 : Math.min(0.6, dist / 343);

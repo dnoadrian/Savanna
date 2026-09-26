@@ -64,8 +64,21 @@ export const WEAPONS = {
     spread: { base: 7, move: 3, air: 6, perShot: 0, maxBloom: 0, recover: 10, ads: 0, crouch: 0.8 },
     recoil: { up: 6.5, side: 0.8 }, rarities: [3, 4], weight: 13,
   },
+  // Messer: immer dabei (eigene Taste), Nahkampf ohne Munition, 2,4 Hiebe/s, Reichweite 2,8 m
+  knife: {
+    ammo: null, mag: 1, fireRate: 2.4, auto: true, pellets: 1, hs: 1.5, melee: true,
+    dmg: [40, 40, 40, 40, 40], reload: [0, 0, 0, 0, 0], equip: 0.15,
+    falloff: [99, 100, 1], range: 2.8,
+    spread: { base: 0, move: 0, air: 0, perShot: 0, maxBloom: 0, recover: 10, ads: 1, crouch: 1 },
+    recoil: { up: 0, side: 0 }, rarities: [], weight: 0,
+  },
 };
 export const WEAPON_TYPES = Object.keys(WEAPONS);
+// Waffen, die in Truhen/am Boden liegen können (nicht das Messer)
+export const LOOT_WEAPONS = WEAPON_TYPES.filter((t) => WEAPONS[t].weight > 0);
+// Messer-Skins (Kosmetik): Index = item.r des Messers
+export const KNIFE_SKINS = ['standard', 'tactical', 'neon', 'gold', 'dragon'];
+export const knifeItem = (skin = 'standard') => ({ k: 'w', w: 'knife', r: Math.max(0, KNIFE_SKINS.indexOf(skin)), mag: 1 });
 
 // Heil-/Schild-Gegenstände – wirken sofort (Benutzungszeit 0 s)
 export const CONSUMABLES = {
@@ -124,7 +137,7 @@ const CHEST_RARITY = [[0, 28], [1, 32], [2, 25], [3, 12], [4, 3]];
 const FLOOR_RARITY = [[0, 50], [1, 34], [2, 13], [3, 3]];
 
 export function rollWeapon(rng, rarityTable = CHEST_RARITY) {
-  const w = weighted(rng, WEAPON_TYPES.map((t) => [t, WEAPONS[t].weight]));
+  const w = weighted(rng, LOOT_WEAPONS.map((t) => [t, WEAPONS[t].weight]));
   const allowed = WEAPONS[w].rarities;
   let r = weighted(rng, rarityTable);
   if (r < allowed[0]) r = allowed[0];

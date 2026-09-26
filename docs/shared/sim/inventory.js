@@ -1,11 +1,15 @@
 // Inventar: 5 Plätze (Tasten 1–5) für Waffen und Heil-/Schild-Gegenstände, dazu ein Munitionsbeutel.
-import { WEAPONS, CONSUMABLES, AMMO_TYPES, AMMO_MAX, weaponItem, ammoItem } from '../items.js';
+import { WEAPONS, CONSUMABLES, AMMO_TYPES, AMMO_MAX, weaponItem, ammoItem, knifeItem } from '../items.js';
 
 export const SLOTS = 5;
 
 // Start: graue Pistole mit 20 Schuss im Magazin und 60 in Reserve (insgesamt 80)
-export function createInventory() {
+// Auswahl-Index für das Messer (die 5 Plätze sind 0–4)
+export const KNIFE_SLOT = 5;
+
+export function createInventory(knifeSkin = 'standard') {
   return {
+    knife: knifeItem(knifeSkin),
     slots: [weaponItem('pistol', 0), null, null, null, null],
     sel: 0,
     ammo: { light: 60, medium: 0, heavy: 0, shells: 0 },
@@ -14,6 +18,7 @@ export function createInventory() {
 }
 
 export function selectedItem(inv) {
+  if (inv.sel === KNIFE_SLOT) return inv.knife || null;
   return inv.slots[inv.sel] || null;
 }
 
@@ -69,7 +74,7 @@ export function addItem(inv, item, allowSwap = true) {
         n -= Math.min(n, stack);
         res.taken = true;
         res.slot = free;
-      } else if (!res.taken && allowSwap) {
+      } else if (!res.taken && allowSwap && inv.sel !== KNIFE_SLOT) {
         res.dropped = inv.slots[inv.sel];
         inv.slots[inv.sel] = { k: 'c', c: item.c, n: Math.min(n, stack) };
         n -= Math.min(n, stack);
@@ -86,7 +91,7 @@ export function addItem(inv, item, allowSwap = true) {
   if (free >= 0) {
     inv.slots[free] = { ...item };
     res.slot = free;
-  } else if (allowSwap) {
+  } else if (allowSwap && inv.sel !== KNIFE_SLOT) {
     res.dropped = inv.slots[inv.sel];
     inv.slots[inv.sel] = { ...item };
     res.slot = inv.sel;
@@ -120,6 +125,7 @@ export function weaponScore(item) {
 
 export function cloneInventory(inv) {
   return {
+    knife: inv.knife ? { ...inv.knife } : knifeItem(),
     slots: inv.slots.map((s) => (s ? { ...s } : null)),
     sel: inv.sel,
     ammo: { ...inv.ammo },

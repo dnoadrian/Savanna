@@ -22,6 +22,7 @@ export const WEAPON_META = {
   tac: { sightY: 0.11, muzzle: [0, 0.03, -0.66], eject: [0.05, 0.05, -0.05], mag: null, fore: [0, -0.03, -0.38], hip: [0.28, -0.265, -0.66], adsZ: -0.54, adsDrop: 0.065, scale: 1.0 },
   pump: { sightY: 0.1, muzzle: [0, 0.035, -0.78], eject: [0.05, 0.04, -0.05], mag: null, fore: [0, -0.02, -0.42], hip: [0.28, -0.265, -0.68], adsZ: -0.56, adsDrop: 0.065, scale: 1.0 },
   hammer: { sightY: 0.1, muzzle: [0, 0.04, -0.72], eject: [0.05, 0.05, -0.05], mag: null, fore: [0, -0.02, -0.36], hip: [0.28, -0.265, -0.66], adsZ: -0.54, adsDrop: 0.065, scale: 1.0 },
+  knife: { sightY: 0.04, muzzle: [0, 0.01, -0.27], eject: [0, 0, 0], mag: null, fore: null, hip: [0.24, -0.2, -0.38], adsZ: -0.4, scale: 1.0, melee: true },
   sniper: { sightY: 0.16, muzzle: [0, 0.03, -0.95], eject: [0.05, 0.06, -0.04], mag: [0, -0.04, -0.12], fore: [0, -0.02, -0.4], hip: [0.28, -0.265, -0.7], adsZ: -0.4, scale: 1.0 },
 };
 
@@ -238,6 +239,33 @@ function hammer(g, r, detail) {
   g.box(0, 0.1, -0.03, 0.03, 0.012, 0.012, BLACK);
 }
 
+// Messer (Nahkampf): Klinge nach −Z, Griff am Ursprung. r = Skin (siehe KNIFE_SKINS):
+// 0 Standard (Stahl), 1 Taktisch (schwarz), 2 Neon (leuchtend türkis), 3 Gold, 4 Drache (rot-schwarz)
+const KNIFE_LOOK = [
+  { blade: 0xd7dde5, edge: 0xffffff, guard: 0x3a3f46, grip: 0x4a3322, accent: 0x8b939e, e: 0 },
+  { blade: 0x2b2f35, edge: 0x9aa3ad, guard: 0x15171a, grip: 0x3d4a2e, accent: 0x6b7a4a, e: 0 },
+  { blade: 0x17cfe8, edge: 0xb8fbff, guard: 0x101830, grip: 0x141a2e, accent: 0xff3fd0, e: 0.9 },
+  { blade: 0xf5c542, edge: 0xfff2b0, guard: 0xb8860b, grip: 0x5a2e0e, accent: 0xffe07a, e: 0.25 },
+  { blade: 0xb3121e, edge: 0xffb24a, guard: 0x1a0a0a, grip: 0x220808, accent: 0xffc23a, e: 0.35 },
+];
+function knife(g, r, detail) {
+  const L = KNIFE_LOOK[r] || KNIFE_LOOK[0];
+  // Griff mit Rillen und Knauf
+  g.box(0, -0.005, 0.045, 0.028, 0.034, 0.11, L.grip);
+  if (detail) for (let i = 0; i < 4; i++) g.box(0, -0.005, 0.01 + i * 0.024, 0.031, 0.037, 0.006, L.accent, { e: L.e * 0.5 });
+  g.box(0, -0.005, 0.105, 0.032, 0.038, 0.018, L.guard);
+  // Parierstange
+  g.box(0, -0.002, -0.012, 0.03, 0.07, 0.014, L.guard);
+  // Klinge (Rücken + Schneide) und Spitze
+  g.box(0, 0.006, -0.12, 0.008, 0.034, 0.2, L.blade, { e: L.e * 0.6 });
+  g.box(0, -0.014, -0.11, 0.005, 0.01, 0.18, L.edge, { e: L.e });
+  g.prism(0, 0.006, -0.235, 0.008, 0.034, 0.05, L.blade, { rx: -Math.PI / 2, e: L.e * 0.6 });
+  if (detail) {
+    g.box(0.0045, 0.012, -0.1, 0.001, 0.008, 0.12, L.accent, { e: L.e }); // Hohlkehle
+    if (r === 4) for (let i = 0; i < 4; i++) g.box(0.0046, 0.0, -0.05 - i * 0.04, 0.001, 0.012, 0.02, L.accent, { e: 0.5, ry: 0.4 });
+  }
+}
+
 function sniper(g, r, detail) {
   const A = RAR_BODY[r], L = RAR_LIGHT[r];
   g.box(0, 0.03, -0.1, 0.07, 0.08, 0.34, A); // Gehäuse
@@ -264,7 +292,7 @@ function sniper(g, r, detail) {
   g.box(0, -0.03, -0.42, 0.012, 0.012, 0.16, BLACK, { rx: 0.2 });
 }
 
-const BUILDERS = { pistol, ar, drum, tac, pump, hammer, sniper };
+const BUILDERS = { pistol, ar, drum, tac, pump, hammer, sniper, knife };
 
 const geoCache = new Map();
 // withMag: Magazin gleich mit einbauen (Figuren, Bodenbeute, Symbole); die Egoperspektive hat ein

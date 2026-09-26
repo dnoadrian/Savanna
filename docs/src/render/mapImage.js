@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { surfaceColor } from './terrainMesh.js';
 import { PROP_TYPES } from '../../shared/map/props.js';
 
-export const MAP_EXTENT = 112; // Karte zeigt die ganze Bucht bis zu den Canyonwänden
+export const MAP_EXTENT = 158; // Karte zeigt die ganze Insel mit etwas Meer drumherum
 
 export function renderMapImage(map, size = 1024) {
   const c = document.createElement('canvas');
@@ -50,12 +50,13 @@ export function renderMapImage(map, size = 1024) {
   const toPx = (x) => ((x + MAP_EXTENT) / (MAP_EXTENT * 2)) * size;
   const shade = new THREE.Color();
   // Bäume und Felsen in echter Größe
-  const CANOPY = { palm: 2.6, palm_s: 2.0, bush: 1.0, rock_l: 2.0, rock_m: 1.0 };
+  const CANOPY = { palm: 2.6, palm_s: 2.0, bush: 1.0, rock_l: 2.0, rock_m: 1.0, tree: 2.2, pine: 1.6, snowpine: 1.6, stone_l: 2.0, stone_m: 1.0, car: 1.2 };
+  const CANOPY_COL = { rock_l: 'rgba(150,70,45,0.85)', rock_m: 'rgba(150,70,45,0.85)', stone_l: 'rgba(130,135,140,0.9)', stone_m: 'rgba(130,135,140,0.9)', pine: 'rgba(30,90,45,0.85)', snowpine: 'rgba(30,90,45,0.85)', car: 'rgba(200,70,60,0.9)' };
   for (const p of map.props) {
     const n = PROP_TYPES[p.t];
     const r = CANOPY[n];
     if (!r) continue;
-    g.fillStyle = n.startsWith('rock') ? 'rgba(150,70,45,0.85)' : 'rgba(50,140,50,0.75)';
+    g.fillStyle = CANOPY_COL[n] || 'rgba(50,140,50,0.75)';
     g.beginPath();
     g.arc(toPx(p.x), toPx(p.z), (r * p.s) / scale, 0, Math.PI * 2);
     g.fill();
