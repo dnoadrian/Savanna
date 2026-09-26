@@ -123,7 +123,7 @@ export class GameServer {
     // Match-Nachrichten
     if (c.matchId) {
       const match = this.matches.get(c.matchId);
-      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'sel', 'int', 'use', 'useCancel', 'leaveMatch', 'loaded'].includes(m.t)) {
+      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'sel', 'swap', 'int', 'use', 'useCancel', 'leaveMatch', 'loaded'].includes(m.t)) {
         match.onMessage(c, m);
         return;
       }

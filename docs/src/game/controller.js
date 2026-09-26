@@ -139,6 +139,18 @@ export class LocalPlayer {
     this.audio.equip(this.item);
   }
 
+  // Inventar sortieren (TAB-Menü): lokal sofort tauschen, Server/Simulation folgt
+  swapSlots(a, b) {
+    if (a === b || a < 0 || b < 0 || a > 4 || b > 4) return;
+    const s = this.inv.slots;
+    const t = s[a];
+    s[a] = s[b];
+    s[b] = t;
+    if (this.inv.sel === a) this.inv.sel = b;
+    else if (this.inv.sel === b) this.inv.sel = a;
+    this.game.session.swap(a, b);
+  }
+
   selectSlot(i) {
     if (i < 0 || i > 4 || i === this.inv.sel) return;
     this.cancelUse();

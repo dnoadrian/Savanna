@@ -120,6 +120,7 @@ export class LocalSession {
   reload() { this.sim.humanReload(this.youId); }
   cancelReload() { this.sim.humanCancelReload(this.youId); }
   select(slot) { this.sim.humanSelect(this.youId, slot); }
+  swap(a, b) { this.sim.humanSwap(this.youId, a, b); }
   interact(target) { this.sim.humanInteract(this.youId, target); }
   use(slot) { this.sim.humanUse(this.youId, slot); }
   cancelUse() { this.sim.humanCancelUse(this.youId); }
@@ -352,6 +353,7 @@ export class NetSession {
   reload() { this.net.send({ t: 'reload' }); }
   cancelReload() { this.net.send({ t: 'reloadCancel' }); }
   select(slot) { this.net.send({ t: 'sel', s: slot }); }
+  swap(a, b) { this.net.send({ t: 'swap', a, b }); }
   interact(target) { this.net.send({ t: 'int', ...target }); }
   use(slot) { this.net.send({ t: 'use', s: slot }); }
   cancelUse() { this.net.send({ t: 'useCancel' }); }

@@ -141,6 +141,21 @@ test('Schilde/Medikits werden automatisch aufgesammelt, wenn schon ein Stapel im
   assert.ok(sim.loot.pickups.has(big.id), 'ohne Stapel nicht automatisch');
 });
 
+test('Inventar sortieren (TAB): Plätze tauschen, gewählter Gegenstand bleibt in der Hand', () => {
+  const sim = makeSim(8, 2);
+  playing(sim);
+  const a = sim.players[0];
+  a.inv.slots = [weaponItem('ar', 1), null, weaponItem('pump', 2), consumableItem('mini', 2), null];
+  a.inv.sel = 0;
+  assert.ok(sim.humanSwap(a.id, 0, 2));
+  assert.equal(a.inv.slots[0].w, 'pump');
+  assert.equal(a.inv.slots[2].w, 'ar');
+  assert.equal(a.inv.sel, 2, 'Auswahl folgt der SCAR');
+  assert.ok(sim.humanSwap(a.id, 3, 4));
+  assert.equal(a.inv.slots[4].c, 'mini');
+  assert.equal(sim.humanSwap(a.id, 0, 7), false);
+});
+
 test('Sprint-Ausdauer: leert sich beim Sprinten, erholt sich danach', () => {
   const map = generateMap();
   const world = { terrain: map.terrain, collision: map.collision };

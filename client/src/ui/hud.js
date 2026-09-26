@@ -22,6 +22,13 @@ export function itemName(it) {
   return t('a_' + it.a);
 }
 
+// kurze Namen wie im Original-HUD (SCAR, PUMP, …)
+export function shortName(it) {
+  if (it.k === 'w') return t('ws_' + it.w);
+  if (it.k === 'c') return t('c_' + it.c);
+  return t('a_' + it.a);
+}
+
 export class HUD {
   constructor(root, settings) {
     this.settings = settings;
@@ -73,7 +80,7 @@ export class HUD {
     this.slotEls = [];
     const bar = h('div', { class: 'hotbar' });
     for (let i = 0; i < 5; i++) {
-      const el = h('div', { class: 'slot empty' }, h('div', { class: 'slot-key' }), h('img', { class: 'slot-img', alt: '' }), h('div', { class: 'slot-count' }));
+      const el = h('div', { class: 'slot empty' }, h('div', { class: 'slot-key' }), h('img', { class: 'slot-img', alt: '' }), h('div', { class: 'slot-count' }), h('div', { class: 'slot-name' }));
       bar.appendChild(el);
       this.slotEls.push(el);
     }
@@ -309,6 +316,7 @@ export class HUD {
         el.style.removeProperty('--rar');
         img.removeAttribute('src');
         cnt.textContent = '';
+        el.children[3].textContent = '';
         el._k = null;
         return;
       }
@@ -317,6 +325,7 @@ export class HUD {
       if (el._k !== k) {
         el._k = k;
         img.src = itemIcon(it);
+        el.children[3].textContent = shortName(it);
       }
       cnt.textContent = it.k === 'w' ? String(it.mag) : String(it.n);
       el.classList.toggle('mag-empty', it.k === 'w' && it.mag === 0);

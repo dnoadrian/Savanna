@@ -655,6 +655,22 @@ export class Simulation {
     if (p && p.alive) this.selectSlot(p, slot | 0);
   }
 
+  // Inventar sortieren: zwei Plätze tauschen, die Auswahl folgt dem Gegenstand in der Hand
+  humanSwap(id, a, b) {
+    const p = this.byId.get(id);
+    a |= 0; b |= 0;
+    if (!p || !p.alive || a === b || a < 0 || b < 0 || a > 4 || b > 4) return false;
+    const inv = p.inv;
+    const t = inv.slots[a];
+    inv.slots[a] = inv.slots[b];
+    inv.slots[b] = t;
+    if (inv.sel === a) inv.sel = b;
+    else if (inv.sel === b) inv.sel = a;
+    if (p.useT >= 0) p.useSlot = inv.sel;
+    inv.rev++;
+    return true;
+  }
+
   humanInteract(id, target) {
     const p = this.byId.get(id);
     return p ? this.interact(p, target) : false;

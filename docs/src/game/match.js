@@ -1,5 +1,6 @@
 // Ein laufendes Match auf dem Client: verbindet Session, Welt, Beute, Figuren, Steuerung, HUD,
 // Effekte und Audio.
+import { InventoryScreen } from '../ui/inventoryScreen.js';
 import * as THREE from 'three';
 import { Character } from '../render/characters.js';
 import { Viewmodel } from '../render/viewmodel.js';
@@ -50,6 +51,8 @@ export class MatchClient {
     const prof = app.profile.data;
     this.viewmodel.setOutfit(prof.outfit, prof.color);
     this.hud = app.hud;
+    this.invScreen = app.invScreen || (app.invScreen = new InventoryScreen(app.hud.root, app));
+    this.invScreen.toggle(false);
     this.hud.reset();
     this.hud.setMapImage(mapImage, map.pois);
     this.hud.show();
@@ -151,7 +154,9 @@ export class MatchClient {
       }
     }
 
-    const menuOpen = app.ui.overlayOpen();
+    // TAB-Inventar schließen, sobald ein anderes Menü aufgeht oder der Spieler nicht mehr lebt
+    if (this.invScreen.open && (app.ui.overlayOpen() || this.state !== 'alive' || !input.locked)) this.invScreen.toggle(false);
+    const menuOpen = app.ui.overlayOpen() || this.invScreen.open;
     if (this.state === 'alive') {
       if (!menuOpen && input.locked) this.player.update(dt, now, phase, states);
       else {
@@ -291,11 +296,15 @@ export class MatchClient {
     this.hud.project(this.camera, W, H);
     this.updateNameTags(states, now, W, H);
     // Scoreboard / Karte
-    if (!menuOpen) {
-      const sb = input.isDown('scoreboard');
-      if (sb || this.sbShown) this.hud.showScoreboard(sb, this.scoreRows(states));
-      this.sbShown = sb;
-      if (input.pressed('map')) this.hud.toggleBigMap(!this.hud.bigMapOpen);
+    // TAB: Inventar (statt Spielerliste) – Sortieren über die Platz-Tasten
+    if (!app.ui.overlayOpen()) {
+      if (input.pressed('scoreboard') && this.state === 'alive') this.invScreen.toggle(!this.invScreen.open);
+      else if (this.invScreen.open) {
+        this.invScreen.handleInput(input, this.player);
+        this.invRefresh = (this.invRefresh || 0) - dt;
+        if (this.invRefresh <= 0) { this.invRefresh = 0.3; this.invScreen.render(); }
+      }
+      if (!this.invScreen.open && input.pressed('map')) this.hud.toggleBigMap(!this.hud.bigMapOpen);
     }
     // Zuschauer: Spieler wechseln
     if (this.state === 'spectate' && !menuOpen) {

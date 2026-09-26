@@ -121,6 +121,7 @@ export class ServerMatch {
       case 'reload': sim.humanReload(c.pid); break;
       case 'reloadCancel': sim.humanCancelReload(c.pid); break;
       case 'sel': sim.humanSelect(c.pid, m.s | 0); break;
+      case 'swap': sim.humanSwap(c.pid, m.a | 0, m.b | 0); break;
       case 'int':
         if (Number.isInteger(m.c)) sim.humanInteract(c.pid, { c: m.c });
         else if (Number.isInteger(m.l)) sim.humanInteract(c.pid, { l: m.l });
