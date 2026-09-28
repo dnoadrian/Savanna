@@ -292,6 +292,7 @@ export class MatchClient {
       stamina: pl.body.stamina, exhausted: pl.body.exhausted,
       inv: pl.inv, reloading: reload01 >= 0, reload01, use01, useItem: use01 >= 0 ? item : null,
       target: living ? pl.target : null,
+      swapHint: living && pl.canHoldSwap(pl.target), swap01: living ? pl.swap01 : 0,
       aliveCount: alive, total: states.length, kills: self.kills,
       zone, stormOn, phase, inStorm: inStorm && living, fps: this.fps, ping: s.isLocal ? null : s.ping,
       vfov: this.camera.fov, weapon: def ? item.w : null, spread: living && def ? weaponSpread(pl.rt, item, pl.flags, speed) : 0,

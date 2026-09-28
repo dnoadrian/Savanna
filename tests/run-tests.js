@@ -417,6 +417,42 @@ test('Truhe mit F: 1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition, nur 
   assert.equal(a.inv.slots[1].w, items[0].w);
 });
 
+test('F gedrückt halten: Gegenstand in der Hand gegen den am Boden tauschen (auch mit freien Plätzen)', () => {
+  // Inventar: erzwungener Tausch landet im gewählten Platz, der alte fällt heraus
+  const inv = createInventory();
+  addItem(inv, weaponItem('ar', 2));
+  inv.sel = 1;
+  const r = addItem(inv, weaponItem('pump', 3), true, true);
+  assert.equal(r.dropped.w, 'ar');
+  assert.equal(inv.slots[1].w, 'pump');
+  assert.equal(inv.slots.filter(Boolean).length, 2, 'keine Waffe verdoppelt');
+  // Messer in der Hand: kein Tausch, normal in einen freien Platz
+  inv.sel = KNIFE_SLOT;
+  const r2 = addItem(inv, weaponItem('sniper', 4), true, true);
+  assert.equal(r2.dropped, null);
+  assert.equal(inv.slots[2].w, 'sniper');
+  // Simulation: Waffe vom Boden aufnehmen – kurz drücken füllt freien Platz, halten tauscht
+  const sim = makeSim(8, 2);
+  playing(sim);
+  const a = sim.players[0];
+  const c = sim.loot.chests[0];
+  a.body.x = c.x - Math.sin(c.ry) * 1.5;
+  a.body.z = c.z - Math.cos(c.ry) * 1.5;
+  a.body.y = c.y;
+  sim.drainEvents();
+  sim.humanInteract(a.id, { c: c.id });
+  const ev = sim.drainEvents().find((e) => e.t === 'loot');
+  const wid = ev.a[0][0];
+  const floorW = decodeItem(ev.a[0][1]).w;
+  const before = a.inv.slots[0].w;
+  sim.humanSelect(a.id, 0);
+  assert.ok(sim.humanInteract(a.id, { l: wid, swap: true }));
+  assert.equal(a.inv.slots[0].w, floorW, 'neue Waffe in der Hand');
+  assert.equal(a.inv.slots[1], null, 'freier Platz bleibt frei');
+  const dropped = [...sim.loot.pickups.values()].find((pk) => pk.item.k === 'w' && pk.item.w === before);
+  assert.ok(dropped, 'alte Waffe liegt am Boden');
+});
+
 test('Schilde & Heilung wirken sofort: Mini bis 50, Schildtrank bis 100, Medikit bis 100 Leben', () => {
   assert.deepEqual([CONSUMABLES.mini.shield, CONSUMABLES.mini.cap, CONSUMABLES.mini.use], [25, 50, 0]);
   assert.deepEqual([CONSUMABLES.big.shield, CONSUMABLES.big.cap, CONSUMABLES.big.use], [50, 100, 0]);

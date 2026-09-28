@@ -686,15 +686,16 @@ export class Simulation {
       const pk = this.loot.pickups.get(target.l);
       if (!pk) return false;
       if (Math.hypot(pk.x - b.x, pk.z - b.z) > reach || Math.abs(pk.y - b.y) > 2.5) return false;
-      return this.pickup(p, pk);
+      return this.pickup(p, pk, !!target.swap);
     }
     return false;
   }
 
-  pickup(p, pk) {
+  // swap = F gedrückt gehalten: mit dem Gegenstand in der Hand tauschen
+  pickup(p, pk, swap = false) {
     const item = pk.item;
     const wasEmpty = !selectedItem(p.inv);
-    const res = addItem(p.inv, item, true);
+    const res = addItem(p.inv, item, true, swap && item.k !== 'a');
     if (!res.taken) return false;
     if (res.rest) {
       pk.item = res.rest;

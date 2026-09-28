@@ -39,7 +39,9 @@ export function stackRoom(inv, c) {
   return room;
 }
 
-export function addItem(inv, item, allowSwap = true) {
+// forceSwap (F gedrückt halten): Gegenstand kommt in den gewählten Platz, der bisherige Inhalt
+// fällt auf den Boden – auch wenn noch Plätze frei sind
+export function addItem(inv, item, allowSwap = true, forceSwap = false) {
   const res = { taken: false, rest: null, dropped: null, slot: -1 };
   if (item.k === 'a') {
     const space = AMMO_MAX[item.a] - inv.ammo[item.a];
@@ -57,6 +59,16 @@ export function addItem(inv, item, allowSwap = true) {
   if (item.k === 'c') {
     let n = item.n;
     const stack = CONSUMABLES[item.c].stack;
+    const cur = inv.slots[inv.sel];
+    if (forceSwap && inv.sel !== KNIFE_SLOT && !(cur && cur.k === 'c' && cur.c === item.c)) {
+      res.dropped = cur;
+      inv.slots[inv.sel] = { k: 'c', c: item.c, n: Math.min(n, stack) };
+      if (n > stack) res.rest = { k: 'c', c: item.c, n: n - stack };
+      res.taken = true;
+      res.slot = inv.sel;
+      inv.rev++;
+      return res;
+    }
     for (let i = 0; i < SLOTS && n > 0; i++) {
       const s = inv.slots[i];
       if (s && s.k === 'c' && s.c === item.c && s.n < stack) {
@@ -88,7 +100,11 @@ export function addItem(inv, item, allowSwap = true) {
   }
   // Waffe
   const free = inv.slots.indexOf(null);
-  if (free >= 0) {
+  if (forceSwap && inv.sel !== KNIFE_SLOT) {
+    res.dropped = inv.slots[inv.sel];
+    inv.slots[inv.sel] = { ...item };
+    res.slot = inv.sel;
+  } else if (free >= 0) {
     inv.slots[free] = { ...item };
     res.slot = free;
   } else if (allowSwap && inv.sel !== KNIFE_SLOT) {

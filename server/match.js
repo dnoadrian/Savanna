@@ -158,7 +158,7 @@ export class ServerMatch {
         break;
       case 'int':
         if (Number.isInteger(m.c)) sim.humanInteract(c.pid, { c: m.c });
-        else if (Number.isInteger(m.l)) sim.humanInteract(c.pid, { l: m.l });
+        else if (Number.isInteger(m.l)) sim.humanInteract(c.pid, { l: m.l, swap: !!m.swap });
         break;
       case 'use': sim.humanUse(c.pid, m.s | 0); break;
       case 'rev': sim.humanRevive(c.pid, typeof m.v === 'string' ? m.v.slice(0, 64) : null); break;

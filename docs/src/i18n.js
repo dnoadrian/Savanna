@@ -333,7 +333,7 @@ Object.assign(DE, {
   c_mini: 'Mini-Schild', c_big: 'Schildtrank', c_medkit: 'Medikit',
   a_light: 'Leichte Munition', a_medium: 'Mittlere Munition', a_heavy: 'Schwere Munition', a_shells: 'Schrotpatronen',
   rar_0: 'Gewöhnlich', rar_1: 'Ungewöhnlich', rar_2: 'Selten', rar_3: 'Episch', rar_4: 'Legendär',
-  magShort: 'Schuss', openChest: 'Truhe öffnen', reloadHint: 'Leer! Nachladen mit {key}',
+  magShort: 'Schuss', openChest: 'Truhe öffnen', holdSwap: 'Halten: tauschen', reloadHint: 'Leer! Nachladen mit {key}',
   kfStorm: 'Sturm', kfLeft: 'verlassen',
   miniFull: 'Mini-Schilde nur bis 50 Schild', fullShield: 'Schild ist voll', fullHealth: 'Gesundheit ist voll',
   // Einstellungen
@@ -401,7 +401,7 @@ Object.assign(EN, {
   c_mini: 'Small Shield', c_big: 'Shield Potion', c_medkit: 'Medkit',
   a_light: 'Light ammo', a_medium: 'Medium ammo', a_heavy: 'Heavy ammo', a_shells: 'Shells',
   rar_0: 'Common', rar_1: 'Uncommon', rar_2: 'Rare', rar_3: 'Epic', rar_4: 'Legendary',
-  magShort: 'rounds', openChest: 'Open chest', reloadHint: 'Empty! Reload with {key}',
+  magShort: 'rounds', openChest: 'Open chest', holdSwap: 'Hold: swap', reloadHint: 'Empty! Reload with {key}',
   kfStorm: 'storm', kfLeft: 'left',
   miniFull: 'Small shields only go up to 50 shield', fullShield: 'Shield is full', fullHealth: 'Health is full',
   sRenderMode: 'Rendering mode', rm_performance: 'Performance', gfxFixedHint: 'Same for everyone: performance mode, low shadows, epic view distance, no grass',

@@ -17,6 +17,7 @@ import { AimAssist } from './aimassist.js';
 const DEG = Math.PI / 180;
 const BASE_SENS = 0.0021;
 const SLOT_ACTIONS = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5'];
+const SWAP_HOLD = 0.4; // s: F so lange halten = Gegenstand in der Hand mit dem am Boden tauschen
 
 export function surfaceSound(map, body) {
   if (body.waterDepth > 0.15) return 'water';
@@ -184,6 +185,15 @@ export class LocalPlayer {
     this.inv.ammo.heavy = Math.max(this.inv.ammo.heavy, AMMO_MAX.heavy);
     this.game.session.cheat({ ia: this.admin.active('infammo'), op: true });
     this.onHandChanged();
+  }
+
+  // Tauschen per F-Halten möglich? (Waffe/Heilung am Boden, in der Hand liegt etwas, kein Messer)
+  canHoldSwap(tg) {
+    return !!tg && tg.kind === 'l' && tg.item && tg.item.k !== 'a' && this.inv.sel !== KNIFE_SLOT && !!this.inv.slots[this.inv.sel];
+  }
+
+  get swap01() {
+    return this.swapHold ? Math.min(1, this.swapHold.t / SWAP_HOLD) : 0;
   }
 
   selectSlot(i) {
@@ -448,11 +458,30 @@ export class LocalPlayer {
         if (this.scoped) this.adsK = 0;
       }
     }
-    // F: Truhe öffnen / aufheben
+    // F: Truhe öffnen / aufheben. F gedrückt halten: den Gegenstand in der Hand gegen den am Boden
+    // tauschen (der eigene fällt hin) – auch wenn noch Plätze frei sind
     this.target = selfInfo.alive && playing && !knocked && !this.reviveTarget ? this.findTarget() : null;
-    if (input.pressed('interact') && this.target) {
-      g.session.interact(this.target.kind === 'c' ? { c: this.target.id } : { l: this.target.id });
-      if (this.target.kind === 'c') this.audio.chestOpen();
+    const tg = this.target;
+    if (input.pressed('interact') && tg) {
+      if (tg.kind === 'c') {
+        g.session.interact({ c: tg.id });
+        this.audio.chestOpen();
+      } else if (this.canHoldSwap(tg)) this.swapHold = { id: tg.id, start: now, t: 0 };
+      else g.session.interact({ l: tg.id });
+    }
+    if (this.swapHold) {
+      const sh = this.swapHold;
+      if (!tg || tg.kind !== 'l' || tg.id !== sh.id) this.swapHold = null;
+      else if (input.isDown('interact')) {
+        sh.t = now - sh.start; // echte Zeit (auch bei ruckelnden Bildern)
+        if (sh.t >= SWAP_HOLD) {
+          g.session.interact({ l: sh.id, swap: true });
+          this.swapHold = null;
+        }
+      } else {
+        g.session.interact({ l: sh.id }); // nur kurz gedrückt: normal aufheben
+        this.swapHold = null;
+      }
     }
 
     // Klick-Puffer: ein Klick kurz vor Ende von Ausrüsten/Feuerpause wird nachgeholt

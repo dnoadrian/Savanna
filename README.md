@@ -27,7 +27,7 @@ Ein Low-Poly-Battle-Royale für den Browser. **20 Spieler** – allein (**Solo**
 | **Linke Maus** | Schießen / Schild oder Medikit benutzen (wirkt sofort) |
 | **Rechte Maus** | Zielen (Waffe bleibt seitlich wie in Valorant, leichter Zoom; Scharfschützengewehr: Zielfernrohr) |
 | **R** | Nachladen (nur manuell) |
-| **F** | Truhe öffnen / Gegenstand aufheben · **Duo: gedrückt halten = Partner wiederbeleben** |
+| **F** | Truhe öffnen / Gegenstand aufheben · **gedrückt halten: Waffe in der Hand gegen die am Boden tauschen** · Duo: gedrückt halten = Partner wiederbeleben |
 | **1 – 5**, Mausrad | Inventarplatz wählen |
 | **Q** | Messer (Nahkampf, eigener Platz links neben der Hotbar) |
 | **V** | Ego- / Schulterperspektive |
@@ -81,7 +81,7 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 
 **Truhen** (rund 60 auf der Insel) – goldenes Leuchten, Summen und Funkeln in der Nähe. Mit **F** öffnen: **1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition**.
 
-**Inventar** – 5 Plätze (1–5) mit Kurznamen und Seltenheitsfarbe. Ist alles voll, tauscht **F** den Gegenstand in der Hand. Sortieren im TAB-Menü.
+**Inventar** – 5 Plätze auf den Tasten **1–5** (Standard; auch bei alten gespeicherten Einstellungen wieder so gesetzt), das Messer liegt auf **Q**. Kurznamen und Seltenheitsfarbe je Platz. **F kurz drücken** hebt in einen freien Platz auf (ist alles voll, wird getauscht); **F gedrückt halten** (0,4 s, mit Fortschrittsbalken) tauscht immer den Gegenstand in der Hand gegen den am Boden – der eigene fällt hin. Sortieren im TAB-Menü.
 
 **Bewegung** – schneller Sprint mit Ausdauer (ca. 7 s, erholt sich in 3 s), kräftiger Slide. Wer unter einen Steg rutscht, kriecht heraus.
 

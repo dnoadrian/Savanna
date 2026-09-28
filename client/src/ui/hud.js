@@ -272,7 +272,8 @@ export class HUD {
       this.useLabel.classList.remove('hidden');
     } else this.useLabel.classList.add('hidden');
     // F-Hinweis (Partner wiederbeleben geht vor)
-    this.updatePrompt(d.reviveTarget ? { kind: 'r', id: d.reviveTarget.id, name: d.reviveTarget.name } : d.target);
+    this.updatePrompt(d.reviveTarget ? { kind: 'r', id: d.reviveTarget.id, name: d.reviveTarget.name } : d.target, !d.reviveTarget && d.swapHint);
+    this.prompt.style.setProperty('--hold', d.reviveTarget ? 0 : d.swap01 || 0);
     this.updateDown(d);
     this.updateTeam(d.team);
     // Meldungen
@@ -370,8 +371,9 @@ export class HUD {
     });
   }
 
-  updatePrompt(tg) {
-    const key = tg ? `${tg.kind}${tg.id}` : '';
+  // swap: Hinweis „F halten: tauschen“ (Gegenstand in der Hand gegen den am Boden)
+  updatePrompt(tg, swap = false) {
+    const key = tg ? `${tg.kind}${tg.id}${swap ? 's' : ''}` : '';
     if (this.cache.prompt === key) return;
     this.cache.prompt = key;
     if (!tg) {
@@ -392,7 +394,8 @@ export class HUD {
       const rar = itemRarity(it);
       el.style.setProperty('--rar', RARITY_COLORS[rar]);
       const detail = it.k === 'w' ? `${t('rar_' + rar)} · ${WEAPONS[it.w].mag} ${t('magShort')}` : `x${it.n}`;
-      el.innerHTML = `<span class="key">${esc(k)}</span><img src="${itemIcon(it)}" alt=""><span class="ip-text"><b>${esc(itemName(it))}</b><small>${esc(detail)}</small></span>`;
+      el.innerHTML = `<span class="key">${esc(k)}</span><img src="${itemIcon(it)}" alt=""><span class="ip-text"><b>${esc(itemName(it))}</b><small>${esc(detail)}</small></span>`
+        + (swap ? `<span class="ip-swap"><span class="key small">${esc(k)}</span>${esc(t('holdSwap'))}<i class="ip-hold"></i></span>` : '');
     }
   }
 

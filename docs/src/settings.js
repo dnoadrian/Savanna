@@ -67,8 +67,10 @@ export const DEFAULTS = {
 };
 
 const STORAGE_KEY = 'showdown.settings.v1';
-// Version der gespeicherten Einstellungen: 2 = neues Standard-Sichtfeld (FOV 100)
-const SETTINGS_VERSION = 2;
+// Version der gespeicherten Einstellungen: 2 = neues Standard-Sichtfeld (FOV 100),
+// 3 = Inventarplätze wieder auf den Tasten 1–5
+const SETTINGS_VERSION = 3;
+const SLOT_KEYS = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5'];
 
 export class Settings {
   constructor() {
@@ -78,12 +80,19 @@ export class Settings {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const saved = JSON.parse(raw);
-        if ((saved.v || 1) < SETTINGS_VERSION) delete saved.fov;
+        const ver = saved.v || 1;
+        if (ver < 2) delete saved.fov;
         for (const k of Object.keys(DEFAULTS)) {
           if (saved[k] === undefined) continue;
           if (k === 'keys') {
             this.values.keys = { ...DEFAULT_KEYS };
             for (const a of KEY_ACTIONS) if (saved.keys[a]) this.values.keys[a] = saved.keys[a];
+            if (ver < 3) {
+              // Inventar wieder auf 1–5; andere Aktionen, die auf 1–5 lagen, bekommen ihre Standardtaste
+              const digits = SLOT_KEYS.map((a) => DEFAULT_KEYS[a]);
+              for (const a of KEY_ACTIONS) if (!SLOT_KEYS.includes(a) && digits.includes(this.values.keys[a])) this.values.keys[a] = DEFAULT_KEYS[a];
+              for (const a of SLOT_KEYS) this.values.keys[a] = DEFAULT_KEYS[a];
+            }
           } else this.values[k] = saved[k];
         }
       } else {
