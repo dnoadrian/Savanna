@@ -1,7 +1,9 @@
 // Prozedurale Low-Poly-Modelle für Deko-Objekte (mit LOD-Varianten): Palmen, Felsen, Fässer,
-// Kisten, Bojen, Strandgras sowie Laubbäume, Tannen, graue Felsen, Autos und Heuballen der Inseln.
+// Kisten, Bojen, Laubbäume, Tannen, Autos, Heuballen und für die Schneeinsel verschneite Fichten,
+// Felsbrocken mit Schneehaube, Eisbrocken und Eisschollen.
 import { GeoBuilder } from './geom.js';
 import { PROP_TYPES } from '../../shared/map/props.js';
+import { TX } from '../../shared/map/builder.js';
 
 const cache = new Map();
 
@@ -146,7 +148,7 @@ function buoy(v) {
   return g;
 }
 
-// ---------- Inseln (Chapter-2-Orte) ----------
+// ---------- Bäume, Felsen, Autos, Heuballen ----------
 const LEAF = [0x4f9e3a, 0x5fae42, 0x3f8c34];
 const LEAF_DARK = [0x2f6e3a, 0x3a7a3f, 0x285f33];
 const BARK = [0x7a5537, 0x6b4a30, 0x86603e];
@@ -170,14 +172,13 @@ function tree(v, lod) {
   return g;
 }
 
-// Tanne aus drei Kegeln (optional verschneit)
-function pine(v, lod, snow) {
+// Tanne aus drei Kegeln
+function pine(v, lod) {
   const g = new GeoBuilder();
   g.cyl(0, 0.8, 0, 0.26, 1.6, BARK[(v + 1) % 3], { seg: 5 });
   const tiers = lod ? [[1.2, 1.7, 2.6], [3.2, 1.1, 2.6]] : [[1.2, 1.8, 2.2], [2.6, 1.4, 2.0], [3.9, 1.0, 1.8], [5.0, 0.6, 1.4]];
   tiers.forEach(([y, r, h], i) => {
     g.cyl(0, y + h / 2, 0, r, h, LEAF_DARK[(v + i) % 3], { rt: 0.05, seg: lod ? 6 : 8 });
-    if (snow && !lod) g.cyl(0, y + h * 0.78, 0, r * 0.42, h * 0.3, 0xf4f8fb, { rt: 0.04, seg: 8 });
   });
   return g;
 }
@@ -186,16 +187,16 @@ function stone(size, v, lod) {
   const g = new GeoBuilder();
   const c = STONE[v];
   if (size === 0) {
-    g.ico(0, 0.1, 0, 0.45, c, { sy: 0.6, jitter: 0.4, jseed: v + 70 });
+    g.ico(0, 0.1, 0, 0.45, c, { sy: 0.6, jitter: 0.4, jseed: v + 70, tx: TX.ROCK });
   } else if (size === 1) {
-    g.ico(0, 0.35, 0, 1.2, c, { sy: 0.75, jitter: 0.35, jseed: v + 71 });
-    if (!lod) g.ico(0.7, 0.2, 0.4, 0.6, STONE[(v + 1) % 3], { sy: 0.7, jseed: v + 72 });
+    g.ico(0, 0.35, 0, 1.2, c, { sy: 0.75, jitter: 0.35, jseed: v + 71, tx: TX.ROCK });
+    if (!lod) g.ico(0.7, 0.2, 0.4, 0.6, STONE[(v + 1) % 3], { sy: 0.7, jseed: v + 72, tx: TX.ROCK });
   } else {
-    g.slab(0, 0.6, 0, 3.8, 1.6, 3.2, c, { ry: v, taper: 0.85 });
-    g.slab(0.2, 1.8, -0.1, 3.0, 1.0, 2.6, STONE[(v + 1) % 3], { ry: v + 0.4, taper: 0.8 });
+    g.slab(0, 0.6, 0, 3.8, 1.6, 3.2, c, { ry: v, taper: 0.85, tx: TX.ROCK });
+    g.slab(0.2, 1.8, -0.1, 3.0, 1.0, 2.6, STONE[(v + 1) % 3], { ry: v + 0.4, taper: 0.8, tx: TX.ROCK });
     if (!lod) {
-      g.slab(-0.1, 2.6, 0.1, 2.0, 0.7, 1.8, STONE[(v + 2) % 3], { ry: v + 0.9, taper: 0.7 });
-      g.ico(1.9, 0.3, 1.0, 0.8, STONE[(v + 1) % 3], { sy: 0.7, jseed: v + 74 });
+      g.slab(-0.1, 2.6, 0.1, 2.0, 0.7, 1.8, STONE[(v + 2) % 3], { ry: v + 0.9, taper: 0.7, tx: TX.ROCK });
+      g.ico(1.9, 0.3, 1.0, 0.8, STONE[(v + 1) % 3], { sy: 0.7, jseed: v + 74, tx: TX.ROCK });
     }
   }
   return g;
@@ -260,6 +261,65 @@ function stump(v) {
   return g;
 }
 
+// Verschneite Fichte: schlanke Kegel-Etagen, jede mit Schneemantel (unten schaut Grün hervor)
+const SPRUCE = [0x2e5e3f, 0x356a45, 0x29553a];
+const SNOW = 0xf3f7fb;
+function spruce(v, lod) {
+  const g = new GeoBuilder();
+  const green = SPRUCE[v];
+  g.cyl(0, 1.0, 0, 0.28, 2.0, BARK[(v + 1) % 3], { rt: 0.2, seg: 6 });
+  const tiers = lod ? 3 : 6;
+  for (let i = 0; i < tiers; i++) {
+    const k = lod ? i * 2 : i;
+    const y = 1.1 + k * 1.35;
+    const r = (2.0 - k * 0.27) * (lod ? 1.05 : 1);
+    const h = (2.2 - k * 0.12) * (lod ? 1.5 : 1);
+    const rot = i * 0.7 + v;
+    g.cyl(0, y + h / 2, 0, r, h, green, { rt: 0.06, seg: lod ? 7 : 9, ry: rot, vary: 0.08 });
+    // Schneemantel: deckt die oberen 70 % der Etage knapp außerhalb des Kegels
+    g.cyl(0, y + h * 0.3 + (h * 0.7) / 2 + 0.03, 0, r * 0.75, h * 0.7, SNOW, { rt: 0.05, seg: lod ? 7 : 9, ry: rot, vary: 0.03, tx: TX.SNOW });
+    if (!lod && i < 4) {
+      // Schneeklumpen auf den Astspitzen
+      for (let q = 0; q < 3; q++) {
+        const a = rot * 2 + q * 2.1;
+        g.ico(Math.cos(a) * r * 0.72, y + h * 0.3, Math.sin(a) * r * 0.72, 0.28, SNOW, { sy: 0.55, jseed: v * 9 + i * 3 + q, tx: TX.SNOW });
+      }
+    }
+  }
+  g.cyl(0, 1.1 + (lod ? 4 : 5) * 1.35 + 2.3, 0, 0.2, 0.9, SNOW, { rt: 0.02, seg: 6, tx: TX.SNOW });
+  return g;
+}
+
+// Felsbrocken mit Schneehaube (braun wie im Gebirge)
+const BOULDER = [0x6e5a4b, 0x7a6352, 0x5f4d40];
+function boulder(v, lod) {
+  const g = new GeoBuilder();
+  g.ico(0, 0.45, 0, 1.35, BOULDER[v], { sy: 0.72, detail: lod ? 0 : 1, jitter: 0.3, jseed: v + 80, tx: TX.ROCK });
+  if (!lod) g.ico(0.95, 0.2, 0.5, 0.75, BOULDER[(v + 1) % 3], { sy: 0.7, jseed: v + 81, tx: TX.ROCK });
+  g.ico(-0.1, 1.08, 0.05, 1.08, SNOW, { sy: 0.32, detail: lod ? 0 : 1, jitter: 0.2, jseed: v + 82, tx: TX.SNOW });
+  return g;
+}
+
+// kantiger Brocken aus blauem Gletschereis mit Schneedecke
+const ICE = [0x4ec3e8, 0x3fb4e0, 0x62cdec];
+function iceChunk(v, lod) {
+  const g = new GeoBuilder();
+  const ry = v * 0.7;
+  g.slab(0, 0.75, 0, 2.3, 1.9, 1.9, ICE[v], { ry, taper: 0.74, tx: TX.ICE });
+  g.slab(0, 1.78, 0, 1.55, 0.2, 1.3, SNOW, { ry, taper: 0.85, tx: TX.SNOW });
+  if (!lod) g.slab(1.25, 0.3, 0.7, 1.1, 1.0, 1.0, ICE[(v + 1) % 3], { ry: ry + 0.6, taper: 0.7, tx: TX.ICE });
+  return g;
+}
+
+// Eisscholle im Meer
+function floe(v) {
+  const g = new GeoBuilder();
+  const w = [5.5, 4.2, 6.4][v], d = [4.2, 3.6, 3.4][v];
+  g.slab(0, -0.12, 0, w + 0.3, 0.35, d + 0.3, 0x86d3ea, { taper: 0.95, tx: TX.ICE });
+  g.slab(0, 0.12, 0, w, 0.22, d, 0xeef5fa, { taper: 0.9, tx: TX.SNOW });
+  return g;
+}
+
 // Liefert kompiliertes Modell {pos, col, emi} für Typ/Variante/LOD
 export function propModel(type, v, lod = 0) {
   const key = type * 10 + v + lod * 1000;
@@ -281,8 +341,11 @@ export function propModel(type, v, lod = 0) {
     case 'buoy': g = buoy(v); break;
     case 'fern': g = fern(v, lod); break;
     case 'tree': g = tree(v, lod); break;
-    case 'pine': g = pine(v, lod, false); break;
-    case 'snowpine': g = pine(v, lod, true); break;
+    case 'pine': g = pine(v, lod); break;
+    case 'snowpine': g = spruce(v, lod); break;
+    case 'boulder': g = boulder(v, lod); break;
+    case 'icechunk': g = iceChunk(v, lod); break;
+    case 'floe': g = floe(v); break;
     case 'stone_s': g = stone(0, v, lod); break;
     case 'stone_m': g = stone(1, v, lod); break;
     case 'stone_l': g = stone(2, v, lod); break;
@@ -299,6 +362,6 @@ export function propModel(type, v, lod = 0) {
 }
 
 // Welche Typen werden im Fern-LOD weggelassen?
-export const LOD_SKIP = new Set(['rock_s', 'beachgrass', 'fern', 'barrel', 'crate', 'log', 'buoy', 'stone_s', 'flower', 'reed', 'stump', 'hay']);
+export const LOD_SKIP = new Set(['rock_s', 'beachgrass', 'fern', 'barrel', 'crate', 'log', 'buoy', 'stone_s', 'flower', 'reed', 'stump', 'hay', 'floe']);
 
 export { palm as palmBuilder, bush as bushBuilder };

@@ -1,8 +1,8 @@
-// Insel-Generator (gleich auf Server und Client): jede Karte ist eine Insel im offenen Meer mit
-// einem Chapter-2-Ort. Eine Kartendefinition plant zuerst Gelände (ebene Flächen, Seen, Flüsse,
-// Hügel, Straßen, Sandbänke) und Bauwerke; danach entstehen Höhenfeld, Bodenarten, Parts,
-// Deko und Kollision. Als Generator (yield = Fortschritt), damit der Server in kleinen
-// Häppchen rechnen kann, ohne laufende Matches ruckeln zu lassen.
+// Insel-Generator (gleich auf Server und Client): die Karte ist eine Insel im offenen Meer.
+// Eine Kartendefinition plant zuerst Gelände (ebene Flächen, Gipfel, Bergketten, Eisterrassen,
+// gefrorene Seen und Flüsse, Hügel, Straßen) und Bauwerke; danach entstehen Höhenfeld,
+// Bodenarten, Parts, Deko und Kollision. Als Generator (yield = Fortschritt), damit der Server
+// in kleinen Häppchen rechnen kann, ohne laufende Matches ruckeln zu lassen.
 import { Noise2D, smoothstep, lerp } from '../noise.js';
 import { RNG } from '../rng.js';
 import { WORLD_HALF, GRID_CELL, PLAY_RADIUS } from '../constants.js';
@@ -27,6 +27,22 @@ function distToLine(x, z, pts) {
   }
   return best;
 }
+// Abstand zur Linie + interpolierter dritter Wert der Punkte (z. B. Eishöhe eines Flusses)
+function lineLevel(x, z, pts, out) {
+  let best = Infinity, lv = 0;
+  for (let k = 0; k < pts.length - 1; k++) {
+    const [x1, z1, l1 = 0] = pts[k], [x2, z2, l2 = 0] = pts[k + 1];
+    const dx = x2 - x1, dz = z2 - z1;
+    const l2d = dx * dx + dz * dz || 1e-9;
+    let t = ((x - x1) * dx + (z - z1) * dz) / l2d;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const d = Math.hypot(x1 + dx * t - x, z1 + dz * t - z);
+    if (d < best) { best = d; lv = l1 + (l2 - l1) * t; }
+  }
+  out.d = best;
+  out.level = lv;
+  return out;
+}
 function lineBox(pts, pad) {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const [x, z] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
@@ -48,11 +64,18 @@ export class Plan {
     this.rng = new RNG(seed ^ 0x2b7e15);
     this.flats = [];
     this.rects = [];
+    this.ramps = [];
     this.roads = [];
     this.paints = [];
     this.lakes = [];
     this.rivers = [];
     this.hills = [];
+    this.peaks = [];
+    this.ridges = [];
+    this.shelves = [];
+    this.glaciers = [];
+    this.iceLakes = [];
+    this.iceRivers = [];
     this.bars = [];
     this.bulges = [];
     this.items = [];
@@ -67,6 +90,12 @@ export class Plan {
   flat(x, z, r, h = null, edge = 7) { this.flats.push({ x, z, r, h, edge }); return this; }
   // ebene Fläche (gedrehtes Rechteck)
   flatRect(x, z, w, d, ry = 0, h = null, edge = 5) { this.rects.push({ x, z, w, d, ry, h, edge }); return this; }
+  // Rampe von (x1,z1) auf Höhe h1 nach (x2,z2) auf Höhe h2 (null = Geländehöhe), Breite w
+  ramp(x1, z1, h1, x2, z2, h2, w = 6, edge = 4) {
+    const len = Math.hypot(x2 - x1, z2 - z1);
+    this.ramps.push({ x1, z1, h1, x2, z2, h2, w, edge, len, ux: (x2 - x1) / len, uz: (z2 - z1) / len });
+    return this;
+  }
   road(pts, w = 7, surf = SURF.ROAD) { this.roads.push({ pts, w, surf, box: lineBox(pts, w) }); return this; }
   paintCircle(x, z, r, surf) { this.paints.push({ k: 'c', x, z, r, surf }); return this; }
   paintRect(x, z, w, d, ry, surf) { this.paints.push({ k: 'r', x, z, w, d, ry, surf }); return this; }
@@ -75,6 +104,20 @@ export class Plan {
   river(pts, w = 8, depth = 0.7) { this.rivers.push({ pts, w, depth, box: lineBox(pts, w + 10) }); return this; }
   // Hügel/Berg (Gauß-Glocke); rock: Felsboden, snow: Schneekuppe
   hill(x, z, r, h, o = {}) { this.hills.push({ x, z, r, h, rock: !!o.rock, snow: !!o.snow, sharp: o.sharp ?? 2 }); return this; }
+  // spitzer Berg mit Graten (ridges = Anzahl der Kämme, exp > 1 = hohle Flanken, jag = zerklüftet)
+  peak(x, z, r, h, o = {}) {
+    this.peaks.push({ x, z, r, h, R2: (r * 1.5) ** 2, exp: o.exp ?? 1.4, ridges: o.ridges ?? 5, rot: o.rot ?? 0, jag: o.jag ?? 0.25 });
+    return this;
+  }
+  // Bergkette entlang einer Linie (Gipfel und Sättel per Rauschen)
+  ridge(pts, w, h) { this.ridges.push({ pts, w, h, box: lineBox(pts, w * 0.7) }); return this; }
+  // Schneeterrasse: flache Stufe mit steiler Eiskante (Gletscherstufe)
+  shelf(x, z, r, h, edge = 1.6) { this.shelves.push({ x, z, r, h, edge }); return this; }
+  // Bereich, in dem steile Hänge blankes Gletschereis statt Fels zeigen
+  glacier(x, z, r) { this.glaciers.push({ x, z, r }); return this; }
+  // gefrorener See / Fluss: Eisfläche auf Höhe level (begehbar); Flusspunkte [x, z, Eishöhe]
+  iceLake(x, z, r, sx = 1, sz = 1, level = 0.35) { this.iceLakes.push({ x, z, r, sx, sz, level }); return this; }
+  iceRiver(pts, w = 10) { this.iceRivers.push({ pts, w, box: lineBox(pts, w + 12) }); return this; }
   // Sandbank / Flachwasser im Meer entlang einer Linie
   bar(pts, w = 16, h = -0.45) { this.bars.push({ pts, w, h, box: lineBox(pts, w + 14) }); return this; }
   // Küste in Richtung a (rad) nach außen/innen verschieben
@@ -98,7 +141,6 @@ export function* islandSteps(def) {
   const N = Math.round((WORLD_HALF * 2) / GRID_CELL);
   const S = N + 1;
   const cell = GRID_CELL;
-  const bio = def.biome || {};
   const P = new Plan(seed);
   // eigene Küstenform je Karte: [Winkel in Grad, Ausbuchtung in m, Breite in rad]
   for (const [deg, amount, width] of def.shape || []) P.bulge((deg / 180) * Math.PI, amount, width ?? 0.7);
@@ -127,6 +169,7 @@ export function* islandSteps(def) {
   };
   const coastDist = (x, z) => coastAt(x, z) - Math.hypot(x, z);
 
+  const LL = { d: 0, level: 0 };
   // Höhe ohne ebene Flächen
   const pre = (x, z) => {
     const d = coastDist(x, z);
@@ -144,6 +187,48 @@ export function* islandSteps(def) {
       if (q > 4) continue;
       const k = Math.exp(-q * hl.sharp);
       h += hl.h * k * (1 + n3.noise(x / 9, z / 9) * 0.12);
+    }
+    for (const pk of P.peaks) {
+      const dx = x - pk.x, dz = z - pk.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > pk.R2) continue;
+      const a = Math.atan2(dz, dx);
+      // Grate: in Richtung der Kämme reicht der Berg weiter hinaus
+      const ridge = Math.abs(Math.cos((a - pk.rot) * pk.ridges * 0.5)) ** 4;
+      const rr = pk.r * (0.74 + 0.46 * ridge + n2.noise(Math.cos(a) * 1.7 + pk.x * 0.01, Math.sin(a) * 1.7 + pk.z * 0.01) * 0.16);
+      const k = 1 - Math.sqrt(d2) / rr;
+      if (k <= 0) continue;
+      const rn = 1 - Math.abs(n3.noise(x / 10 + pk.x * 0.1, z / 10));
+      h += pk.h * k ** pk.exp * (1 + (rn - 0.6) * pk.jag * (1 - k * 0.4));
+    }
+    for (const rg of P.ridges) {
+      if (x < rg.box.x0 || x > rg.box.x1 || z < rg.box.z0 || z > rg.box.z1) continue;
+      const hw = (rg.w / 2) * (1 + n1.noise(x / 40 + 3, z / 40) * 0.25);
+      const dd = distToLine(x, z, rg.pts);
+      if (dd >= hw) continue;
+      const k = 1 - dd / hw;
+      const along = 0.7 + (n2.noise(x / 42 + 11, z / 42) * 0.5 + 0.5) * 0.55;
+      const rn = 1 - Math.abs(n3.noise(x / 12, z / 12 + 5));
+      h += rg.h * along * k ** 1.5 * (1 + (rn - 0.6) * 0.32);
+    }
+    for (const sh of P.shelves) {
+      const dx = x - sh.x, dz = z - sh.z;
+      if (Math.abs(dx) > sh.r * 1.3 + sh.edge || Math.abs(dz) > sh.r * 1.3 + sh.edge) continue;
+      const a = Math.atan2(dz, dx);
+      const rr = sh.r * (1 + n1.noise(Math.cos(a) * 1.6 + sh.x * 0.05, Math.sin(a) * 1.6 + sh.z * 0.05) * 0.16);
+      h += sh.h * smoothstep(rr + sh.edge, rr, Math.hypot(dx, dz));
+    }
+    for (const l of P.iceLakes) {
+      const dx = (x - l.x) / l.sx, dz = (z - l.z) / l.sz;
+      const q = Math.sqrt(dx * dx + dz * dz) / l.r + n3.noise(x / 11, z / 11) * 0.08;
+      if (q > 1.6) continue;
+      h = lerp(h, l.level, smoothstep(1.45, 1.0, q));
+    }
+    for (const rv of P.iceRivers) {
+      if (x < rv.box.x0 || x > rv.box.x1 || z < rv.box.z0 || z > rv.box.z1) continue;
+      lineLevel(x, z, rv.pts, LL);
+      if (LL.d > rv.w / 2 + 7) continue;
+      h = lerp(h, LL.level, smoothstep(rv.w / 2 + 7, rv.w / 2, LL.d));
     }
     for (const l of P.lakes) {
       const dx = (x - l.x) / l.sx, dz = (z - l.z) / l.sz;
@@ -167,6 +252,10 @@ export function* islandSteps(def) {
   };
   for (const f of P.flats) if (f.h === null) f.h = Math.max(0.6, pre(f.x, f.z));
   for (const r of P.rects) if (r.h === null) r.h = Math.max(0.6, pre(r.x, r.z));
+  for (const r of P.ramps) {
+    if (r.h1 === null) r.h1 = Math.max(0.6, pre(r.x1, r.z1));
+    if (r.h2 === null) r.h2 = Math.max(0.6, pre(r.x2, r.z2));
+  }
   const heightFn = (x, z) => {
     let h = pre(x, z);
     for (const f of P.flats) {
@@ -181,6 +270,17 @@ export function* islandSteps(def) {
       if (Math.abs(x - r.x) > R || Math.abs(z - r.z) > R) continue;
       const d = rectDist(x, z, r);
       if (d < r.edge) h = lerp(h, r.h, smoothstep(r.edge, 0, d));
+    }
+    for (const r of P.ramps) {
+      const dx = x - r.x1, dz = z - r.z1;
+      const t = (dx * r.ux + dz * r.uz) / r.len;
+      if (t < -0.3 || t > 1.3) continue;
+      const across = Math.max(0, Math.abs(dx * r.uz - dz * r.ux) - r.w / 2);
+      const along = t < 0 ? -t * r.len : t > 1 ? (t - 1) * r.len : 0;
+      const d = Math.hypot(across, along);
+      if (d >= r.edge) continue;
+      const tc = t < 0 ? 0 : t > 1 ? 1 : t;
+      h = lerp(h, r.h1 + (r.h2 - r.h1) * tc, smoothstep(r.edge, 0, d));
     }
     return h;
   };
@@ -198,7 +298,20 @@ export function* islandSteps(def) {
   // ---------------- Bodenarten ----------------
   const nrm = { x: 0, y: 1, z: 0 };
   const inRock = (x, z) => P.hills.some((hl) => hl.rock && Math.hypot(x - hl.x, z - hl.z) < hl.r * 0.9);
-  const inForest = (x, z) => P.forests.some((f) => Math.hypot(x - f.x, z - f.z) < f.r);
+  // auf dem Eis eines gefrorenen Sees/Flusses?
+  const onIce = (x, z) => {
+    for (const l of P.iceLakes) {
+      const dx = (x - l.x) / l.sx, dz = (z - l.z) / l.sz;
+      if (Math.sqrt(dx * dx + dz * dz) / l.r + n3.noise(x / 11, z / 11) * 0.08 < 1.04) return true;
+    }
+    for (const rv of P.iceRivers) {
+      if (x < rv.box.x0 || x > rv.box.x1 || z < rv.box.z0 || z > rv.box.z1) continue;
+      if (lineLevel(x, z, rv.pts, LL).d < rv.w / 2 + 0.6) return true;
+    }
+    return false;
+  };
+  const inShelf = (x, z) => P.shelves.some((sh) => Math.hypot(x - sh.x, z - sh.z) < sh.r * 1.3 + sh.edge + 1)
+    || P.glaciers.some((g) => Math.hypot(x - g.x, z - g.z) < g.r);
   for (let j = 0; j < S; j++) {
     const z = -WORLD_HALF + j * cell;
     for (let i = 0; i < S; i++) {
@@ -210,14 +323,12 @@ export function* islandSteps(def) {
       else {
         const d = coastDist(x, z);
         terrain.normalAt(x, z, nrm);
-        if (d < 13 && h < 2.3 && !bio.noBeach) s = SURF.BEACH;
-        else if (nrm.y < 0.74 || (h > 4 && inRock(x, z))) s = SURF.ROCK;
-        else if (nrm.y < 0.86) s = SURF.DIRT;
-        else if (bio.snowLine && h > bio.snowLine + n1.noise(x / 10, z / 10) * 1.5) s = SURF.SNOW;
-        else if (inForest(x, z)) s = SURF.FOREST;
-        else if (bio.swamp && n3.fbm(x / 34, z / 34, 2) > -0.1) s = SURF.SWAMP;
-        else if (n3.fbm(x / 30 + 4, z / 30, 2) > (bio.dry ?? 0.55)) s = SURF.DRYGRASS;
-        else s = SURF.GRASS;
+        if (onIce(x, z)) s = SURF.ICE;
+        else if (d < 7 && h < 1.5) s = SURF.BEACH; // Kiesstrand
+        else if (nrm.y < 0.66 && inShelf(x, z)) s = SURF.GLACIER; // Eiskante der Terrassen
+        // Fels nur an steilen Stellen; im Hochgebirge schon an mäßig steilen Hängen
+        else if (nrm.y < 0.5 + 0.26 * smoothstep(10, 32, h) + n1.noise(x / 7, z / 7) * 0.06 || (h > 4 && nrm.y < 0.86 && inRock(x, z))) s = SURF.ROCK;
+        else s = SURF.SNOW;
       }
       surface[idx] = s;
     }
@@ -298,7 +409,7 @@ export function* islandSteps(def) {
     occAdd(p.x, p.z, r * 0.85 + 0.8);
   }
   for (const pr of props) occAdd(pr.x, pr.z, propRadius(pr.t, pr.s));
-  const blockedSurf = new Set([SURF.ROAD, SURF.PLAZA, SURF.FIELD, SURF.SEAFLOOR]);
+  const blockedSurf = new Set([SURF.ROAD, SURF.PLAZA, SURF.FIELD, SURF.SEAFLOOR, SURF.ICE, SURF.GLACIER, SURF.PATH]);
   const inKeep = (x, z) => P.keeps.some((k) => Math.hypot(x - k.x, z - k.z) < k.r);
 
   const scatter = (type, count, opt = {}) => {
@@ -330,28 +441,30 @@ export function* islandSteps(def) {
     }
     return placed;
   };
-  // Wälder zuerst (dicht), dann die offene Landschaft
+  // Wälder: dichte, verschneite Fichten; dann die offene Landschaft
   for (const f of P.forests) {
-    const n = Math.round(((f.r * f.r) / 60) * f.density);
-    scatter(bio.snowLine ? 'snowpine' : 'pine', Math.round(n * (bio.pines ?? 0.45)), { area: f, spacing: 0.75 });
-    scatter('tree', Math.round(n * (1 - (bio.pines ?? 0.45))), { area: f, spacing: 0.8 });
-    scatter('bush', Math.round(n * 0.4), { area: f, solid: false });
-    scatter('stump', Math.round(n * 0.12), { area: f });
-    scatter('log', Math.round(n * 0.06), { area: f });
+    const n = Math.round(((f.r * f.r) / 55) * f.density);
+    scatter('snowpine', n, { area: f, spacing: 0.7, s0: 0.8, s1: 1.25 });
+    scatter('boulder', Math.round(n * 0.08), { area: f });
   }
-  const sc = bio.scatter || {};
-  scatter('tree', sc.tree ?? 70, { spacing: 1.1 });
-  scatter(bio.snowLine ? 'snowpine' : 'pine', sc.pine ?? 30, { spacing: 1.1 });
-  scatter('palm', sc.palm ?? 0, { minH: 0.5, surf: [SURF.BEACH, SURF.GRASS, SURF.DRYGRASS] });
-  scatter('bush', sc.bush ?? 60, { solid: false });
-  scatter('stone_l', sc.stoneL ?? 10, { minH: 0.3, maxSlope: 0.6 });
-  scatter('stone_m', sc.stoneM ?? 26, { minH: 0.1, maxSlope: 0.6 });
-  scatter('stone_s', sc.stoneS ?? 50, { minH: -0.6, solid: false, maxSlope: 0.5, anySurf: true });
-  scatter('flower', sc.flower ?? 40, { solid: false });
-  scatter('beachgrass', sc.beachgrass ?? 60, { minH: 0.4, solid: false, surf: [SURF.BEACH] });
-  scatter('reed', sc.reed ?? 0, { minH: -0.4, maxH: 0.8, solid: false, anySurf: true });
+  const sc = def.scatter || {};
+  scatter('snowpine', sc.pine ?? 90, { spacing: 1.1, s0: 0.75, s1: 1.2 });
+  scatter('boulder', sc.boulder ?? 30, { maxSlope: 0.72, s0: 0.7, s1: 1.4 });
+  scatter('stone_s', sc.stone ?? 40, { minH: -0.6, solid: false, maxSlope: 0.5, anySurf: true });
+  // Eisbrocken an den Gletscherstufen und verstreut
+  for (const sh of P.shelves) scatter('icechunk', sc.iceShelf ?? 2, { area: { x: sh.x, z: sh.z, r: sh.r * 1.35 }, maxSlope: 0.6, s0: 0.7, s1: 1.3 });
+  scatter('icechunk', sc.ice ?? 12, { maxSlope: 0.72, s0: 0.6, s1: 1.2 });
   scatter('log', sc.log ?? 6, {});
-  scatter('hay', sc.hay ?? 0, { surf: [SURF.DRYGRASS, SURF.GRASS] });
+  // treibende Eisschollen im Meer (nur Deko)
+  for (let k = 0, g = 0; k < (sc.floe ?? 40) && g < 4000; g++) {
+    const a = rng.next() * Math.PI * 2, r = PLAY_RADIUS + 6 + rng.next() * 60;
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (hAt(x, z) > -1.4 || !occFree(x, z, 3)) continue;
+    const s = rng.range(0.6, 1.7);
+    occAdd(x, z, 3 * s);
+    props.push({ t: PT.floe, x, y: 0, z, ry: rng.next() * Math.PI * 2, s, v: Math.floor(rng.next() * 3) });
+    k++;
+  }
   yield 0.6;
 
   // ---------------- Beute: fehlende Truhen/Bodenbeute auffüllen ----------------

@@ -177,13 +177,14 @@ export class Renderer {
   }
 }
 
-// Sonne + Himmelslicht mit Schatten, die dem Spieler folgen (kleine Insel: enger, scharfer Schattenbereich)
+// Sonne + Himmelslicht mit Schatten, die dem Spieler folgen (kleine Insel: enger, scharfer Schattenbereich).
+// Schneeinsel: kühles Himmelslicht, heller Schnee wirft bläuliches Licht zurück in die Schatten.
 export class Lights {
   constructor(scene) {
-    this.sunDir = new THREE.Vector3(0.5, 0.62, 0.35).normalize();
-    this.hemi = new THREE.HemisphereLight(0xd6ecff, 0xc29a62, 1.3);
+    this.sunDir = new THREE.Vector3(0.45, 0.55, 0.42).normalize();
+    this.hemi = new THREE.HemisphereLight(0xcfe3ff, 0xc9d6e2, 1.35);
     scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xfff0d8, 2.45);
+    this.sun = new THREE.DirectionalLight(0xfff3e2, 2.3);
     this.sun.castShadow = true;
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.02;

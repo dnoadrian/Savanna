@@ -3,7 +3,6 @@
 export const GAME_NAME = 'SHOWDOWN BAY';
 export const MATCH_SIZE = 20; // jedes Match: 20 Spieler, freie Plätze füllen Bots
 export const PARTY_MAX = 4;
-export const MAP_SEED = 20260926; // Grund-Seed der Karten (Orte handplatziert, Deko per Seed)
 export const SERVER_PORT = 4242;
 
 export const SIM_HZ = 30;
@@ -24,14 +23,15 @@ export function clampQueueWait(v) {
 }
 export const INVITE_TTL = 60;
 
-// Welt: Insel mit einem Ort (POI) mitten im Meer – doppelte Fläche der alten Bucht
-export const WORLD_HALF = 215; // Terrain reicht von -215..215 (außen offenes Meer)
+// Welt: verschneite Insel mitten im Meer (Frostfeste) – 25 % mehr Fläche als die alten Inseln
+export const WORLD_HALF = 240; // Terrain reicht von -240..240 (außen offenes Meer)
 export const GRID_CELL = 1.25; // Terrain-Auflösung in Metern
-export const PLAY_RADIUS = 142; // ungefährer Inselradius (Küstenlinie)
+export const PLAY_RADIUS = 159; // ungefährer Inselradius (Küstenlinie)
 export const SEA_LEVEL = 0;
 export const DEEP_WATER = 1.25; // tieferes Wasser (offenes Meer) kann man nicht betreten
-export const BOUNDARY_RADIUS = 160;
-export const SPAWN_MIN_DIST = 34;
+export const BOUNDARY_RADIUS = 179;
+export const SPAWN_MIN_DIST = 38;
+export const SPAWN_MAX_HEIGHT = 30; // nicht auf Berggipfeln starten
 
 // Leben: 100 Gesundheit (grün) + 100 Schild (blau); Start mit 50 Überschild, der nicht zurückkommt
 export const MAX_HEALTH = 100;
@@ -80,7 +80,7 @@ export const STORM_PHASES = [
   { wait: 25, shrink: 20, radius: 17, dps: 5 },
   { wait: 18, shrink: 18, radius: 0, dps: 10 },
 ];
-export const STORM_START_RADIUS = 215;
+export const STORM_START_RADIUS = 240;
 
 // Sichtbarkeit/Wahrnehmung der Bots
 export const BOT_FOV = 120;

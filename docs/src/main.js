@@ -80,8 +80,10 @@ class App {
     else this.showWelcome();
     this.lastT = performance.now();
     this.scheduleFrame();
-    // nächste Offline-Karte im Hintergrund vorbereiten, damit das erste Match schnell startet
-    setTimeout(() => { if (!this.net.connected) this.prepareMap(this.soloMapId).catch((e) => console.error(e)); }, 1500);
+    // Karte im Hintergrund vorbereiten (schneller Matchstart, Vorschau in der Lobby)
+    setTimeout(() => {
+      this.prepareMap(this.soloMapId).then(() => { if (this.state === 'lobby') this.ui.lobby.refresh(); }).catch((e) => console.error(e));
+    }, 1500);
   }
 
   t(k, v) { return t(k, v); }

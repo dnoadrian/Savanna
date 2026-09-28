@@ -98,6 +98,22 @@ export const C = {
   TEAL: 0x2a9d8f,
 };
 
+// Oberflächen-Texturen: werden im Client prozedural im Shader gezeichnet (render/geom.js).
+// Ohne Angabe richtet sich die Textur eines Colliders nach seinem Material.
+export const TX = {
+  NONE: 0,
+  SNOW: 1, // Pulverschnee mit Glitzern
+  ICE: 2, // blaues Eis mit Rissen
+  ROCK: 3, // Fels mit Schichten und Rissen
+  STONE: 4, // Mauerwerk (versetzte Steinblöcke)
+  TILE: 5, // Bodenplatten mit Reif
+  WOOD: 6, // Bretter mit Maserung
+  METAL: 7, // Blechplatten
+  BRONZE: 8, // Kuppeldach aus Bronze mit Rippen und Patina
+  GROUND: 9, // Erdboden/Sand
+  PANEL: 10, // große Betonplatten mit Schmutzschlieren
+};
+
 export class Builder {
   constructor(parts, ox, oz, oy, rot = 0, groups = null) {
     this.parts = parts;
@@ -135,6 +151,7 @@ export class Builder {
       m: o.m ?? MAT.WOOD,
       pass: !!o.pass,
       grp: o.grp,
+      tx: o.tx,
     });
     return this;
   }
@@ -151,6 +168,7 @@ export class Builder {
       col: o.col !== false && !rx && !rz,
       m: o.m ?? MAT.WOOD,
       grp: o.grp,
+      tx: o.tx,
     });
     return this;
   }
@@ -167,6 +185,7 @@ export class Builder {
       col: o.col === true,
       m: o.m ?? MAT.STONE,
       grp: o.grp,
+      tx: o.tx,
     });
     return this;
   }
@@ -181,6 +200,7 @@ export class Builder {
       c,
       col: false,
       grp: o.grp,
+      tx: o.tx,
     });
     if (o.col) {
       // grobe Kollision im unteren Teil des Daches
@@ -206,7 +226,7 @@ export class Builder {
     const seg = (s0, s1, y0, y1) => {
       if (s1 - s0 < 0.05 || y1 - y0 < 0.05) return;
       const mid = (s0 + s1) / 2;
-      this.box(x1 + ux * mid, y0, z1 + uz * mid, s1 - s0, y1 - y0, thick, c, { ry, m: o.m ?? MAT.WOOD });
+      this.box(x1 + ux * mid, y0, z1 + uz * mid, s1 - s0, y1 - y0, thick, c, { ry, m: o.m ?? MAT.WOOD, tx: o.tx });
     };
     const ops = openings.slice().sort((a, b) => a.at - b.at);
     let cur = 0;
@@ -312,6 +332,7 @@ export class Builder {
       taper: o.taper ?? 0.9,
       col: o.col !== false,
       m: o.m ?? MAT.STONE,
+      tx: o.tx,
     });
     return this;
   }

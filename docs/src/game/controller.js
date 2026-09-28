@@ -30,6 +30,8 @@ export function surfaceSound(map, body) {
   const s = map.terrain.surfaceAt(body.x, body.z);
   if (s === SURF.GRASS || s === SURF.FOREST || s === SURF.FIELD || s === SURF.DRYGRASS || s === SURF.SWAMP) return 'grass';
   if (s === SURF.ROCK || s === SURF.ROAD || s === SURF.PLAZA) return 'stone';
+  if (s === SURF.SNOW || s === SURF.PATH) return 'snow';
+  if (s === SURF.ICE || s === SURF.GLACIER) return 'ice';
   return 'sand';
 }
 

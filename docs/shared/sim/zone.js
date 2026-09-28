@@ -20,8 +20,8 @@ export class Zone {
         best = { x, z, r };
         if (!terrain) break;
         const h = terrain.heightAt(x, z);
-        // Kreismitte an Land und nicht zu weit draußen
-        if (h > 0.2 && Math.hypot(x, z) < PLAY_RADIUS * 0.6) break;
+        // Kreismitte an Land, nicht zu weit draußen und nicht im Hochgebirge
+        if (h > 0.2 && h < 22 && terrain.normalAt(x, z).y > 0.8 && Math.hypot(x, z) < PLAY_RADIUS * 0.6) break;
       }
       this.circles.push(best);
       prev = best;

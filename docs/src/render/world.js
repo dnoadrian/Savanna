@@ -7,7 +7,8 @@ import { PROP_TYPES } from '../../shared/map/props.js';
 import { buildTerrain, heightTexture } from './terrainMesh.js';
 import { createWater } from './water.js';
 import { Grass } from './grass.js';
-import { C } from '../../shared/map/builder.js';
+import { C, TX } from '../../shared/map/builder.js';
+import { MAT } from '../../shared/physics/collision.js';
 
 const CHUNK = 32;
 const EMISSIVE_COLORS = new Set([C.FIRE, C.FIRE2, C.LAMP, C.SLURP, C.NEON]);
@@ -110,7 +111,7 @@ export class WorldView {
       const info = map.groups[key];
       if (!info) continue;
       const g = new GeoBuilder();
-      for (const p of parts) addPart(g, { ...p, x: p.x - info.pivot.x, y: p.y - info.pivot.y, z: p.z - info.pivot.z }, 0);
+      for (const p of parts) addPart(g, { ...p, x: p.x - info.pivot.x, y: p.y - info.pivot.y, z: p.z - info.pivot.z, tx: TX.NONE }, 0);
       const geo = g.toGeometry();
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
@@ -229,14 +230,27 @@ function buildSign(sg) {
   return mesh;
 }
 
+// Textur eines Parts: ausdrücklich angegeben, sonst nach Material (nur feste Bauteile)
+function partTexture(p, e) {
+  if (e) return TX.NONE;
+  if (p.tx !== undefined) return p.tx;
+  if (!p.col && p.s !== 'slab') return TX.NONE;
+  switch (p.m) {
+    case MAT.STONE: return p.s === 'slab' || p.s === 'sph' ? TX.ROCK : TX.STONE;
+    case MAT.METAL: return TX.METAL;
+    case MAT.WOOD: return TX.WOOD;
+    default: return TX.NONE;
+  }
+}
+
 export function addPart(g, p, e = 0) {
-  const o = { rx: p.rx, ry: p.ry, rz: p.rz, e };
+  const o = { rx: p.rx, ry: p.ry, rz: p.rz, e, tx: partTexture(p, e) };
   switch (p.s) {
     case 'box': g.box(p.x, p.y, p.z, p.w, p.h, p.d, p.c, o); break;
     case 'cyl': g.cyl(p.x, p.y, p.z, p.r, p.h, p.c, { ...o, rt: p.rt, seg: p.seg }); break;
     case 'sph': g.ico(p.x, p.y, p.z, p.r, p.c, { ...o, sx: p.sx, sy: p.sy, sz: p.sz, detail: p.detail, jseed: Math.round(p.x * 3 + p.z) }); break;
     case 'prism': g.prism(p.x, p.y, p.z, p.w, p.h, p.d, p.c, o); break;
-    case 'slab': g.slab(p.x, p.y, p.z, p.w, p.h, p.d, p.c, { ry: p.ry, taper: p.taper }); break;
+    case 'slab': g.slab(p.x, p.y, p.z, p.w, p.h, p.d, p.c, { ry: p.ry, taper: p.taper, tx: o.tx }); break;
     default: break;
   }
 }

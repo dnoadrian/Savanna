@@ -18,7 +18,7 @@ import { MAT } from '../../shared/physics/collision.js';
 import { rayPlayer } from '../../shared/sim/combat.js';
 import { t } from '../i18n.js';
 
-const FOG_COLOR = new THREE.Color(0xbfe4f7);
+const FOG_COLOR = new THREE.Color(0xcde2f2);
 const STORM_FOG = new THREE.Color(0x9a6ad8);
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -36,7 +36,7 @@ export class MatchClient {
     this.scene.fog = new THREE.Fog(FOG_COLOR.clone(), 120, 360);
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.08, 480);
     this.camera.rotation.order = 'YXZ';
-    this.sky = new Sky({ top: 0x2f8de6, horizon: 0xc4e6fa, bottom: 0xc4e6fa });
+    this.sky = new Sky({ top: 0x2a6fd6, horizon: 0xcde2f2, bottom: 0xcde2f2, clouds: 38, cloudMin: 30, cloudMax: 62, cloudTint: 0xaebbe0 });
     this.scene.add(this.sky.group);
     this.lights = new Lights(this.scene);
     this.sky.setSun(this.lights.sunDir);

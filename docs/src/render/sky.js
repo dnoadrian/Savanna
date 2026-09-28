@@ -61,7 +61,7 @@ export class Sky {
       const y = rng.range(150, 300);
       const cx = Math.cos(a) * r, cz = Math.sin(a) * r;
       const puffs = rng.int(3, 6);
-      const size = rng.range(24, 48);
+      const size = rng.range(opts.cloudMin ?? 24, opts.cloudMax ?? 48);
       for (let k = 0; k < puffs; k++) {
         const ox = (k - puffs / 2) * size * 0.7 + rng.range(-8, 8);
         const oz = rng.range(-12, 12);
@@ -69,7 +69,7 @@ export class Sky {
         g.ico(cx + ox * Math.cos(a + 1.57), y + rng.range(-4, 8), cz + ox * Math.sin(a + 1.57) + oz, s, 0xffffff, { sy: 0.55, detail: 1, jitter: 0.12, vary: 0.03, jseed: i * 10 + k });
       }
     }
-    const cmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: 0xb8c8d8, emissiveIntensity: 0.85, fog: false, transparent: true, opacity: 0.95 });
+    const cmat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, emissive: opts.cloudTint ?? 0xb8c8d8, emissiveIntensity: 0.85, fog: false, transparent: true, opacity: 0.95 });
     this.clouds = new THREE.Mesh(g.toGeometry(), cmat);
     this.clouds.renderOrder = -9;
     this.clouds.frustumCulled = false;

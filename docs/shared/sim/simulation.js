@@ -3,7 +3,7 @@
 // Läuft im Browser (Bot-Lobby ohne Server) und server-autoritativ im Mehrspieler.
 import {
   MATCH_SIZE, COUNTDOWN, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, F,
-  SPAWN_MIN_DIST, MAX_REWIND, EYE_STAND, EYE_CROUCH, PLAY_RADIUS, INTERACT_RANGE, AUTO_PICKUP_RANGE, SEA_LEVEL,
+  SPAWN_MIN_DIST, SPAWN_MAX_HEIGHT, MAX_REWIND, EYE_STAND, EYE_CROUCH, PLAY_RADIUS, INTERACT_RANGE, AUTO_PICKUP_RANGE, SEA_LEVEL,
   KNOCK_HP, KNOCK_BLEED, REVIVE_TIME, REVIVE_HP, REVIVE_RANGE,
 } from '../constants.js';
 import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem, AMMO_TYPES, AMMO_MAX, KILL_AMMO, ammoItem, consumableItem, weaponItem } from '../items.js';
@@ -112,7 +112,7 @@ export class Simulation {
       const z = this.rng.range(-R, R);
       if (Math.hypot(x, z) > R) continue;
       const h = this.groundAt(x, z);
-      if (h < SEA_LEVEL + 0.15) continue; // nicht im Wasser
+      if (h < SEA_LEVEL + 0.15 || h > SPAWN_MAX_HEIGHT) continue; // nicht im Wasser, nicht auf Gipfeln
       if (h - this.world.terrain.heightAt(x, z) < 0.05 && this.world.terrain.normalAt(x, z).y < 0.85) continue;
       if (this.nav && !this.nav.isFree(x, z)) continue;
       if (col.overlaps(x, z, 0.9, h + 0.1, h + 2.3)) continue;

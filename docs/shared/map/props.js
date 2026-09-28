@@ -6,6 +6,8 @@ export const PROP_TYPES = [
   'palm', 'palm_s', 'bush', 'rock_s', 'rock_m', 'rock_l', 'crate', 'barrel', 'beachgrass', 'log', 'buoy', 'fern',
   // Inseln (Chapter-2-Orte): Laubbaum, Tanne, graue Felsen, Autos, Heuballen, Blumen, Schilf, Baumstumpf
   'tree', 'pine', 'stone_s', 'stone_m', 'stone_l', 'car', 'hay', 'flower', 'reed', 'stump', 'snowpine',
+  // Schneeinsel: Felsbrocken mit Schneehaube, Eisbrocken, Eisschollen im Meer
+  'boulder', 'icechunk', 'floe',
 ];
 export const PT = Object.fromEntries(PROP_TYPES.map((n, i) => [n, i]));
 
@@ -20,10 +22,23 @@ export function propColliders(type, s, v = 0) {
       { k: 'c', r: 0.36 * s, y0: 0, h: 3.0 * s, m: MAT.PLANT },
       { k: 'c', r: 1.9 * s, y0: 2.9 * s, h: 5.9 * s, m: MAT.PLANT },
     ];
-    case 'pine': case 'snowpine': return [
+    case 'pine': return [
       { k: 'c', r: 0.3 * s, y0: 0, h: 1.6 * s, m: MAT.PLANT },
       { k: 'c', r: 1.5 * s, y0: 1.6 * s, h: 3.6 * s, m: MAT.PLANT },
       { k: 'c', r: 0.9 * s, y0: 3.6 * s, h: 5.8 * s, m: MAT.PLANT },
+    ];
+    // hohe, schlanke Fichte (wie im Modell: breite untere Äste, spitze Krone)
+    case 'snowpine': return [
+      { k: 'c', r: 0.3 * s, y0: 0, h: 1.3 * s, m: MAT.PLANT },
+      { k: 'c', r: 1.55 * s, y0: 1.3 * s, h: 4.4 * s, m: MAT.PLANT },
+      { k: 'c', r: 0.95 * s, y0: 4.4 * s, h: 7.4 * s, m: MAT.PLANT },
+    ];
+    case 'boulder': return [
+      { k: 'c', r: 1.25 * s, y0: -0.3, h: 1.15 * s, m: MAT.STONE },
+      { k: 'c', r: 0.8 * s, y0: 1.15 * s, h: 1.75 * s, m: MAT.STONE },
+    ];
+    case 'icechunk': return [
+      { k: 'b', w: 2.3 * s, h: 1.9 * s, d: 1.9 * s, y: 0.95 * s - 0.2, ry: v * 0.7, m: MAT.STONE },
     ];
     case 'stone_m': return [
       { k: 'c', r: 1.1 * s, y0: -0.3, h: 0.8 * s, m: MAT.STONE },
@@ -95,7 +110,11 @@ export function propRadius(type, s) {
     case 'buoy': return 0.8;
     case 'fern': return 0.8 * s;
     case 'tree': return 2.4 * s;
-    case 'pine': case 'snowpine': return 1.8 * s;
+    case 'pine': return 1.8 * s;
+    case 'snowpine': return 1.9 * s;
+    case 'boulder': return 1.6 * s;
+    case 'icechunk': return 1.7 * s;
+    case 'floe': return 3 * s;
     case 'stone_s': return 0.7 * s;
     case 'stone_m': return 1.5 * s;
     case 'stone_l': return 2.8 * s;

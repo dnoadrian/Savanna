@@ -1,7 +1,7 @@
-// Karten-Verzeichnis: jede Runde eine zufällige Insel mit einem Ort aus Fortnite Chapter 2
-// Season 2. generateMap(id) baut sie deterministisch (Server und Client identisch);
-// mapSteps(id) liefert denselben Aufbau in Häppchen (yield = Fortschritt 0..1).
-import { MAPS } from './c2maps.js';
+// Karten-Verzeichnis (zurzeit nur die Frostfeste). generateMap(id) baut eine Karte
+// deterministisch (Server und Client identisch); mapSteps(id) liefert denselben Aufbau in
+// Häppchen (yield = Fortschritt 0..1).
+import { MAPS } from './frostfeste.js';
 import { islandSteps } from './island.js';
 
 export { MAPS };
@@ -24,7 +24,7 @@ export function generateMap(id = MAPS[0].id, onProgress = null) {
   }
 }
 
-// zufällige Karte (möglichst nicht dieselbe wie zuletzt)
+// zufällige Karte (möglichst nicht dieselbe wie zuletzt; bei nur einer Karte immer diese)
 export function randomMapId(rnd = Math.random, not = null) {
   const list = MAP_IDS.length > 1 && not ? MAP_IDS.filter((id) => id !== not) : MAP_IDS;
   return list[Math.floor(rnd() * list.length) % list.length];

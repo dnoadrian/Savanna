@@ -659,6 +659,15 @@ export class AudioEngine {
       case 'sand':
         this.noiseHit(d, t, { dur: 0.12, type: 'bandpass', freq: 700 + r * 400, q: 1, gain: 0.34 });
         break;
+      case 'snow':
+        // Knirschen: zwei kurze, raue Stöße
+        this.noiseHit(d, t, { dur: 0.07, type: 'bandpass', freq: 1700 + r * 700, q: 2.2, gain: 0.3 });
+        this.noiseHit(d, t + 0.045, { dur: 0.09, type: 'bandpass', freq: 1100 + r * 500, q: 1.6, gain: 0.26 });
+        break;
+      case 'ice':
+        this.noiseHit(d, t, { dur: 0.05, type: 'highpass', freq: 2400, gain: 0.22 });
+        this.tone(d, t, { type: 'sine', freq: 520 + r * 120, freqEnd: 380, dur: 0.06, gain: 0.08 });
+        break;
       case 'wood':
         this.tone(d, t, { type: 'sine', freq: 120 + r * 30, freqEnd: 80, dur: 0.08, gain: 0.3 });
         this.noiseHit(d, t, { dur: 0.06, type: 'lowpass', freq: 900, gain: 0.25 });

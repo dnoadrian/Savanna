@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { surfaceColor } from './terrainMesh.js';
 import { PROP_TYPES } from '../../shared/map/props.js';
 
-export const MAP_EXTENT = 158; // Karte zeigt die ganze Insel mit etwas Meer drumherum
+export const MAP_EXTENT = 178; // Karte zeigt die ganze Insel mit etwas Meer drumherum
 
 export function renderMapImage(map, size = 1024) {
   const c = document.createElement('canvas');
@@ -22,12 +22,12 @@ export function renderMapImage(map, size = 1024) {
       const wl = t.waterLevelAt(x, z);
       let r, gg, b;
       if (h < wl) {
-        // türkises Flachwasser
+        // kaltes Meer: helles Flachwasser, tiefes Blau
         const depth = wl - h;
-        const k = Math.min(1, depth / 1.1);
-        r = 130 * (1 - k) + 40 * k;
-        gg = 232 * (1 - k) + 190 * k;
-        b = 222 * (1 - k) + 214 * k;
+        const k = Math.min(1, depth / 2.5);
+        r = 118 * (1 - k) + 30 * k;
+        gg = 204 * (1 - k) + 118 * k;
+        b = 216 * (1 - k) + 170 * k;
         if (depth < 0.08) { r = 225; gg = 250; b = 245; }
       } else {
         col.set(surfaceColor(t.surfaceAt(x, z)));
@@ -50,8 +50,12 @@ export function renderMapImage(map, size = 1024) {
   const toPx = (x) => ((x + MAP_EXTENT) / (MAP_EXTENT * 2)) * size;
   const shade = new THREE.Color();
   // Bäume und Felsen in echter Größe
-  const CANOPY = { palm: 2.6, palm_s: 2.0, bush: 1.0, rock_l: 2.0, rock_m: 1.0, tree: 2.2, pine: 1.6, snowpine: 1.6, stone_l: 2.0, stone_m: 1.0, car: 1.2 };
-  const CANOPY_COL = { rock_l: 'rgba(150,70,45,0.85)', rock_m: 'rgba(150,70,45,0.85)', stone_l: 'rgba(130,135,140,0.9)', stone_m: 'rgba(130,135,140,0.9)', pine: 'rgba(30,90,45,0.85)', snowpine: 'rgba(30,90,45,0.85)', car: 'rgba(200,70,60,0.9)' };
+  const CANOPY = { palm: 2.6, palm_s: 2.0, bush: 1.0, rock_l: 2.0, rock_m: 1.0, tree: 2.2, pine: 1.6, snowpine: 1.9, stone_l: 2.0, stone_m: 1.0, car: 1.2, boulder: 1.3, icechunk: 1.2, floe: 2.8 };
+  const CANOPY_COL = {
+    rock_l: 'rgba(150,70,45,0.85)', rock_m: 'rgba(150,70,45,0.85)', stone_l: 'rgba(130,135,140,0.9)', stone_m: 'rgba(130,135,140,0.9)',
+    pine: 'rgba(30,90,45,0.85)', snowpine: 'rgba(52,104,70,0.85)', car: 'rgba(200,70,60,0.9)',
+    boulder: 'rgba(120,98,82,0.9)', icechunk: 'rgba(70,190,230,0.9)', floe: 'rgba(236,244,250,0.95)',
+  };
   for (const p of map.props) {
     const n = PROP_TYPES[p.t];
     const r = CANOPY[n];

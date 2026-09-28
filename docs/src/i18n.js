@@ -25,7 +25,7 @@ const DE = {
   nameOffline: 'Server nicht erreichbar – Name wird später geprüft',
   nameSaved: 'Willkommen, {name}!',
   outfitStep: 'Wähle dein Outfit',
-  modeKicker_solo: 'Battle Royale · Solo', modeKicker_duo: 'Battle Royale · Duo', randomIsland: 'ZUFÄLLIGE INSEL',
+  modeKicker_solo: 'Battle Royale · Solo', modeKicker_duo: 'Battle Royale · Duo',
   playersCountDuo: '{n} Spieler · {t} Zweierteams', modeSwitchHint: 'Klicken: Solo oder Duo', onlyLeaderMode: 'Nur der Party-Leader wählt den Modus.',
   duoTooMany: 'Duo geht mit höchstens 2 Spielern in der Party.',
   knockedTitle: 'Niedergeschlagen', knockedHint: 'Kriech zu deinem Partner – er kann dich wiederbeleben', beingRevived: 'Du wirst wiederbelebt…',
@@ -214,7 +214,7 @@ const EN = {
   nameErr_empty: 'Please enter a name', nameErr_short: 'At least 3 characters', nameErr_long: 'At most 16 characters', nameErr_chars: 'Only letters, numbers, _ and - allowed',
   nameErr_spaces: 'No spaces allowed', nameErr_bot: 'The name must not contain “Bot”', nameErr_banned: 'This name is not allowed', nameErr_taken: 'Name is already taken',
   nameOffline: 'Server unreachable – name will be checked later', nameSaved: 'Welcome, {name}!', outfitStep: 'Choose your outfit', skip: 'Skip', done: 'Done',
-  modeKicker_solo: 'Battle royale · Solo', modeKicker_duo: 'Battle royale · Duos', randomIsland: 'RANDOM ISLAND',
+  modeKicker_solo: 'Battle royale · Solo', modeKicker_duo: 'Battle royale · Duos',
   playersCountDuo: '{n} players · {t} teams of two', modeSwitchHint: 'Click: solo or duo', onlyLeaderMode: 'Only the party leader chooses the mode.',
   duoTooMany: 'Duos allow at most 2 players in the party.',
   knockedTitle: 'Knocked', knockedHint: 'Crawl to your partner – they can revive you', beingRevived: 'Being revived…',
@@ -317,7 +317,7 @@ const EN = {
 // ---- SHOWDOWN BAY: Waffen, Beute, Lobby, Admin ----
 Object.assign(DE, {
   menu: 'Menü', navPlay: 'Spielen', party: 'Party',
-  welcomeKicker: 'Battle Royale · 20 Spieler · 18 Inseln',
+  welcomeKicker: 'Battle Royale · 20 Spieler · Frostfeste',
   welcomeTitle: 'Wähle deinen Namen',
   welcomeSub: 'So sehen dich andere Spieler und Freunde.',
   welcomeFoot: 'Showdown Bay · Saison 1',
@@ -387,7 +387,7 @@ Object.assign(DE, {
 
 Object.assign(EN, {
   menu: 'Menu', navPlay: 'Play', party: 'Party',
-  welcomeKicker: 'Battle royale · 20 players · 18 islands',
+  welcomeKicker: 'Battle royale · 20 players · Frostfeste',
   welcomeTitle: 'Choose your name',
   welcomeSub: 'This is how other players and friends see you.',
   welcomeFoot: 'Showdown Bay · Season 1',

@@ -11,7 +11,9 @@ import { WEAPONS, LOOT_WEAPONS, KNIFE_SKINS, CONSUMABLES, AMMO_DROP, KILL_AMMO, 
 import { createWeaponRuntime, equipWeapon, canFire, fireWeapon, updateWeapon } from '../shared/sim/weapon.js';
 import { createInventory, addItem, selectedItem, SLOTS, KNIFE_SLOT } from '../shared/sim/inventory.js';
 import { createBody, stepMovement } from '../shared/sim/movement.js';
-import { PT, propColliders } from '../shared/map/props.js';
+import { PT, PROP_TYPES, propColliders } from '../shared/map/props.js';
+import { SURF } from '../shared/map/terrain.js';
+import { NavGrid } from '../shared/sim/nav.js';
 import { CollisionWorld } from '../shared/physics/collision.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
@@ -261,11 +263,12 @@ test('Admin-Zugänge: Haupt-Admin legt Zugänge mit begrenzten Anmeldungen an', 
 test('Sprint-Ausdauer: leert sich beim Sprinten, erholt sich danach', () => {
   const map = generateMap();
   const world = { terrain: map.terrain, collision: map.collision };
-  const b = createBody(0, map.terrain.heightAt(0, 0), 0);
+  // auf dem gefrorenen Spiegelsee hin und her (freie, ebene Strecke)
+  const b = createBody(-84, map.terrain.heightAt(-84, 40), 40);
   const inp = { mx: 0, mz: 1, sprint: true, yaw: 0, pitch: 0 };
   let sprintT = 0;
   for (let t = 0; t < 12; t += SIM_DT) {
-    inp.yaw = Math.floor(t / 2.5) % 2 ? Math.PI : 0; // hin und her laufen (freie Strecke)
+    inp.yaw = Math.floor(t / 2.5) % 2 ? -Math.PI / 2 : Math.PI / 2;
     stepMovement(b, inp, SIM_DT, world);
     if (b.sprinting) sprintT += SIM_DT;
     if (b.exhausted) break;
@@ -504,38 +507,45 @@ test('Duo: kein Eigenbeschuss, Niederschlagen, Wiederbeleben, Team-Aus und Team-
   assert.equal(sim.stats(b).placement, 1);
 });
 
-test('Karten: 18 Chapter-2-Orte als Inseln im Meer, deterministisch (Server = Client), zufällig je Runde', () => {
+test('Karte Frostfeste: Schneeinsel im Meer (+25 % Fläche), Feste, Gipfel, Eis, alles erreichbar, deterministisch', () => {
   const hash = (m) => {
     let h = 0;
     for (const c of m.collision.cols) h = (h * 31 + Math.round((c.x + c.z) * 100)) | 0;
     return [m.collision.cols.length, h, m.props.length, m.parts.length, m.chests.length];
   };
-  assert.equal(MAPS.length, 18);
-  const names = ['Pleasant Park', 'Salty Springs', 'Sweaty Sands', 'Steamy Stacks', 'Frenzy Farm', 'Holly Hedges', 'Weeping Woods', 'Slurpy Swamp', 'Misty Meadows',
-    'Lazy Lake', 'Retail Row', 'Dirty Docks', 'Craggy Cliffs', 'The Agency', 'The Shark', 'The Yacht', 'The Rig', 'The Grotto'];
-  assert.deepEqual(MAPS.map((m) => m.name), names);
-  for (const def of MAPS) {
-    const m = generateMap(def.id);
-    assert.equal(m.pois[0].name, def.name, 'Ort ' + def.name);
-    assert.ok(m.chests.length >= 30, `${def.name}: Truhen ${m.chests.length}`);
-    assert.ok(m.floorLoot.length >= 40, `${def.name}: Bodenbeute ${m.floorLoot.length}`);
-    // rundherum Meer (Insel), innen Land
-    for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) assert.ok(m.terrain.heightAt(Math.cos(a) * 185, Math.sin(a) * 185) < -1, `${def.name}: Meer bei 185 m`);
-    let land = 0;
-    for (let x = -100; x <= 100; x += 10) for (let z = -100; z <= 100; z += 10) if (m.terrain.heightAt(x, z) > 0.3) land++;
-    assert.ok(land > 250, `${def.name}: Land ${land}`);
-    if (def.id === 'salty' || def.id === 'rig') assert.deepEqual(hash(m), hash(generateMap(def.id)), 'deterministisch');
-  }
-  // doppelte Fläche der alten Bucht (Spielfeld-Radius 100 → 142)
-  assert.ok(Math.abs((PLAY_RADIUS * PLAY_RADIUS) / (100 * 100) - 2) < 0.05);
-  const seen = new Set();
-  let last = null;
-  for (let i = 0; i < 200; i++) { last = randomMapId(Math.random, last); seen.add(last); }
-  assert.equal(seen.size, 18, 'alle Karten kommen vor');
+  assert.deepEqual(MAPS.map((m) => m.name), ['Frostfeste']);
+  for (let i = 0; i < 20; i++) assert.equal(randomMapId(Math.random, 'frostfeste'), 'frostfeste');
+  const m = generateMap('frostfeste');
+  assert.deepEqual(hash(m), hash(generateMap('frostfeste')), 'deterministisch (Server = Client)');
+  const names = m.pois.filter((p) => p.name).map((p) => p.name);
+  for (const n of ['Frostfeste', 'Frosttal', 'Eishafen', 'Spiegelsee', 'Gletscherstation']) assert.ok(names.includes(n), 'Ort ' + n);
+  assert.ok(m.chests.length >= 50, `Truhen ${m.chests.length}`);
+  assert.ok(m.floorLoot.length >= 60, `Bodenbeute ${m.floorLoot.length}`);
+  // rundherum Meer, innen Land; 25 % mehr Fläche als die alten Inseln (Radius 142)
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) assert.ok(m.terrain.heightAt(Math.cos(a) * 208, Math.sin(a) * 208) < -1, 'Meer bei 208 m');
+  let land = 0;
+  for (let x = -120; x <= 120; x += 10) for (let z = -120; z <= 120; z += 10) if (m.terrain.heightAt(x, z) > 0.3) land++;
+  assert.ok(land > 480, `Land ${land}`);
+  assert.ok(Math.abs((PLAY_RADIUS * PLAY_RADIUS) / (142 * 142) - 1.25) < 0.02);
+  // Hornspitze hinter der Feste, Terrasse, Schnee überall, Eis auf See/Fluss und an den Kanten
+  assert.ok(m.terrain.heightAt(4, -122) > 60, 'Gipfel');
+  assert.ok(Math.abs(m.terrain.heightAt(0, -50) - 17) < 0.1, 'Terrasse');
+  const cnt = {};
+  for (const sf of m.terrain.surf) cnt[sf] = (cnt[sf] || 0) + 1;
+  assert.ok(cnt[SURF.SNOW] > cnt[SURF.ROCK] && cnt[SURF.ICE] > 1000 && cnt[SURF.GLACIER] > 200, JSON.stringify(cnt));
+  assert.equal(m.terrain.surfaceAt(-84, 40), SURF.ICE, 'Spiegelsee gefroren');
+  assert.ok(m.props.some((p) => PROP_TYPES[p.t] === 'snowpine') && m.props.some((p) => PROP_TYPES[p.t] === 'icechunk'));
+  // Alles zu Fuß erreichbar (auch für Bots): Platz, Freitreppe, Terrasse, Halle, Dorf, Hafen, See, Station
+  const nav = new NavGrid(m.terrain, m.collision);
+  const region = (x, z) => nav.region[nav.nearestFree(x, z, 3)];
+  const r0 = region(0, 40);
+  for (const [x, z, n] of [[4, -14, 'Platz'], [0, -31, 'Freitreppe'], [0, -39.5, 'Vorplatz'], [0, -48, 'Halle'], [-25, -45, 'Terrasse W'], [25, -45, 'Terrasse O'],
+    [2, 90, 'Frosttal'], [93, 80, 'Eishafen'], [-84, 40, 'Spiegelsee'], [80, -6, 'Station']]) assert.equal(region(x, z), r0, n + ' erreichbar');
+  assert.ok(nav.findPath(0, 40, 0, -48, 40000), 'Weg vom Süden bis in die Halle');
 });
 
 test('Komplettes Bot-Match: Sieger, Plätze 1..20, Truhen geöffnet, Beute, Heilung, Siphon', () => {
-  const r = runHeadlessMatch({ seed: 4242, mapId: 'retail' });
+  const r = runHeadlessMatch({ seed: 4242 });
   assert.equal(r.playerCount, 20);
   assert.ok(r.winner, 'Kein Sieger');
   const places = r.sim.players.map((p) => p.placement).sort((a, b) => a - b);
@@ -548,7 +558,7 @@ test('Komplettes Bot-Match: Sieger, Plätze 1..20, Truhen geöffnet, Beute, Heil
 });
 
 test('Duo-Bot-Match: 10 Teams, Plätze pro Team, Siegerteam auf Platz 1', () => {
-  const r = runHeadlessMatch({ seed: 777, mapId: 'weeping', mode: 'duo' });
+  const r = runHeadlessMatch({ seed: 777, mode: 'duo' });
   assert.ok(r.winner, 'Kein Sieger');
   const byTeam = new Map();
   for (const p of r.sim.players) {

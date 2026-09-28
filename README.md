@@ -4,7 +4,7 @@
 
 > Direkt im Browser, ohne Installation: **https://dnoadrian.github.io/Savanna/docs/**
 
-Ein Low-Poly-Battle-Royale für den Browser. **20 Spieler** – allein (**Solo**) oder zu zweit (**Duo**) – landen auf einer Insel mitten im Meer. **Jede Runde wird zufällig eine von 18 Inseln gewählt**, jede nach einem Ort aus Fortnite Chapter 2 Season 2 gebaut: Pleasant Park, Salty Springs, Sweaty Sands, Steamy Stacks, Frenzy Farm, Holly Hedges, Weeping Woods, Slurpy Swamp, Misty Meadows, Lazy Lake, Retail Row, Dirty Docks, Craggy Cliffs, The Agency, The Shark, The Yacht, The Rig und The Grotto. Truhen öffnen, Waffen sammeln, Schilde trinken – wer als Letzter (bzw. als letztes Team) steht, gewinnt.
+Ein Low-Poly-Battle-Royale für den Browser. **20 Spieler** – allein (**Solo**) oder zu zweit (**Duo**) – landen auf der **Frostfeste**, einer verschneiten Insel mitten im Meer: eine Festung mit großer Freitreppe, runder Torscheibe, verhüllten Statuen und Kuppeltürmen, dahinter ein spitzer Felsgipfel und eine Bergkette, dazu gefrorener Fluss und See, Gletscherstufen, Dorf und Hafen. Truhen öffnen, Waffen sammeln, Schilde trinken – wer als Letzter (bzw. als letztes Team) steht, gewinnt.
 
 - **Client:** Three.js (lokal über npm, kein CDN), reines JavaScript mit ES-Modulen, Web Audio API
 - **Server:** Node.js + `ws` auf Port **4242** (Spiel ausliefern, Namen, Lobby, Freunde, Party, Warteschlange, server-autoritative Matches)
@@ -79,13 +79,21 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 
 **Messer** – jeder hat es immer dabei (Taste **Q**): 40 Schaden, Kopf ×1,5, 2,4 Hiebe/s, Reichweite 2,8 m, keine Munition. Mit dem Messer in der Hand läuft man 8 % schneller. Messer-Skins (Taktisch, Neon, Goldklinge, Drachenzahn) gibt es im Shop, auswählen im Spind.
 
-**Truhen** (rund 40 pro Insel) – goldenes Leuchten, Summen und Funkeln in der Nähe. Mit **F** öffnen: **1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition**.
+**Truhen** (rund 60 auf der Insel) – goldenes Leuchten, Summen und Funkeln in der Nähe. Mit **F** öffnen: **1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition**.
 
 **Inventar** – 5 Plätze (1–5) mit Kurznamen und Seltenheitsfarbe. Ist alles voll, tauscht **F** den Gegenstand in der Hand. Sortieren im TAB-Menü.
 
 **Bewegung** – schneller Sprint mit Ausdauer (ca. 7 s, erholt sich in 3 s), kräftiger Slide. Wer unter einen Steg rutscht, kriecht heraus.
 
-**Karten** – 18 Inseln, doppelt so groß wie die alte Bucht, jede Runde zufällig. Jede Insel hat ihren Ort in der Mitte (z. B. Pleasant Park mit Fußballfeld und Pavillon, Steamy Stacks mit zwei Kühltürmen, Dirty Docks mit Containerlager, Kränen und Frachter, The Agency als Villa auf einer Insel im See mit drei Brücken, The Yacht, The Rig auf Stelzen im Meer, The Shark mit Haimaul-Basis, The Grotto mit Wasserfall-Eingang) und außen herum Wälder, Höfe, Hütten, Türme und Camps. Mehrstöckige Häuser haben Treppen; auf Stegen, Schiffen und Plattformen über tiefem Wasser kann man stehen.
+**Karte: Frostfeste** – eine Schneeinsel mit 25 % mehr Fläche als die alten Inseln. Orte:
+- **Frostfeste** (Mitte): Terrasse mit Eiskante, 27-stufige Freitreppe mit Brüstungen, achteckiger Statuenplatz mit eingravierten Ringen und drei verhüllten Statuen, Vorplatz mit Statuen und dunklen Kugeln, Haupthalle mit runder Bronze-Torscheibe, Säulen, Galerie und Pilzkuppel, Seitenflügel mit Durchgängen, zwei begehbare Kuppeltürme (Treppen bis in die offene Säulenhalle), zwei Wachtürme. Seitliche Schneerampen führen ebenfalls auf die Terrasse.
+- **Hornspitze** und Bergkette im Norden (bis über 75 m), steile Felsflanken mit Schneebändern.
+- **Spiegelsee** mit Eisfischer-Hütten und dem gefrorenen Fluss, der vom Gebirge herunterkommt und ins Meer mündet (man läuft auf dem Eis).
+- **Gletscherstation** auf blauen Eisterrassen mit Container-Laboren, Funkmast und Radarschüssel.
+- **Frosttal** (Dorf mit Blockhütten, Gasthaus und Brunnen), **Eishafen** (Stege, Bootshaus, Container, eingefrorener Kutter) und vier Außenposten (Kuppeltürme).
+- Überall verschneite Fichten, Felsbrocken mit Schneehaube, Eisbrocken und im Meer treibende Eisschollen.
+
+**Texturen** – alle Oberflächen haben prozedurale Muster direkt im Shader (ohne Bilddateien): Pulverschnee mit Verwehungen und Glitzern, Eis mit Schlieren und Rissen, Fels mit Gesteinsschichten, Mauerwerk, Bodenplatten mit Reif, große Betonplatten, Holzbretter, Blech und Bronzekuppeln mit Patina. Schnee und Eis sind weich schattiert, Fels bleibt kantig. Schritte klingen auf Schnee knirschend und auf Eis hart.
 
 **Sturm** – 5 Phasen, der letzte Kreis schließt sich nach etwa 5 Minuten.
 
@@ -188,9 +196,9 @@ Dann **http://localhost:4242** öffnen.
 
 **Mehrspieler-Technik:** Server-autoritativ für Treffer, Schaden, Beute, Truhen, Inventar, Munition und Sturm. Clients senden 30×/s, der Server schickt 20 Snapshots/s, andere Spieler werden mit 100 ms Puffer interpoliert, Treffer mit Lag-Kompensation (bis 300 ms).
 
-Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsammeln, Ausdauer, Slide-Befreiung, Objekt-Hitboxen, Waffenwerte, Messer, keine unendliche Munition, Inventar + Sortieren + Fallenlassen, Admin-Zugänge, unendliche Munition + OP-Loot, Truhen, Sofort-Heilung, 20 Spieler, Duo-Teams + Niederschlagen + Wiederbeleben, alle 18 Inseln, komplettes Solo- und Duo-Bot-Match, Leuchtfeuer, Syntax aller Dateien, Server mit Warteschlange, Duo-Party, Anmeldung mit Geburtsdatum, Webseite aktuell).
+Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsammeln, Ausdauer, Slide-Befreiung, Objekt-Hitboxen, Waffenwerte, Messer, keine unendliche Munition, Inventar + Sortieren + Fallenlassen, Admin-Zugänge, unendliche Munition + OP-Loot, Truhen, Sofort-Heilung, 20 Spieler, Duo-Teams + Niederschlagen + Wiederbeleben, Karte Frostfeste (Orte, Gipfel, Eis, alles zu Fuß erreichbar, deterministisch), komplettes Solo- und Duo-Bot-Match, Leuchtfeuer, Syntax aller Dateien, Server mit Warteschlange, Duo-Party, Anmeldung mit Geburtsdatum, Webseite aktuell).
 
-Karten entstehen deterministisch aus Code (Server und Client bauen dieselbe Insel). Der Server bereitet die nächste zufällige Insel im Hintergrund in kleinen Häppchen vor, damit laufende Matches nicht ruckeln; die Wartenden bekommen sie schon während der Warteschlange angesagt und laden sie vor.
+Die Karte entsteht deterministisch aus Code (Server und Client bauen dieselbe Insel). Der Server berechnet sie im Hintergrund in kleinen Häppchen, damit laufende Matches nicht ruckeln; der Browser baut sie schon in der Lobby vor (Kartenvorschau auf der Moduskarte).
 
 ---
 
@@ -203,7 +211,7 @@ Karten entstehen deterministisch aus Code (Server und Client bauen dieselbe Inse
 │   ├── items.js          Waffen, Messer, Seltenheiten, Munition, Schilde/Medikits, Beutetabellen
 │   ├── ranks.js          Ranked (Bronze bis Unreal)
 │   ├── sha256.js         Anmeldeschlüssel aus dem Geburtsdatum
-│   ├── map/              Insel-Generator (island.js), 18 Chapter-2-Orte (c2maps.js), Baukasten (structures.js), Deko
+│   ├── map/              Insel-Generator (island.js), Karte Frostfeste (frostfeste.js), Baukasten (structures.js), Deko
 │   ├── physics/          Kollisionswelt (Boxen, Zylinder, Raycasts)
 │   └── sim/              Simulation, Bewegung, Waffen, Inventar, Beute/Truhen, Sturm, Navigation, Bot-KI
 ├── client/

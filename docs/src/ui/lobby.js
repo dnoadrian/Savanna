@@ -10,46 +10,38 @@ import { itemIcon } from '../render/itemIcons.js';
 import { skinPortrait } from '../render/skinPortraits.js';
 import { rankBadge, rankName, rankColor } from './rankBadge.js';
 import { UNREAL } from '../../shared/ranks.js';
-import { mapDef, MAPS } from '../../shared/map/mapgen.js';
+import { mapDef } from '../../shared/map/mapgen.js';
 
-// stilisierte Insel mit Fragezeichen (die Karte wird jede Runde zufällig gewählt)
-function drawRandomIsland(g, S) {
+// stilisierte Schneeinsel, solange die Kartenvorschau noch berechnet wird
+function drawIslandPlaceholder(g, S) {
   const grd = g.createLinearGradient(0, 0, S, S);
-  grd.addColorStop(0, '#39c5d6');
-  grd.addColorStop(1, '#1f8fbf');
+  grd.addColorStop(0, '#3b8fc4');
+  grd.addColorStop(1, '#1d5f96');
   g.fillStyle = grd;
   g.fillRect(0, 0, S, S);
   const pts = [];
   for (let k = 0; k < 28; k++) {
     const a = (k / 28) * Math.PI * 2;
-    const r = S * (0.34 + Math.sin(a * 3 + 1) * 0.035 + Math.sin(a * 5) * 0.025);
+    const r = S * (0.36 + Math.sin(a * 3 + 1) * 0.03 + Math.sin(a * 5) * 0.02);
     pts.push([S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r]);
   }
-  const path = (scale) => {
-    g.beginPath();
-    pts.forEach(([x, y], i) => {
-      const px = S / 2 + (x - S / 2) * scale, py = S / 2 + (y - S / 2) * scale;
-      if (i) g.lineTo(px, py); else g.moveTo(px, py);
-    });
-    g.closePath();
-  };
-  path(1.08); g.fillStyle = 'rgba(255,255,255,0.25)'; g.fill();
-  path(1.0); g.fillStyle = '#f2cf96'; g.fill();
-  path(0.9); g.fillStyle = '#7cc453'; g.fill();
-  g.fillStyle = 'rgba(40,110,50,0.55)';
-  for (const [x, y, r] of [[0.36, 0.38, 0.07], [0.62, 0.66, 0.08], [0.66, 0.34, 0.05]]) { g.beginPath(); g.arc(x * S, y * S, r * S, 0, Math.PI * 2); g.fill(); }
-  g.fillStyle = '#6b6e75';
-  g.fillRect(S * 0.2, S * 0.49, S * 0.6, S * 0.025);
-  g.font = `900 ${Math.round(S * 0.42)}px "Barlow Condensed", sans-serif`;
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillStyle = 'rgba(0,0,0,0.35)';
-  g.fillText('?', S / 2 + 4, S / 2 + 6);
-  g.fillStyle = '#ffe14d';
-  g.fillText('?', S / 2, S / 2 + 2);
-  g.font = `800 ${Math.round(S * 0.075)}px "Barlow Condensed", sans-serif`;
-  g.fillStyle = '#fff';
-  g.fillText(MAPS.length + ' ORTE', S / 2, S * 0.9);
+  g.beginPath();
+  pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+  g.closePath();
+  g.fillStyle = '#eef4fa';
+  g.fill();
+  // Berg im Norden, gefrorener Fluss, die Feste
+  g.fillStyle = '#8a8178';
+  g.beginPath();
+  g.moveTo(S * 0.3, S * 0.3); g.lineTo(S * 0.5, S * 0.12); g.lineTo(S * 0.7, S * 0.3); g.closePath();
+  g.fill();
+  g.strokeStyle = '#8fd3ec';
+  g.lineWidth = S * 0.035;
+  g.beginPath();
+  g.moveTo(S * 0.36, S * 0.3); g.quadraticCurveTo(S * 0.3, S * 0.5, S * 0.22, S * 0.62);
+  g.stroke();
+  g.fillStyle = '#9c978f';
+  g.fillRect(S * 0.42, S * 0.36, S * 0.16, S * 0.07);
 }
 
 export class LobbyScreen {
@@ -267,8 +259,7 @@ export class LobbyScreen {
     const humans = q ? q.humans : Math.max(1, inParty ? party.members.length : 1);
     const gm = app.gameMode();
     this.kickerEl.textContent = t('modeKicker_' + gm);
-    const nextMap = q && q.map ? mapDef(q.map).name : null;
-    this.modeTitle.textContent = nextMap ? nextMap.toUpperCase() : t('randomIsland');
+    this.modeTitle.textContent = mapDef((q && q.map) || app.soloMapId).name.toUpperCase();
     this.countEl.textContent = gm === 'duo' ? t('playersCountDuo', { n: MATCH_SIZE, t: MATCH_SIZE / 2 }) : t('playersCount', { n: MATCH_SIZE, h: humans, b: MATCH_SIZE - humans });
     this.modeSwitch.innerHTML = `<span class="${gm === 'solo' ? 'on' : ''}">SOLO</span><span class="${gm === 'duo' ? 'on' : ''}">DUO</span>`;
     // BEREIT-Knopf
@@ -309,20 +300,18 @@ export class LobbyScreen {
     this.updateServerBox();
   }
 
-  // Karte oben: nächste Insel (sobald der Server sie ansagt), sonst eine stilisierte Zufallsinsel
+  // Karte oben: Vorschau der nächsten Karte (sobald berechnet), sonst eine stilisierte Insel
   drawMapThumb() {
     const q = this.app.queue;
-    const e = q && q.map ? this.app.mapCache.get(q.map) : null;
+    const id = (q && q.map) || this.app.soloMapId;
+    const e = this.app.mapCache.get(id);
     const img = e && e.data ? e.data.mapImage : null;
-    const key = img ? q.map : 'random';
+    const key = img ? id : 'placeholder';
     if (this.thumbDone === key) return;
     this.thumbDone = key;
     const g = this.mapThumb.getContext('2d');
-    if (img) {
-      g.drawImage(img, 0, 0, 240, 240);
-      return;
-    }
-    drawRandomIsland(g, 240);
+    if (img) g.drawImage(img, 0, 0, 240, 240);
+    else drawIslandPlaceholder(g, 240);
   }
 
   toggleMode() {

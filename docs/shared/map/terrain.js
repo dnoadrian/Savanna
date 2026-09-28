@@ -17,6 +17,8 @@ export const SURF = {
   SWAMP: 13,
   FOREST: 14, // Waldboden
   MUD: 15,
+  ICE: 16, // gefrorener See/Fluss (begehbar)
+  GLACIER: 17, // Gletschereis an Steilstufen
 };
 
 export class Terrain {
