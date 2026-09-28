@@ -9,7 +9,7 @@ import { StormWall } from '../render/storm.js';
 import { Sky } from '../render/sky.js';
 import { LootView } from '../render/lootView.js';
 import { WEAPON_META } from '../render/weapons.js';
-import { Lights, VIEW_DISTANCES } from '../render/renderer.js';
+import { Lights, VIEW_DISTANCES, GRAPHICS } from '../render/renderer.js';
 import { LocalPlayer, surfaceSound } from './controller.js';
 import { F, SIPHON } from '../../shared/constants.js';
 import { WEAPONS, CONSUMABLES, decodeItem } from '../../shared/items.js';
@@ -141,7 +141,6 @@ export class MatchClient {
       this.fps = this.fpsFrames / this.fpsAcc;
       this.fpsAcc = 0;
       this.fpsFrames = 0;
-      app.reportFps && app.reportFps(this.fps);
     }
 
     // Countdown
@@ -262,7 +261,7 @@ export class MatchClient {
     }
 
     // Welt, Himmel, Licht, Effekte, Beute
-    this.world.update(this.camera, dt, now, app.settings.get('grass'));
+    this.world.update(this.camera, dt, now, GRAPHICS.grass);
     this.sky.update(this.camera, dt);
     this.lights.update(this.state === 'alive' ? { x: pl.body.x, y: pl.body.y, z: pl.body.z } : cp);
     this.effects.update(dt, cp);

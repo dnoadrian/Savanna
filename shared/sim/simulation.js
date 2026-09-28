@@ -3,7 +3,7 @@
 // Läuft im Browser (Bot-Lobby ohne Server) und server-autoritativ im Mehrspieler.
 import {
   MATCH_SIZE, COUNTDOWN, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, F,
-  SPAWN_MIN_DIST, SPAWN_MAX_HEIGHT, MAX_REWIND, EYE_STAND, EYE_CROUCH, PLAY_RADIUS, INTERACT_RANGE, AUTO_PICKUP_RANGE, SEA_LEVEL,
+  SPAWN_MAX_HEIGHT, MAX_REWIND, EYE_STAND, EYE_CROUCH, PLAY_RADIUS, INTERACT_RANGE, AUTO_PICKUP_RANGE, SEA_LEVEL,
   KNOCK_HP, KNOCK_BLEED, REVIVE_TIME, REVIVE_HP, REVIVE_RANGE,
 } from '../constants.js';
 import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem, AMMO_TYPES, AMMO_MAX, KILL_AMMO, ammoItem, consumableItem, weaponItem } from '../items.js';
@@ -99,15 +99,14 @@ export class Simulation {
     return Math.max(t, this.world.collision.groundAt(x, z, 0.35, Math.max(t, SEA_LEVEL) + 2.2));
   }
 
+  // Startpunkte gleichmäßig über die ganze Insel: erst viele gültige Kandidaten sammeln, dann
+  // nacheinander jeweils den Kandidaten nehmen, der am weitesten von allen bisherigen liegt
+  // (leicht zufällig). So landet niemand dicht neben anderen und jede Ecke der Karte ist besetzt.
   pickSpawns(n) {
-    const out = [];
     const col = this.world.collision;
-    let minDist = SPAWN_MIN_DIST;
-    let tries = 0;
-    const R = PLAY_RADIUS - 8;
-    while (out.length < n && tries < 20000) {
-      tries++;
-      if (tries % 3000 === 0) minDist *= 0.85;
+    const R = PLAY_RADIUS - 6;
+    const cands = [];
+    for (let tries = 0; tries < 12000 && cands.length < 500; tries++) {
       const x = this.rng.range(-R, R);
       const z = this.rng.range(-R, R);
       if (Math.hypot(x, z) > R) continue;
@@ -117,8 +116,21 @@ export class Simulation {
       if (this.nav && !this.nav.isFree(x, z)) continue;
       if (col.overlaps(x, z, 0.9, h + 0.1, h + 2.3)) continue;
       if (col.ceilingAt(x, z, 0.5, h + 0.1) < h + 12) continue; // nicht unter Dächern
-      if (out.some((s) => Math.hypot(s.x - x, s.z - z) < minDist)) continue;
-      out.push({ x, y: h, z, yaw: this.rng.next() * Math.PI * 2 });
+      cands.push({ x, y: h, z, d: Infinity });
+    }
+    const out = [];
+    while (out.length < n && cands.length) {
+      let best = 0;
+      if (out.length) {
+        let bestScore = -1;
+        for (let i = 0; i < cands.length; i++) {
+          const sc = cands[i].d * this.rng.range(0.8, 1);
+          if (sc > bestScore) { bestScore = sc; best = i; }
+        }
+      } else best = Math.floor(this.rng.next() * cands.length);
+      const c = cands.splice(best, 1)[0];
+      out.push({ x: c.x, y: c.y, z: c.z, yaw: this.rng.next() * Math.PI * 2 });
+      for (const o of cands) o.d = Math.min(o.d, Math.hypot(o.x - c.x, o.z - c.z));
     }
     while (out.length < n) out.push({ x: 0, y: this.groundAt(0, 0), z: 0, yaw: 0 });
     return out;

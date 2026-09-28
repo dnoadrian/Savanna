@@ -30,7 +30,6 @@ export const PLAY_RADIUS = 159; // ungefährer Inselradius (Küstenlinie)
 export const SEA_LEVEL = 0;
 export const DEEP_WATER = 1.25; // tieferes Wasser (offenes Meer) kann man nicht betreten
 export const BOUNDARY_RADIUS = 179;
-export const SPAWN_MIN_DIST = 38;
 export const SPAWN_MAX_HEIGHT = 30; // nicht auf Berggipfeln starten
 
 // Leben: 100 Gesundheit (grün) + 100 Schild (blau); Start mit 50 Überschild, der nicht zurückkommt

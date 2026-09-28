@@ -4,8 +4,8 @@ import { clampRank, applyRankResult } from '../shared/ranks.js';
 import { OUTFITS, DEFAULT_OUTFIT, SKIN_SHOP, KNIFE_SHOP, COINS_PER_KILL, COINS_PER_WIN } from '../shared/constants.js';
 
 // v2: alle Konten wurden zurückgesetzt (Anmeldung mit Geburtsdatum)
-const BASE_KEY = 'showdown.profile.v2';
-const OLD_KEYS = ['showdown.profile.v1'];
+const BASE_KEY = 'showdown.profile.v3';
+const OLD_KEYS = ['showdown.profile.v1', 'showdown.profile.v2'];
 // Felder, die als Spielstand auf dem Server liegen (alles außer ID/Name/Anmeldeschlüssel)
 const SAVE_FIELDS = ['outfit', 'coins', 'owned', 'rank', 'bestRank', 'knife', 'ownedKnives', 'color', 'crownStyle', 'winStreak', 'soloChampion', 'stats', 'createdAt'];
 

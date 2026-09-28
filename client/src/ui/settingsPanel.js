@@ -2,12 +2,11 @@
 import { h, esc } from './dom.js';
 import { t } from '../i18n.js';
 import { KEY_ACTIONS, keyLabel } from '../settings.js';
-import { QUALITY_PRESETS } from '../render/renderer.js';
+import { GRAPHICS } from '../render/renderer.js';
 import { QUEUE_WAIT_MIN, QUEUE_WAIT_MAX } from '../../shared/constants.js';
 
 const TABS = ['account', 'graphics', 'hud', 'controls', 'mouse', 'audio'];
 const TAB_LABEL = { account: 'tabAccount', graphics: 'tabGraphics', hud: 'tabHud', controls: 'tabControls', mouse: 'tabMouse', audio: 'tabAudio' };
-const GFX_KEYS = ['shadows', 'viewDistance', 'grass', 'antialias', 'post'];
 
 export class SettingsPanel {
   constructor(ui) {
@@ -130,18 +129,6 @@ export class SettingsPanel {
     return h('div', { class: 'slider' }, inp, out);
   }
 
-  setGfx(key, value) {
-    const s = this.s;
-    const vals = {};
-    for (const k of GFX_KEYS) vals[k] = s.get(k);
-    vals[key] = value;
-    let preset = 'custom';
-    for (const [name, p] of Object.entries(QUALITY_PRESETS)) {
-      if (GFX_KEYS.every((k) => String(p[k]) === String(vals[k]))) preset = name;
-    }
-    s.setMany({ [key]: value, quality: preset });
-  }
-
   // ---------- Tabs ----------
   tab_account() {
     const app = this.app;
@@ -179,24 +166,14 @@ export class SettingsPanel {
   }
 
   tab_graphics() {
-    const s = this.s;
     this.section(t('tabGraphics'));
-    const perf = s.get('renderMode') === 'performance';
-    this.row(t('sRenderMode'), this.seg('renderMode', ['quality', 'performance'], (o) => t('rm_' + o)), perf ? t('rm_performanceHint') : t('rm_qualityHint'));
-    const q = s.get('quality');
-    const presetSeg = this.seg('quality', ['low', 'medium', 'high', 'epic', 'auto'], (o) => t('q_' + o), (o) => {
-      if (o === 'auto') s.set('quality', 'auto');
-      else s.setMany({ quality: o, ...QUALITY_PRESETS[o] });
-    });
-    const rows = [];
-    rows.push(this.row(t('sQuality'), presetSeg, q === 'custom' ? t('q_custom') : q === 'auto' ? `→ ${t('q_' + this.app.autoLevel)}` : null));
-    rows.push(this.row(t('sResolution'), h('b', { class: 'fixed-val' }, '100 %'), t('sResolutionFixed')));
-    rows.push(this.row(t('sShadows'), this.seg('shadows', ['off', 'low', 'high'], (o) => t('sh_' + o), (o) => this.setGfx('shadows', o))));
-    rows.push(this.row(t('sViewDistance'), this.seg('viewDistance', ['near', 'medium', 'far', 'epic'], (o) => t('vd_' + o), (o) => this.setGfx('viewDistance', o))));
-    rows.push(this.row(t('sGrass'), this.seg('grass', ['off', 'low', 'medium', 'high'], (o) => t('gr_' + o), (o) => this.setGfx('grass', o))));
-    rows.push(this.row(t('sAA'), this.toggle('antialias', (v) => this.setGfx('antialias', v))));
-    rows.push(this.row(t('sPost'), this.toggle('post', (v) => this.setGfx('post', v))));
-    if (perf) for (const r of rows) r.classList.add('disabled');
+    // Grafikqualität ist für alle gleich (Leistungsmodus mit Schatten niedrig und epischer Sichtweite)
+    const fixed = (text) => h('b', { class: 'fixed-val' }, text);
+    this.row(t('sRenderMode'), fixed(t('rm_performance')), t('gfxFixedHint'));
+    this.row(t('sShadows'), fixed(t('sh_' + GRAPHICS.shadows)));
+    this.row(t('sViewDistance'), fixed(t('vd_' + GRAPHICS.viewDistance)));
+    this.row(t('sGrass'), fixed(t('gr_' + GRAPHICS.grass)));
+    this.row(t('sResolution'), fixed(GRAPHICS.resolution + ' %'));
     this.row(t('sFpsLimit'), this.seg('fpsLimit', ['30', '60', '120', '144', '240', 'unlimited'], (o) => (o === 'unlimited' ? t('unlimited') : o)));
     this.row(t('sVsync'), this.toggle('vsync'));
     this.row(t('sFov'), this.slider('fov', 70, 110, 1, (v) => v + '°'));

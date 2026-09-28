@@ -4,7 +4,7 @@ import { Settings } from './settings.js';
 import { setLanguage, t } from './i18n.js';
 import { Profile, computeCoins } from './profile.js';
 import { AudioEngine } from './audio/engine.js';
-import { Renderer, QUALITY_PRESETS, PERFORMANCE_MODE } from './render/renderer.js';
+import { Renderer, GRAPHICS } from './render/renderer.js';
 import { LobbyScene } from './render/lobbyScene.js';
 import { WorldView } from './render/world.js';
 import { renderMapImage } from './render/mapImage.js';
@@ -22,7 +22,6 @@ import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
 import { MATCH_SIZE, clampQueueWait } from '../shared/constants.js';
 
-const QUALITY_ORDER = ['low', 'medium', 'high', 'epic'];
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
 class App {
@@ -49,8 +48,6 @@ class App {
     this.queue = null;
     this.isHost = false;
     this.hostStatus = null;
-    this.autoLevel = 'high';
-    this.fpsSamples = [];
     this.registered = false;
     this.applyGraphics();
     this.settings.onChange((k) => this.onSettingChanged(k));
@@ -138,15 +135,9 @@ class App {
   }
 
   // ---------------- Grafik ----------------
-  // alle Stufen mit 100 % 3D-Auflösung; Rendermodus „Leistung“ schaltet alles Teure ab
+  // feste Einstellungen für alle (Leistung, Schatten niedrig, Sichtweite episch, kein Gras)
   effectiveGraphics() {
-    const s = this.settings;
-    if (s.get('renderMode') === 'performance') return { ...PERFORMANCE_MODE };
-    if (s.get('quality') === 'auto') return { ...QUALITY_PRESETS[this.autoLevel] };
-    return {
-      resolution: 100, shadows: s.get('shadows'), viewDistance: s.get('viewDistance'),
-      grass: s.get('grass'), antialias: s.get('antialias'), post: s.get('post'),
-    };
+    return { ...GRAPHICS };
   }
 
   applyGraphics() {
@@ -156,21 +147,7 @@ class App {
     this.graphics = g;
   }
 
-  reportFps(fps) {
-    if (this.settings.get('quality') !== 'auto' || this.settings.get('renderMode') === 'performance') return;
-    this.fpsSamples.push(fps);
-    if (this.fpsSamples.length < 10) return;
-    const avg = this.fpsSamples.reduce((a, b) => a + b, 0) / this.fpsSamples.length;
-    this.fpsSamples = [];
-    const i = QUALITY_ORDER.indexOf(this.autoLevel);
-    if (avg < 48 && i > 0) this.autoLevel = QUALITY_ORDER[i - 1];
-    else if (avg > 110 && i < QUALITY_ORDER.length - 1) this.autoLevel = QUALITY_ORDER[i + 1];
-    else return;
-    this.applyGraphics();
-  }
-
   onSettingChanged(k) {
-    if (['renderMode', 'quality', 'shadows', 'viewDistance', 'grass', 'antialias', 'post'].includes(k)) this.applyGraphics();
     if (k === 'queueWait') this.ui.onQueue();
     if (k === 'language') {
       setLanguage(this.settings.get('language'));

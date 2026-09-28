@@ -7,8 +7,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SHOWDOWN_DATA_DIR || path.join(__dirname, 'data');
 // neue Datei für Showdown Bay: alle Spielerkonten starten frisch
 const FILE = path.join(DATA_DIR, 'showdownbay.json');
-// Version 2: alle Spielerkonten zurückgesetzt (neu: Anmeldung mit Name + Geburtsdatum)
-const DATA_VERSION = 2;
+// Version 3: alle Spielerkonten erneut zurückgesetzt (die Browser verwerfen ihr altes Profil ebenfalls)
+const DATA_VERSION = 3;
 
 export class Store {
   constructor() {

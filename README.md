@@ -77,7 +77,7 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 - **Keine unendliche Munition:** Start mit grauer Pistole **20 + 60 = 80 Schuss**. Waffen aus Truhen bringen das **Dreifache ihres Magazins** an Munition mit (SCAR: 30 + 90 = 120).
 - **Jede Eliminierung** lässt zusätzlich **ein volles Magazin jeder Munitionsart** fallen (Leicht 40, Mittel 30, Schrot 8, Schwer 3). Die Munitionsarten haben eigene Modelle: graublaue Schachtel, grüne Munitionskiste, dunkelrote schwere Kiste, rote Schrotpatronen.
 
-**Messer** – jeder hat es immer dabei (Taste **Q**): 40 Schaden, Kopf ×1,5, 2,4 Hiebe/s, Reichweite 2,8 m, keine Munition. Mit dem Messer in der Hand läuft man 8 % schneller. Messer-Skins (Taktisch, Neon, Goldklinge, Drachenzahn) gibt es im Shop, auswählen im Spind.
+**Messer** – jeder hat es immer dabei (Taste **Q**): 40 Schaden, Kopf ×1,5, 2,4 Hiebe/s, Reichweite 2,8 m, keine Munition. Mit dem Messer in der Hand läuft man 8 % schneller. Standard ist ein **Jagdmesser**; weitere Messer gibt es im Shop (**Tanto** mit Sägerücken, **Neon-Messer**, **Gold-Bowie**, **Drachen-Karambit** mit gebogener Klinge und Fingerring), auswählen im Spind.
 
 **Truhen** (rund 60 auf der Insel) – goldenes Leuchten, Summen und Funkeln in der Nähe. Mit **F** öffnen: **1 Waffe + 1 Heil-/Schild-Gegenstand + passende Munition**.
 
@@ -105,6 +105,10 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 
 **Coins & Shop** – **50 Coins pro Kill, 250 pro Sieg.** Im **Shop** (oben in der Lobby) gibt es 8 Skins von 600 bis 2.500 Coins und 4 Messer-Skins von 500 bis 2.500 Coins; gekaufte Skins erscheinen im Spind.
 
+**Skins** – jeder Skin ist ausgearbeitet: Gesicht mit Augen, Brauen und Frisur, Kleidung in Schichten und passende Ausrüstung (Cowboy mit Weste, Hut und Sporen, Ranger mit Tropenhelm und Rucksack, Koch mit Kochmütze und Schürze, Pirat mit Dreispitz, Augenklappe und Mantel, Soldat mit Helm, Plattenträger und Tarnmuster, Tänzer mit Afro und Leuchtstreifen, Ninja mit Katana, Astronaut mit Goldvisier und Lebenserhaltung). Die Arme in der Egoperspektive passen zum Skin.
+
+**Startpunkte** – alle Spieler und Bots starten gleichmäßig über die ganze Insel verteilt (weit auseinander, in jeder Ecke der Karte); Bots ziehen bevorzugt zu nahen Orten, zu denen noch niemand läuft.
+
 **Lobby** – die eigene Figur steht in der Mitte, Party-Mitglieder daneben. Wer aus der Party noch im Spiel ist, erscheint als **blaues Hologramm**.
 
 **Sieg** – Siegerkamera um die jubelnde Figur, Lichtstrahlen, Konfetti und eine große, leuchtende Krone für die Siegesserie. Wer Zweiter wird, geht direkt zurück zur Lobby.
@@ -113,10 +117,10 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 
 ## ⚙️ Einstellungen
 
-- **Grafik wie in Fortnite:** Rendermodus *Qualität* oder *Leistung*, Stufen *Niedrig / Mittel / Hoch / Episch / Auto*. **Alle Stufen rendern mit 100 % 3D-Auflösung.**
+- **Grafik (für alle gleich):** Rendermodus *Leistung*, **Schatten niedrig**, **Sichtweite episch**, **Grasdichte aus**, 100 % 3D-Auflösung. Einstellbar bleiben FPS-Limit, V-Sync, Sichtfeld (**FOV, Standard 100**) und Vollbild.
 - **Aim-Assist: An / Aus.** „An“ bremst das Fadenkreuz am Gegner leicht ab und zieht mit, wenn du dich bewegst oder zielst – es ist bewusst kein Aimbot.
 - **Wartezeit auf echte Spieler:** 10–120 s (Standard 15 s)
-- Maus-, ADS- und Zielfernrohr-Empfindlichkeit, FOV, FPS-Limit, V-Sync, HUD-Größe, Fadenkreuz, Farbenblind-Modus, Lautstärken, Sprache (Deutsch/English)
+- Maus-, ADS- und Zielfernrohr-Empfindlichkeit, HUD-Größe, Fadenkreuz, Farbenblind-Modus, Lautstärken, Sprache (Deutsch/English)
 
 ## 🛠️ Admin-Panel
 

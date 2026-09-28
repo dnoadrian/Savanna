@@ -31,15 +31,9 @@ const GradeShader = {
     }`,
 };
 
-// Qualitätsstufen wie in Fortnite – alle mit 100 % 3D-Auflösung
-export const QUALITY_PRESETS = {
-  low: { resolution: 100, shadows: 'off', viewDistance: 'near', grass: 'off', antialias: false, post: false },
-  medium: { resolution: 100, shadows: 'low', viewDistance: 'medium', grass: 'low', antialias: true, post: false },
-  high: { resolution: 100, shadows: 'high', viewDistance: 'far', grass: 'medium', antialias: true, post: true },
-  epic: { resolution: 100, shadows: 'high', viewDistance: 'epic', grass: 'high', antialias: true, post: true },
-};
-// Rendermodus „Leistung“: wie Fortnites Performance-Modus – alles Teure aus, 100 % Auflösung bleibt
-export const PERFORMANCE_MODE = { resolution: 100, shadows: 'off', viewDistance: 'near', grass: 'off', antialias: false, post: false };
+// Feste Grafik für alle: Rendermodus „Leistung“ (ohne Kantenglättung und Nachbearbeitung),
+// Schatten niedrig, Sichtweite episch, Grasdichte aus, 100 % 3D-Auflösung
+export const GRAPHICS = Object.freeze({ resolution: 100, shadows: 'low', viewDistance: 'epic', grass: 'off', antialias: false, post: false });
 export const VIEW_DISTANCES = { near: 220, medium: 280, far: 340, epic: 420 };
 
 export class Renderer {

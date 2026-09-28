@@ -389,9 +389,11 @@ export class BotBrain {
       if (this.stuckCount === 1) {
         this.wantJump = true;
       } else if (this.stuckCount <= 3) {
+        // Ausweichen zu einer freien Stelle in der Nähe (nicht in die nächste Wand)
         const a = this.rng.next() * Math.PI * 2;
         const r = 3 + this.rng.next() * 4;
-        this.detour = { x: b.x + Math.cos(a) * r, z: b.z + Math.sin(a) * r };
+        const free = this.sim.nav ? this.sim.nav.randomFree(this.rng, b.x, b.z, 6) : null;
+        this.detour = free ? { x: free[0], z: free[1] } : { x: b.x + Math.cos(a) * r, z: b.z + Math.sin(a) * r };
         this.detourT = this.sim.time + 1.4;
         this.wantJump = this.rng.chance(0.5);
         this.pathPending = !!this.dest;
@@ -866,17 +868,35 @@ export class BotBrain {
       x = mate.body.x + this.rng.range(-8, 8);
       zz = mate.body.z + this.rng.range(-8, 8);
     }
-    if (x === undefined && this.rng.chance(0.5)) {
-      const pois = sim.world.pois.filter((p) => Math.hypot(p.x - safe.x, p.z - safe.z) < safe.r * 0.9 + 10);
-      if (pois.length) {
-        const p = this.rng.pick(pois);
+    // Orte in der Nähe bevorzugen und solche meiden, zu denen schon andere Bots laufen –
+    // so verteilen sich die Bots über die ganze Karte statt alle zur Mitte zu rennen
+    if (x === undefined && this.rng.chance(0.4)) {
+      let total = 0;
+      const opts = [];
+      for (const p of sim.world.pois) {
+        if (Math.hypot(p.x - safe.x, p.z - safe.z) > safe.r * 0.9 + 10) continue;
+        let crowd = 0;
+        for (const o of sim.players) {
+          if (o === this.p || !o.alive || !o.isBot || !o.brain.dest) continue;
+          if (Math.hypot(o.brain.dest.x - p.x, o.brain.dest.z - p.z) < p.r + 10) crowd++;
+        }
+        const d = Math.hypot(p.x - b.x, p.z - b.z);
+        const w = 1 / (1 + (d / 55) ** 2) / (1 + crowd * crowd);
+        opts.push([p, w]);
+        total += w;
+      }
+      let pick = this.rng.next() * total;
+      for (const [p, w] of opts) {
+        pick -= w;
+        if (pick > 0) continue;
         x = p.x + this.rng.range(-p.r * 0.5, p.r * 0.5);
         zz = p.z + this.rng.range(-p.r * 0.5, p.r * 0.5);
+        break;
       }
     }
     if (x === undefined) {
       const a = this.rng.next() * Math.PI * 2;
-      const r = this.rng.range(12, 45);
+      const r = this.rng.range(15, 55);
       x = b.x + Math.cos(a) * r;
       zz = b.z + Math.sin(a) * r;
       if (Math.hypot(x - safe.x, zz - safe.z) > safe.r * 0.9) {

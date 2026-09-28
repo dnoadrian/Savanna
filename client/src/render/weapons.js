@@ -22,7 +22,7 @@ export const WEAPON_META = {
   tac: { sightY: 0.11, muzzle: [0, 0.03, -0.66], eject: [0.05, 0.05, -0.05], mag: null, fore: [0, -0.03, -0.38], hip: [0.28, -0.265, -0.66], adsZ: -0.54, adsDrop: 0.065, scale: 1.0 },
   pump: { sightY: 0.1, muzzle: [0, 0.035, -0.78], eject: [0.05, 0.04, -0.05], mag: null, fore: [0, -0.02, -0.42], hip: [0.28, -0.265, -0.68], adsZ: -0.56, adsDrop: 0.065, scale: 1.0 },
   hammer: { sightY: 0.1, muzzle: [0, 0.04, -0.72], eject: [0.05, 0.05, -0.05], mag: null, fore: [0, -0.02, -0.36], hip: [0.28, -0.265, -0.66], adsZ: -0.54, adsDrop: 0.065, scale: 1.0 },
-  knife: { sightY: 0.04, muzzle: [0, 0.01, -0.27], eject: [0, 0, 0], mag: null, fore: null, hip: [0.24, -0.2, -0.38], adsZ: -0.4, scale: 1.0, melee: true },
+  knife: { sightY: 0.04, muzzle: [0, 0.01, -0.27], eject: [0, 0, 0], mag: null, fore: null, hip: [0.2, -0.17, -0.34], adsZ: -0.4, scale: 1.0, melee: true },
   sniper: { sightY: 0.16, muzzle: [0, 0.03, -0.95], eject: [0.05, 0.06, -0.04], mag: [0, -0.04, -0.12], fore: [0, -0.02, -0.4], hip: [0.28, -0.265, -0.7], adsZ: -0.4, scale: 1.0 },
 };
 
@@ -240,29 +240,79 @@ function hammer(g, r, detail) {
 }
 
 // Messer (Nahkampf): Klinge nach −Z, Griff am Ursprung. r = Skin (siehe KNIFE_SKINS):
-// 0 Standard (Stahl), 1 Taktisch (schwarz), 2 Neon (leuchtend türkis), 3 Gold, 4 Drache (rot-schwarz)
+// 0 Jagdmesser (Stahl, Holzgriff), 1 Taktisch (schwarzes Tanto mit Sägerücken),
+// 2 Neon (leuchtende Klinge mit Aussparung), 3 Gold (Bowie mit Clip-Spitze),
+// 4 Drache (gebogenes Karambit mit Fingerring). Keine Parierstange – echte Messer, keine Schwerter.
 const KNIFE_LOOK = [
-  { blade: 0xd7dde5, edge: 0xffffff, guard: 0x3a3f46, grip: 0x4a3322, accent: 0x8b939e, e: 0 },
-  { blade: 0x2b2f35, edge: 0x9aa3ad, guard: 0x15171a, grip: 0x3d4a2e, accent: 0x6b7a4a, e: 0 },
-  { blade: 0x17cfe8, edge: 0xb8fbff, guard: 0x101830, grip: 0x141a2e, accent: 0xff3fd0, e: 0.9 },
-  { blade: 0xf5c542, edge: 0xfff2b0, guard: 0xb8860b, grip: 0x5a2e0e, accent: 0xffe07a, e: 0.25 },
-  { blade: 0xb3121e, edge: 0xffb24a, guard: 0x1a0a0a, grip: 0x220808, accent: 0xffc23a, e: 0.35 },
+  { blade: 0xd7dde5, edge: 0xffffff, bolster: 0x8b939e, grip: 0x6b4226, accent: 0xc8ccd2, e: 0 },
+  { blade: 0x2b2f35, edge: 0xa6afba, bolster: 0x15171a, grip: 0x3d4a2e, accent: 0x1b1d20, e: 0 },
+  { blade: 0x17cfe8, edge: 0xc8fcff, bolster: 0x101830, grip: 0x141a2e, accent: 0xff3fd0, e: 0.9 },
+  { blade: 0xf5c542, edge: 0xfff2b0, bolster: 0xb8860b, grip: 0x5a2e0e, accent: 0xffe07a, e: 0.25 },
+  { blade: 0xb3121e, edge: 0xffb24a, bolster: 0x1a0a0a, grip: 0x220808, accent: 0xffc23a, e: 0.35 },
 ];
+
+// Klinge aus schräg gestellten Segmenten entlang −Z ab z0: prof(t) = [unten, oben] bei t
+// (0 = Heft, 1 = Spitze); unten liegt die Schneide
+function blade(g, z0, len, prof, th, color, edgeCol, e, n) {
+  const dz = len / n;
+  for (let i = 0; i < n; i++) {
+    const t0 = i / n, t1 = (i + 1) / n;
+    const [a0, b0] = prof(t0), [a1, b1] = prof(t1);
+    const y0 = (a0 + b0) / 2, y1 = (a1 + b1) / 2;
+    const h = Math.max(0.003, (b0 - a0 + b1 - a1) / 2);
+    const zc = z0 - ((t0 + t1) / 2) * len;
+    g.box(0, (y0 + y1) / 2, zc, th, h, Math.hypot(dz, y1 - y0) + 0.002, color, { rx: Math.atan2(y1 - y0, dz), e: e * 0.6 });
+    if (h > 0.008) g.box(0, (a0 + a1) / 2 + 0.003, zc, th * 0.55, 0.006, Math.hypot(dz, a1 - a0) + 0.002, edgeCol, { rx: Math.atan2(a1 - a0, dz), e });
+  }
+}
+
 function knife(g, r, detail) {
   const L = KNIFE_LOOK[r] || KNIFE_LOOK[0];
-  // Griff mit Rillen und Knauf
-  g.box(0, -0.005, 0.045, 0.028, 0.034, 0.11, L.grip);
-  if (detail) for (let i = 0; i < 4; i++) g.box(0, -0.005, 0.01 + i * 0.024, 0.031, 0.037, 0.006, L.accent, { e: L.e * 0.5 });
-  g.box(0, -0.005, 0.105, 0.032, 0.038, 0.018, L.guard);
-  // Parierstange
-  g.box(0, -0.002, -0.012, 0.03, 0.07, 0.014, L.guard);
-  // Klinge (Rücken + Schneide) und Spitze
-  g.box(0, 0.006, -0.12, 0.008, 0.034, 0.2, L.blade, { e: L.e * 0.6 });
-  g.box(0, -0.014, -0.11, 0.005, 0.01, 0.18, L.edge, { e: L.e });
-  g.prism(0, 0.006, -0.235, 0.008, 0.034, 0.05, L.blade, { rx: -Math.PI / 2, e: L.e * 0.6 });
+  const n = detail ? 10 : 5;
+  const th = 0.008;
+  if (r === 4) {
+    // Karambit: nach unten gebogene Klaue, Schneide innen, Fingerring am Griffende
+    const c = (t) => -0.075 * t ** 1.7;
+    const w = (t) => 0.03 * (1 - t ** 1.4) + 0.004;
+    blade(g, -0.004, 0.13, (t) => [c(t) - w(t) / 2, c(t) + w(t) / 2], th, L.blade, L.edge, L.e, n + 2);
+    g.box(0, -0.006, 0.05, 0.026, 0.034, 0.1, L.grip, { rx: -0.12 });
+    g.box(0, -0.002, 0.002, 0.03, 0.04, 0.012, L.bolster);
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      g.box(0, -0.016 + Math.sin(a) * 0.024, 0.118 + Math.cos(a) * 0.024, 0.012, 0.009, 0.014, L.accent, { rx: -a, e: L.e * 0.5 });
+    }
+    if (detail) for (let i = 0; i < 4; i++) g.box(0.0045, c(0.2 + i * 0.17) + 0.004, -0.02 - i * 0.026, 0.001, 0.008, 0.012, L.accent, { e: 0.5, rx: 0.4 });
+    return;
+  }
+  const len = [0.17, 0.17, 0.18, 0.2][r] ?? 0.17;
+  const prof = [
+    // Jagdmesser: gerader Rücken, der zur Spitze abfällt, gebogene Schneide
+    (t) => [-0.016 + 0.018 * t ** 2, 0.016 - 0.014 * t ** 2.5],
+    // Tanto: gerader Rücken und Schneide, eckige Spitze
+    (t) => [t < 0.78 ? -0.016 : -0.016 + ((t - 0.78) / 0.22) * 0.02, t < 0.84 ? 0.016 : 0.016 - ((t - 0.84) / 0.16) * 0.012],
+    // Neon: schlank, leicht nach oben gezogene Spitze
+    (t) => [-0.013 + 0.016 * t ** 1.6, 0.013 - 0.01 * t ** 3],
+    // Bowie: breite Klinge, Clip-Spitze am Rücken
+    (t) => [-0.019 + 0.021 * t ** 2.4, t < 0.6 ? 0.019 : 0.019 - ((t - 0.6) / 0.4) ** 1.2 * 0.017],
+  ][r];
+  blade(g, -0.004, len, prof, th, L.blade, L.edge, L.e, n);
+  // Heft ohne Parierstange: kurzer Metallbund, Griff, Knauf
+  g.box(0, 0.0, 0.004, 0.03, 0.04, 0.014, L.bolster, { e: r === 3 ? 0.2 : 0 });
+  if (r === 1) {
+    // taktischer Griff mit Fingermulden und kleinem Fingerschutz unten
+    g.box(0, -0.002, 0.058, 0.028, 0.034, 0.1, L.grip);
+    g.box(0, -0.027, 0.004, 0.026, 0.018, 0.012, L.bolster);
+    if (detail) for (let i = 0; i < 3; i++) g.box(0, -0.021, 0.03 + i * 0.024, 0.029, 0.008, 0.01, L.accent);
+    if (detail) for (let i = 0; i < 6; i++) g.box(0, 0.0175, -0.012 - i * 0.012, 0.007, 0.006, 0.006, L.blade, { rx: 0.785 });
+  } else {
+    g.box(0, -0.003, 0.058, 0.028, 0.036, 0.1, L.grip);
+    g.box(0, -0.004, 0.113, 0.032, 0.04, 0.012, L.bolster, { e: r === 3 ? 0.2 : 0 });
+    if (detail) for (const z of [0.035, 0.08]) g.box(0, -0.003, z, 0.031, 0.009, 0.009, L.accent, { e: L.e * 0.4 }); // Nieten / Zierringe
+  }
   if (detail) {
-    g.box(0.0045, 0.012, -0.1, 0.001, 0.008, 0.12, L.accent, { e: L.e }); // Hohlkehle
-    if (r === 4) for (let i = 0; i < 4; i++) g.box(0.0046, 0.0, -0.05 - i * 0.04, 0.001, 0.012, 0.02, L.accent, { e: 0.5, ry: 0.4 });
+    // Hohlkehle bzw. Zierlinie auf der Klinge
+    if (r === 2) g.box(0, 0.001, -0.07, th + 0.001, 0.008, 0.075, 0x0b1020);
+    else g.box(0.0045, prof(0.4)[1] - 0.007, -0.07, 0.001, 0.005, 0.1, L.accent, { e: L.e });
   }
 }
 

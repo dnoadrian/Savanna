@@ -5,9 +5,8 @@
 import * as THREE from 'three';
 import { GeoBuilder, flatMaterial } from './geom.js';
 import { WEAPON_META, weaponGeometry, magazineGeometry, consumableGeometry, itemMaterial } from './weapons.js';
-import { SKIN_TONES } from './characters.js';
+import { firstPersonArm } from './characters.js';
 import { WEAPONS } from '../../shared/items.js';
-import { OUTFIT_COLORS } from '../../shared/constants.js';
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
@@ -73,17 +72,15 @@ export class Viewmodel {
   }
 
   setOutfit(outfit, color) {
-    const primary = OUTFIT_COLORS[color % OUTFIT_COLORS.length];
-    const sleeveColors = { cowboy: primary, ranger: 0xc9ab70, ninja: 0x23262e, soldier: 0x5b6b3a, dancer: primary, pirate: 0xf5efe0, chef: 0xfafafa, astronaut: 0xf2f2f2 };
-    const gloveColors = { ninja: 0x111111, soldier: 0x3a3a2a, dancer: 0xffffff, astronaut: 0xd8d8e0 };
-    const sleeve = sleeveColors[outfit] ?? primary;
-    const hand = gloveColors[outfit] ?? SKIN_TONES[1];
+    // Ärmel, Unterarm, Manschette und Hand passend zum Skin
+    const a = firstPersonArm(outfit, color);
     const mkArm = () => {
       const g = new GeoBuilder();
-      g.box(0, 0.0, 0, 0.062, 0.08, 0.085, hand);
-      g.box(0, 0.035, 0.02, 0.026, 0.045, 0.045, hand, { rz: 0.4 });
-      g.box(0, 0.22, 0, 0.07, 0.34, 0.075, outfit === 'ranger' ? SKIN_TONES[1] : sleeve);
-      g.box(0, 0.4, 0, 0.08, 0.05, 0.085, sleeve);
+      g.box(0, 0.0, 0, 0.062, 0.08, 0.085, a.hand);
+      g.box(0, 0.035, 0.02, 0.026, 0.045, 0.045, a.hand, { rz: 0.4 });
+      g.box(0, 0.22, 0, 0.07, 0.34, 0.075, a.fore);
+      if (a.cuff) g.box(0, 0.065, 0, 0.076, 0.03, 0.081, a.cuff);
+      g.box(0, 0.4, 0, 0.08, 0.05, 0.085, a.sleeve);
       return new THREE.Mesh(g.toGeometry(), flatMaterial());
     };
     this.armR.clear();
@@ -210,6 +207,12 @@ export class Viewmodel {
     ry += 0.75 * this.sprintK;
     rz += 0.25 * this.sprintK;
     rz += -0.18 * this.slideK;
+    // Messer: Klinge schräg nach oben gekippt und leicht gedreht, damit man sie gut sieht
+    if (meta && meta.melee) {
+      rx += 0.55 * (1 - this.sprintK);
+      ry += 0.32;
+      rz -= 0.45;
+    }
     // Nachladen
     let magOff = null;
     let leftTarget = null;

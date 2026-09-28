@@ -542,6 +542,18 @@ test('Karte Frostfeste: Schneeinsel im Meer (+25 % Fläche), Feste, Gipfel, Eis,
   for (const [x, z, n] of [[4, -14, 'Platz'], [0, -31, 'Freitreppe'], [0, -39.5, 'Vorplatz'], [0, -48, 'Halle'], [-25, -45, 'Terrasse W'], [25, -45, 'Terrasse O'],
     [2, 90, 'Frosttal'], [93, 80, 'Eishafen'], [-84, 40, 'Spiegelsee'], [80, -6, 'Station']]) assert.equal(region(x, z), r0, n + ' erreichbar');
   assert.ok(nav.findPath(0, 40, 0, -48, 40000), 'Weg vom Süden bis in die Halle');
+  // Startpunkte gleichmäßig über die ganze Insel: weit auseinander, in allen vier Vierteln
+  for (const seed of [1, 2, 3]) {
+    const players = Simulation.fillWithBots([], new RNG(seed), null, 'solo');
+    const sim = new Simulation({ terrain: m.terrain, collision: m.collision, nav, pois: m.pois, chests: m.chests, floorLoot: m.floorLoot }, { seed, players });
+    const sp = sim.players.map((p) => p.body);
+    let minD = Infinity;
+    for (let i = 0; i < sp.length; i++) for (let j = i + 1; j < sp.length; j++) minD = Math.min(minD, Math.hypot(sp[i].x - sp[j].x, sp[i].z - sp[j].z));
+    assert.ok(minD > 35, `Startabstand ${minD.toFixed(1)} m`);
+    const quad = [0, 0, 0, 0];
+    for (const b of sp) quad[(b.x > 0 ? 1 : 0) + (b.z > 0 ? 2 : 0)]++;
+    assert.ok(quad.every((q) => q >= 3), 'Viertel ' + quad.join(','));
+  }
 });
 
 test('Komplettes Bot-Match: Sieger, Plätze 1..20, Truhen geöffnet, Beute, Heilung, Siphon', () => {

@@ -28,18 +28,10 @@ export const DEFAULT_KEYS = {
 export const KEY_ACTIONS = Object.keys(DEFAULT_KEYS);
 
 export const DEFAULTS = {
-  // Grafik (alle Stufen mit 100 % 3D-Auflösung)
-  renderMode: 'quality',
-  quality: 'auto',
-  resolution: 100,
-  shadows: 'high',
-  viewDistance: 'far',
-  grass: 'medium',
-  antialias: true,
-  post: true,
+  // Grafik (Qualität ist fest, siehe GRAPHICS in render/renderer.js)
   fpsLimit: '144',
   vsync: true,
-  fov: 90,
+  fov: 100,
   // Anzeige
   showFps: true,
   showPing: true,
@@ -75,6 +67,8 @@ export const DEFAULTS = {
 };
 
 const STORAGE_KEY = 'showdown.settings.v1';
+// Version der gespeicherten Einstellungen: 2 = neues Standard-Sichtfeld (FOV 100)
+const SETTINGS_VERSION = 2;
 
 export class Settings {
   constructor() {
@@ -84,6 +78,7 @@ export class Settings {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const saved = JSON.parse(raw);
+        if ((saved.v || 1) < SETTINGS_VERSION) delete saved.fov;
         for (const k of Object.keys(DEFAULTS)) {
           if (saved[k] === undefined) continue;
           if (k === 'keys') {
@@ -99,7 +94,6 @@ export class Settings {
     } catch {
       /* Standardwerte */
     }
-    this.values.resolution = 100;
     this.values.queueWait = clampQueueWait(this.values.queueWait);
     if (this.values.gameMode !== 'duo') this.values.gameMode = 'solo';
     if (this.values.aimAssist !== 'on' && this.values.aimAssist !== 'off') this.values.aimAssist = 'on';
@@ -124,7 +118,7 @@ export class Settings {
 
   save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.values));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...this.values, v: SETTINGS_VERSION }));
     } catch {
       /* Speicher voll/gesperrt */
     }
