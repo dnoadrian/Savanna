@@ -378,12 +378,22 @@ void sdApply(inout vec3 col, vec3 nView) {
   } else if (id < 9.5) {
     // Erdboden/Sand: Flecken und Körnung
     col *= 0.93 + big * 0.12 + (sdN(p.xz * 2.4) - 0.5) * 0.1 * fade;
-  } else {
+  } else if (id < 10.5) {
     // große Betonplatten mit dunklen Schlieren unter jeder Fuge
     vec3 b = sdBlocks(uv, top ? vec2(3.0) : vec2(3.2, 1.6), 0.0, 0.03);
     float streak = top ? 0.0 : sdN(vec2(uv.x * 2.3, floor(uv.y / 1.6) * 3.0)) * (1.0 - b.z);
     col *= 0.95 + (b.y - 0.5) * 0.08 * fade + big * 0.06 - streak * 0.1 * fade;
     col *= 1.0 - b.x * 0.26 * fade;
+  } else {
+    // Wiese: helle und dunkle Flecken, trockene Stellen, feine Halmstruktur, kleine Blüten
+    float mead = sdF(p.xz * 0.08 + 3.0);
+    col *= 0.84 + mead * 0.3;
+    col = mix(col, col * vec3(1.14, 1.05, 0.66), smoothstep(0.6, 0.9, sdF(p.xz * 0.045 + 9.0)) * 0.4);
+    float blades = sdN(vec2(p.x * 7.0 + sdN(p.xz * 1.3) * 4.0, p.z * 7.0 - sdN(p.xz * 1.1 + 4.0) * 4.0));
+    col *= 1.0 - (blades - 0.5) * 0.26 * fade;
+    col *= 0.92 + sdN(p.xz * 2.1 + 1.3) * 0.14 * fade;
+    float dots = step(0.988, sdH(floor(p.xz * 5.0)));
+    col = mix(col, mix(vec3(1.0, 0.96, 0.62), vec3(1.0, 1.0, 1.0), sdH(floor(p.xz * 5.0) + 2.0)), dots * 0.55 * fade * max(0.0, n.y));
   }
 }
 `;
@@ -396,7 +406,7 @@ function patchSurface(sh, terrain) {
     .replace('#include <common>', '#include <common>\nvarying float vEmis;')
     .replace('#include <clipping_planes_pars_fragment>', '#include <clipping_planes_pars_fragment>\n' + SURF_GLSL)
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-      ${terrain ? '// Gelände: Schnee und Eis weich schattiert, Fels und Boden bleiben kantig\nif (vTexId > 2.5 || vTexId < 0.5) normal = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));' : ''}
+      ${terrain ? '// Gelände: Schnee, Eis und Wiese weich schattiert, Fels und Boden bleiben kantig\nif ((vTexId > 2.5 && vTexId < 10.5) || vTexId < 0.5) normal = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));' : ''}
       sdApply(diffuseColor.rgb, normal);`)
     .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vEmis * 1.6;');
 }
@@ -407,7 +417,7 @@ export function worldMaterial() {
   if (sharedMat) return sharedMat;
   sharedMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   sharedMat.onBeforeCompile = (sh) => patchSurface(sh, false);
-  sharedMat.customProgramCacheKey = () => 'worldMat2';
+  sharedMat.customProgramCacheKey = () => 'worldMat3';
   return sharedMat;
 }
 
@@ -417,7 +427,7 @@ export function terrainMaterial() {
   if (terrainMat) return terrainMat;
   terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   terrainMat.onBeforeCompile = (sh) => patchSurface(sh, true);
-  terrainMat.customProgramCacheKey = () => 'terrainMat2';
+  terrainMat.customProgramCacheKey = () => 'terrainMat3';
   return terrainMat;
 }
 

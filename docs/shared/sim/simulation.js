@@ -5,8 +5,9 @@ import {
   MATCH_SIZE, COUNTDOWN, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, F,
   SPAWN_MAX_HEIGHT, MAX_REWIND, EYE_STAND, EYE_CROUCH, PLAY_RADIUS, INTERACT_RANGE, AUTO_PICKUP_RANGE, SEA_LEVEL,
   KNOCK_HP, KNOCK_BLEED, REVIVE_TIME, REVIVE_HP, REVIVE_RANGE,
+  normMode, isArenaMode, teamSizeOf, modeSize, LOADOUT_TIME,
 } from '../constants.js';
-import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem, AMMO_TYPES, AMMO_MAX, KILL_AMMO, ammoItem, consumableItem, weaponItem } from '../items.js';
+import { WEAPONS, CONSUMABLES, WEAPON_TYPES, CONSUMABLE_TYPES, weaponDamage, encodeItem, AMMO_TYPES, AMMO_MAX, KILL_AMMO, ammoItem, consumableItem, weaponItem, cleanLoadout, loadoutRarity } from '../items.js';
 import { RNG } from '../rng.js';
 import { createBody, stepMovement, bodyFlags } from './movement.js';
 import { createWeaponRuntime, equipWeapon, fireWeapon, startReload, cancelReload, updateWeapon, weaponSpread, botWeaponSpread } from './weapon.js';
@@ -74,6 +75,8 @@ export class Simulation {
    * world: { terrain, collision, nav, pois, chests, floorLoot }
    * cfg: { seed, players:[{id,name,isBot,outfit,color,crownStyle,streak,team}], storm, botDifficulty, mode }
    * mode 'duo': Zweierteams (kein Eigenbeschuss, Niederschlagen + Wiederbeleben, Team-Platzierung)
+   * mode '1v1' / '2v2': Arena – Start in den Boxen der Karte (world.spawns), während der Wahlzeit
+   * (LOADOUT_TIME) wählt jeder seine Ausrüstung, eigener kleiner Sturm (world.storm)
    */
   constructor(world, cfg) {
     this.world = world;
@@ -81,14 +84,16 @@ export class Simulation {
     this.seed = cfg.seed >>> 0;
     this.rng = new RNG(this.seed ^ 0x9e3779b9);
     this.opts = { storm: cfg.storm !== false, botDifficulty: cfg.botDifficulty || 'mixed' };
-    this.mode = cfg.mode === 'duo' ? 'duo' : 'solo';
-    this.zone = new Zone(this.seed, world.terrain, this.opts.storm);
+    this.mode = normMode(cfg.mode);
+    this.arena = isArenaMode(this.mode);
+    this.teamSize = teamSizeOf(this.mode);
+    this.zone = new Zone(this.seed, world.terrain, this.opts.storm, this.arena ? world.storm || null : null);
     this.zone.update(0);
     this.loot = new Loot(world, this.seed);
     this.time = 0;
     this.matchTime = 0;
     this.phase = 'countdown';
-    this.countdown = COUNTDOWN;
+    this.countdown = this.arena ? LOADOUT_TIME : COUNTDOWN;
     this.events = [];
     this.recentShots = [];
     this.pathBudget = 2;
@@ -99,19 +104,78 @@ export class Simulation {
     this.stepCount = 0;
     if (cfg.players.length < 1 || cfg.players.length > MATCH_SIZE) throw new Error('Match braucht 1 bis ' + MATCH_SIZE + ' Spieler');
     // Teams: Solo = jeder für sich; Duo = Team-Nummer aus der Aufstellung (Partner starten zusammen)
-    const teamOf = cfg.players.map((pc, i) => (this.mode === 'duo' && Number.isInteger(pc.team) ? pc.team : 1000 + i));
+    const teamOf = cfg.players.map((pc, i) => (this.teamSize > 1 && Number.isInteger(pc.team) ? pc.team : 1000 + i));
     const teamIds = [...new Set(teamOf)];
-    const spawns = this.pickSpawns(teamIds.length);
+    const spawns = this.arena && world.spawns ? this.boxSpawns(teamIds.length) : this.pickSpawns(teamIds.length);
     const used = new Map();
     cfg.players.forEach((pc, i) => {
       const k = teamIds.indexOf(teamOf[i]);
       const n = used.get(k) || 0;
       used.set(k, n + 1);
       const sp = spawns[k];
-      const off = n ? this.teamSpawnOffset(sp, n) : sp;
+      const off = this.arena ? this.boxOffset(sp, n, teamOf.filter((t) => t === teamOf[i]).length) : n ? this.teamSpawnOffset(sp, n) : sp;
       const p = this.addPlayer(pc, off);
       p.team = k;
+      if (this.arena) this.arenaStart(p, pc.loadout);
     });
+  }
+
+  // Arena: jedes Team in seiner Startbox
+  boxSpawns(n) {
+    const boxes = this.world.spawns;
+    const out = [];
+    for (let k = 0; k < n; k++) {
+      const b = boxes[k % boxes.length];
+      out.push({ x: b.x, z: b.z, y: this.groundAt(b.x, b.z), yaw: b.yaw, w: b.w || 6 });
+    }
+    return out;
+  }
+
+  // Platz in der Box: Teammitglieder nebeneinander (quer zur Blickrichtung)
+  boxOffset(sp, n, count) {
+    if (count <= 1) return sp;
+    const side = (n - (count - 1) / 2) * Math.min(2.6, (sp.w - 1.2) / count);
+    const rx = Math.cos(sp.yaw), rz = -Math.sin(sp.yaw);
+    const x = sp.x + rx * side, z = sp.z + rz * side;
+    return { x, y: this.groundAt(x, z), z, yaw: sp.yaw };
+  }
+
+  // Arena-Start: volles Leben und Schild, Ausrüstung nach Wahl (Bots zufällig, sonst Standard)
+  arenaStart(p, loadout) {
+    p.health = MAX_HEALTH;
+    p.shield = MAX_SHIELD;
+    p.overshield = 0;
+    this.applyLoadout(p, loadout || (p.isBot ? this.botLoadout() : null));
+  }
+
+  botLoadout() {
+    const r = this.rng;
+    const w0 = r.pick(['ar', 'ar', 'drum']);
+    const w1 = r.pick(['pump', 'pump', 'hammer', 'tac']);
+    const w2 = r.pick(['drum', 'ar', 'pistol'].filter((w) => w !== w0)); // keine Sniper: Bots träfen zu leicht
+    return { w: [w0, w1, w2], c: r.chance(0.5) ? ['big', 'mini'] : ['big', 'medkit'] };
+  }
+
+  // Platz 1–3 Waffen (höchste Seltenheit), 4–5 Heilung (voller Stapel), Munition voll
+  applyLoadout(p, sel) {
+    const lo = cleanLoadout(sel);
+    const inv = p.inv;
+    inv.slots = [...lo.w.map((w) => weaponItem(w, loadoutRarity(w))), ...lo.c.map((c) => consumableItem(c, CONSUMABLES[c].stack))];
+    for (const a of AMMO_TYPES) inv.ammo[a] = AMMO_MAX[a];
+    if (inv.sel !== KNIFE_SLOT) inv.sel = 0;
+    inv.rev++;
+    this.cancelUse(p);
+    equipWeapon(p.wr, selectedItem(inv));
+    p.loadout = lo;
+    return lo;
+  }
+
+  // Mensch wählt in der Startbox seine Ausrüstung (nur während der Wahlzeit)
+  humanLoadout(id, sel) {
+    const p = this.byId.get(id);
+    if (!p || !this.arena || this.phase !== 'countdown') return false;
+    this.applyLoadout(p, sel);
+    return true;
   }
 
   // Bodenhöhe inkl. Stege/Böden
@@ -248,7 +312,7 @@ export class Simulation {
   }
 
   isMate(a, b) {
-    return this.mode === 'duo' && a !== b && a.team === b.team;
+    return this.teamSize > 1 && a !== b && a.team === b.team;
   }
 
   emit(e) {
@@ -1071,20 +1135,22 @@ export class Simulation {
     };
   }
 
-  // Bot-Aufstellung: fehlende Plätze mit Bots füllen (genau 20); Duo: Zweierteams bilden
+  // Bot-Aufstellung: fehlende Plätze mit Bots füllen (Battle Royale 20, Arena 2 bzw. 4);
+  // Teams (Duo, 2v2): Zweierteams bilden
   static fillWithBots(humans, rng, champion = null, mode = 'solo') {
-    const players = humans.slice(0, MATCH_SIZE);
+    const size = modeSize(mode);
+    const players = humans.slice(0, size);
     const used = new Set(players.map((p) => p.name.toLowerCase()));
     const names = rng.shuffle(BOT_NAMES.slice());
     let k = 0;
     const outfits = ['cowboy', 'ranger', 'ninja', 'soldier', 'dancer', 'pirate', 'chef', 'astronaut'];
     let botIdx = 0;
-    if (champion && players.length < MATCH_SIZE) {
+    if (champion && players.length < size && !isArenaMode(mode)) {
       players.push({ ...champion, id: 'bot_champ', isBot: true });
       used.add(champion.name.toLowerCase());
       botIdx++;
     }
-    while (players.length < MATCH_SIZE) {
+    while (players.length < size) {
       let name = names[k++ % names.length];
       if (used.has(name.toLowerCase())) name = name + ' ' + (k + 1);
       used.add(name.toLowerCase());
@@ -1098,7 +1164,7 @@ export class Simulation {
         streak: 0,
       });
     }
-    if (mode === 'duo') Simulation.assignTeams(players);
+    if (teamSizeOf(mode) > 1) Simulation.assignTeams(players);
     return players;
   }
 

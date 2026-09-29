@@ -585,12 +585,16 @@ function outposts(P) {
 // Gelände der ganzen Insel: Hornspitze hinter der Feste, Bergkette im Norden, gefrorener Fluss
 // vom Gebirge zum Spiegelsee und weiter ins Meer, sanfte Schneehügel, Fichtenwälder, Pfade
 function landscape(P) {
-  P.peak(4, -122, 62, 76, { ridges: 5, rot: 0.45, exp: 1.3, jag: 0.3 });
-  P.peak(-72, -120, 40, 44, { ridges: 4, rot: 1.1 });
-  P.peak(80, -114, 44, 50, { ridges: 4, rot: 0.2 });
-  P.peak(130, -56, 32, 30, { ridges: 3, rot: 0.8 });
-  P.peak(-132, -62, 34, 32, { ridges: 3, rot: 2.0 });
-  P.ridge([[-158, -30], [-128, -92], [-66, -138], [8, -156], [82, -142], [136, -98], [160, -36]], 48, 24);
+  // Berge begehbar: breiter und flacher (Flanken unter ~44°), wenig Zacken
+  const soft = { exp: 1.0, jag: 0.04, spur: 0.1, wob: 0.06 };
+  P.peak(4, -134, 76, 52, { ridges: 3, rot: 0.45, ...soft });
+  P.peak(-72, -120, 54, 30, { ridges: 3, rot: 1.1, ...soft });
+  P.peak(80, -114, 58, 34, { ridges: 3, rot: 0.2, ...soft });
+  P.peak(130, -56, 44, 20, { ridges: 3, rot: 0.8, ...soft });
+  P.peak(-132, -62, 46, 22, { ridges: 3, rot: 2.0, ...soft });
+  P.ridge([[-158, -30], [-128, -92], [-66, -138], [8, -156], [82, -142], [136, -98], [160, -36]], 70, 13, 0.1);
+  // ganzes Gebirge im Norden begehbar (Hänge höchstens ~39°, der Gipfelweg ist flacher)
+  P.soften(-190, -215, 190, -58, 0.8, 14);
   for (const [x, z, r, h] of [[-100, -56, 30, 9], [100, -64, 26, 10], [-22, 134, 24, 6], [142, 14, 22, 7], [-142, 30, 24, 7], [40, 74, 20, 5]]) P.hill(x, z, r, h);
   // Fluss aus dem Gebirge (Eishöhe fällt zum See ab) und Abfluss ins Meer
   P.iceRiver([[-62, -124, 24], [-63, -86, 13], [-62, -52, 7.5], [-57, -22, 3.6], [-55, 6, 1.4], [-66, 28, 0.45]], 9);
@@ -606,8 +610,70 @@ function landscape(P) {
     [118, -6, 16, 0.9], [-26, -92, 14, 0.7], [70, 92, 14, 0.9], [-40, 150, 12, 0.8], [-150, 60, 14, 0.8]]) P.forest(x, z, r, d);
 }
 
+// ---------------------------------------------------------------------------
+// Hornspitze begehbar: Gipfelweg von der Festungsterrasse in Kehren bis auf den flachen Gipfel
+// (Steigung höchstens ~21°, auch für Bots), unterwegs die Bergstation, oben ein Aussichtspunkt
+// mit Hütte, Aussichtsturm und Truhen.
+const TRAIL = [[-36, -72, HC], [-44, -98, 27], [-34, -124, 37], [-14, -146, 45], [12, -152, 50], [6, -141, 52]];
+const SUMMIT = { x: 4, z: -134, h: 52 };
+
+function mountain(P) {
+  P.flat(SUMMIT.x, SUMMIT.z, 8, SUMMIT.h, 6);
+  for (let i = 0; i + 1 < TRAIL.length; i++) {
+    const [x1, z1, h1] = TRAIL[i], [x2, z2, h2] = TRAIL[i + 1];
+    P.ramp(x1, z1, h1, x2, z2, h2, 5.5, i === 0 ? 8 : 4); // erstes Stück führt als breiter Damm über den Sims
+  }
+  P.road(TRAIL.map(([x, z]) => [x, z]), 4.2, SURF.PATH);
+  P.poi('Hornspitze', SUMMIT.x, SUMMIT.z, 18);
+  P.keep(SUMMIT.x, SUMMIT.z, 14);
+  // Gipfel: Steinhütte, Aussichtsturm mit Treppe, Gipfelkreuz, Fahne, Bänke
+  P.build(SUMMIT.x, SUMMIT.z, 0.6, (B, out) => {
+    // Hütte (Tür Richtung Weg)
+    const w = 5.2, d = 4.2, h = 2.7;
+    B.box(0, 0, 0, w, 0.2, d, K.FLOOR, { m: MAT.STONE, tx: TX.TILE });
+    B.wall(-w / 2, d / 2, w / 2, d / 2, h, 0.4, K.STONE, [{ at: w / 2, w: 1.9, y0: 0, y1: 2.2 }], stone({ frame: false }));
+    B.wall(w / 2, -d / 2, -w / 2, -d / 2, h, 0.4, K.STONE, [{ at: w / 2, w: 1.1, y0: 1.1, y1: 1.9 }], stone({ frame: false }));
+    B.wall(-w / 2, -d / 2, -w / 2, d / 2, h, 0.4, K.STONE, [], stone({ frame: false }));
+    B.wall(w / 2, d / 2, w / 2, -d / 2, h, 0.4, K.STONE, [], stone({ frame: false }));
+    B.prism(0, h, 0, w + 0.8, 1.4, d + 0.8, K.ROOF, { col: true });
+    snowRoof(B, 0, h, 0, w + 0.8, 1.4, d + 0.8);
+    chest(out, B, -1.5, 0.2, -1.2, 0);
+    floorLoot(out, B, 1.2, 0.2, -0.8);
+    // Aussichtsturm aus Holz: Plattform auf 4 m, Treppe, Brüstung
+    const T = B.sub(5.6, -4.2, 0, 0);
+    T.box(0, 3.8, 0, 3.6, 0.25, 3.6, C.BOARD, { m: MAT.WOOD, tx: TX.WOOD });
+    for (const [x, z] of [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]]) T.cyl(x, 0, z, 0.16, 3.8, C.WOOD_DARK, { seg: 6 });
+    T.railing(-1.8, -1.8, 1.8, -1.8, 4.05, 1.0, C.WOOD_DARK);
+    T.railing(1.8, -1.8, 1.8, 1.8, 4.05, 1.0, C.WOOD_DARK);
+    T.railing(-1.8, -1.8, -1.8, 1.8, 4.05, 1.0, C.WOOD_DARK);
+    T.stairs(0.9, 2.05 + 11 * 0.5, 1.2, 0.34, 0.5, 12, C.WOOD);
+    chest(out, T, 0, 4.05, -0.8, Math.PI);
+    // Gipfelkreuz und Fahne
+    B.cyl(-6, 0, 3, 0.14, 4.2, C.WOOD_DARK, { seg: 6 });
+    B.box(-6, 2.9, 3, 1.8, 0.18, 0.18, C.WOOD_DARK, { col: false });
+    B.cyl(-4, 0, -5, 0.07, 5.5, 0x2a2a2a, { seg: 5, col: false });
+    B.box(-3.3, 4.6, -5, 1.4, 0.8, 0.05, 0xd23c3c, { col: false });
+    for (const [x, z, ry] of [[-2.5, 5.5, 0.2], [2.8, 5.8, -0.3]]) B.box(x, 0, z, 1.8, 0.45, 0.5, C.WOOD, { m: MAT.WOOD, ry });
+    sign(out, B, 0, 3.05, d / 2 + 0.5, 2.6, 0.6, 'HORNSPITZE', 0, '#5a3a22', '#ffffff');
+  }, SUMMIT.h);
+  // Bergstation auf halber Höhe (Rasthütte mit Truhe neben dem Weg)
+  const [bx, bz, bh] = [-26, -150, 45];
+  P.flat(bx, bz, 5.5, bh, 4);
+  P.poi('Bergstation', bx, bz, 12);
+  P.build(bx, bz, face(bx, bz, -14, -146), (B, out) => {
+    cabin(B, out, { w: 5.6, d: 4.6, wall: 0x6e4a31, roof: K.ROOF });
+    snowRoof(B, 0, 2.95, 0, 5.8, 2.0, 6.8, Math.PI / 2);
+  }, bh);
+  // Wegweiser am Beginn des Gipfelwegs
+  P.build(-33, -69, 0, (B, out) => {
+    B.cyl(0, 0, 0, 0.12, 2.6, C.WOOD_DARK, { seg: 6 });
+    sign(out, B, 0, 2.1, 0.1, 2.6, 0.6, 'GIPFELWEG', 0, '#5a3a22', '#ffe9b0');
+  }, HC);
+}
+
 function frostPlan(P) {
   landscape(P);
+  mountain(P);
   citadel(P);
   village(P);
   harbor(P);

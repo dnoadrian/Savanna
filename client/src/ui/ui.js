@@ -159,7 +159,8 @@ export class UI {
   // Blockiert ein Overlay die Spielsteuerung?
   // withInventory: das TAB-Inventar zählt mit (Maus frei, Spielsteuerung pausiert)
   overlayOpen(withInventory = true) {
-    const inv = withInventory && this.app.match && this.app.match.invScreen && this.app.match.invScreen.open;
+    const m = this.app.match;
+    const inv = withInventory && m && ((m.invScreen && m.invScreen.open) || (m.loadoutScreen && m.loadoutScreen.open));
     return !!(inv || this.gameOverlay || this.settings.isOpen || this.friends.isOpen || this.host.isOpen || this.modal || this.clickEl || (this.app.admin && this.app.admin.isOpen));
   }
 

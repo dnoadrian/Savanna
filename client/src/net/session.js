@@ -1,7 +1,7 @@
 // Match-Sitzungen mit gleicher Schnittstelle:
 //  - LocalSession: Bot-Lobby ohne Server, gemeinsame Simulation läuft im Browser (pausierbar)
 //  - NetSession: Mehrspieler, Server ist autoritativ; Interpolation mit 100 ms Puffer
-import { SIM_DT, INTERP_DELAY, F, MAX_HEALTH, START_OVERSHIELD, REVIVE_TIME } from '../../shared/constants.js';
+import { SIM_DT, INTERP_DELAY, F, MAX_HEALTH, START_OVERSHIELD, REVIVE_TIME, normMode, teamSizeOf, isArenaMode } from '../../shared/constants.js';
 import { decodeItem } from '../../shared/items.js';
 import { Zone } from '../../shared/sim/zone.js';
 import { Loot } from '../../shared/sim/loot.js';
@@ -23,14 +23,16 @@ function newState(id) {
 // höchstens so lange (s) über das letzte Paket hinaus weiterrechnen
 const MAX_EXTRAP = 0.2;
 
-// gemeinsame Team-Hilfen (Duo)
+// gemeinsame Team-Hilfen (Duo, 2v2)
 const TeamMixin = {
   initTeams(mode) {
-    this.mode = mode === 'duo' ? 'duo' : 'solo';
+    this.mode = normMode(mode);
+    this.teamSize = teamSizeOf(this.mode);
+    this.arena = isArenaMode(this.mode);
     this.teamOf = new Map(this.players.map((p) => [p.id, p.team]));
   },
   isMate(id) {
-    return this.mode === 'duo' && id !== this.youId && this.teamOf.get(id) !== undefined && this.teamOf.get(id) === this.teamOf.get(this.youId);
+    return this.teamSize > 1 && id !== this.youId && this.teamOf.get(id) !== undefined && this.teamOf.get(id) === this.teamOf.get(this.youId);
   },
   mateIds() {
     return this.players.filter((p) => this.isMate(p.id)).map((p) => p.id);
@@ -136,6 +138,8 @@ export class LocalSession {
 
   sendState(st) { this.sim.setHumanState(this.youId, st); }
   fire(shot) { this.sim.humanFire(this.youId, { ...shot, rewind: 0 }); }
+  // Arena: Ausrüstung in der Startbox wählen
+  loadout(sel) { return this.sim.humanLoadout(this.youId, sel); }
   reload() { this.sim.humanReload(this.youId); }
   cancelReload() { this.sim.humanCancelReload(this.youId); }
   select(slot) { this.sim.humanSelect(this.youId, slot); }
@@ -201,7 +205,7 @@ export class NetSession {
     this.reviveStart = -1;
     const me = start.spawns[this.youId];
     this.spawn = { x: me[0], y: me[1], z: me[2], yaw: me[3] };
-    this.zoneObj = new Zone(start.seed, map.terrain, true);
+    this.zoneObj = new Zone(start.seed, map.terrain, true, isArenaMode(start.mode) ? map.storm : null);
     // Startbeute ist deterministisch aus Seed + Karte; danach kommen Änderungen als Ereignisse
     this.loot = new Loot(map, start.seed);
     const mine = this.players.find((p) => p.id === this.youId);
@@ -400,6 +404,7 @@ export class NetSession {
     this.net.send(msg);
   }
 
+  loadout(sel) { this.net.send({ t: 'loadout', s: { w: sel.w, c: sel.c } }); return true; }
   reload() { this.net.send({ t: 'reload' }); }
   cancelReload() { this.net.send({ t: 'reloadCancel' }); }
   select(slot) { this.net.send({ t: 'sel', s: slot }); }

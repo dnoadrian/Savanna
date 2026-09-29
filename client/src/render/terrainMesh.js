@@ -35,6 +35,12 @@ const SURF_TX = {
   [SURF.GLACIER]: TX.ICE,
   [SURF.ROCK]: TX.ROCK,
   [SURF.PLAZA]: TX.TILE,
+  [SURF.GRASS]: TX.GRASS,
+  [SURF.FOREST]: TX.GRASS,
+  [SURF.DRYGRASS]: TX.GRASS,
+  [SURF.DIRT]: TX.GROUND,
+  [SURF.MUD]: TX.GROUND,
+  [SURF.BEACH]: TX.GROUND,
 };
 
 export function surfaceColor(s) {

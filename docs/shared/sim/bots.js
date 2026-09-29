@@ -128,7 +128,7 @@ export class BotBrain {
     this.visible.length = 0;
     const cosHalf = Math.cos((BOT_FOV / 2) * DEG);
     const fx = -Math.sin(this.aimYaw), fz = -Math.cos(this.aimYaw);
-    const early = sim.matchTime < EARLY_LOOT;
+    const early = !sim.arena && sim.matchTime < EARLY_LOOT; // Arena: sofort kämpfen
     for (const o of sim.players) {
       if (o === me || !o.alive || sim.isMate(me, o)) continue;
       const dx = o.body.x - b.x, dz = o.body.z - b.z;
@@ -704,7 +704,7 @@ export class BotBrain {
             this.idleT = this.rng.range(0.4, 1.8);
             this.lookYaw = this.aimYaw;
           }
-          if (sim.time - this.destT > 40) this.dest = null;
+          if (sim.time - this.destT > (sim.arena ? 5 : 40)) this.dest = null;
         }
       }
     }
@@ -862,6 +862,19 @@ export class BotBrain {
     const z = sim.zone.state;
     const safe = sim.zone.enabled && z.next ? z.next : { x: 0, z: 0, r: 80 };
     let x, zz;
+    // Arena: den nächsten Gegner suchen gehen (man weiß ungefähr, wo er ist)
+    if (sim.arena) {
+      let best = null, bd = Infinity;
+      for (const o of sim.players) {
+        if (o === this.p || !o.alive || sim.isMate(this.p, o)) continue;
+        const d = Math.hypot(o.body.x - b.x, o.body.z - b.z);
+        if (d < bd) { bd = d; best = o; }
+      }
+      if (best) {
+        x = best.body.x + this.rng.range(-5, 5);
+        zz = best.body.z + this.rng.range(-5, 5);
+      }
+    }
     // Duo: in der Nähe des Partners bleiben
     const mate = this.mate;
     if (mate && mate.alive && !mate.knocked && Math.hypot(mate.body.x - b.x, mate.body.z - b.z) > 22) {

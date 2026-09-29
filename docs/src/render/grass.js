@@ -8,9 +8,10 @@ const MAX = 32000;
 const TILE = 12;
 const CACHE_MAX = 400;
 
-// kleine Insel: das Gras kann dicht stehen
+// kleine Insel: das Gras kann dicht stehen. „off“ (feste Grafik) zeigt trotzdem kleine, lockere
+// Büschel – auf Wiesen etwa jede zweite Zelle, im Schnee nur vereinzelte trockene Halme.
 export const GRASS_LEVELS = {
-  off: { r: 0, cell: 2 },
+  off: { r: 38, cell: 1.35, mini: true },
   low: { r: 30, cell: 1.2 },
   medium: { r: 42, cell: 0.95 },
   high: { r: 56, cell: 0.8 },
@@ -74,6 +75,9 @@ export class Grass {
     this.cols = [new THREE.Color(0x6fb33f), new THREE.Color(0x7fc44b), new THREE.Color(0x5ea63a), new THREE.Color(0x8fc653)];
     this.dryCols = [new THREE.Color(0xd9b048), new THREE.Color(0xe6c35a), new THREE.Color(0xb9b848), new THREE.Color(0xc9a23e)];
     this.fieldCol = new THREE.Color(0xe8c04e);
+    // trockene Halme, die aus dem Schnee ragen
+    this.snowCols = [new THREE.Color(0xb9a36a), new THREE.Color(0xa08c58), new THREE.Color(0xc8b47a), new THREE.Color(0x8f7f52)];
+    this.nrm = { x: 0, y: 1, z: 0 };
   }
 
   dispose() {
@@ -119,11 +123,23 @@ export class Grass {
         const z = (j + hash2(i, j, 5)) * cell;
         const s = terrain.surfaceAt(x, z);
         const field = s === SURF.FIELD;
-        if (s !== SURF.GRASS && s !== SURF.DRYGRASS && s !== SURF.FOREST && !field && !(s === SURF.SWAMP && h1 < 0.5) && !(s === SURF.DIRT && h1 < 0.25)) continue;
+        const snow = s === SURF.SNOW;
+        if (snow) {
+          // im Schnee nur vereinzelte trockene Büschel (auch bei „Gras aus“)
+          if (h1 > 0.05) continue;
+        } else if (s !== SURF.GRASS && s !== SURF.DRYGRASS && s !== SURF.FOREST && !field && !(s === SURF.SWAMP && h1 < 0.5) && !(s === SURF.DIRT && h1 < 0.25)) continue;
+        else if (lv.mini && h1 > 0.55) continue; // kleine Büschel: lockerer verteilt
         const y = terrain.heightAt(x, z);
         if (y < 0.4 || terrain.waterLevelAt(x, z) > y - 0.05) continue;
+        if (snow && terrain.normalAt(x, z, this.nrm).y < 0.86) continue;
         if (col.groundAt(x, z, 0.05, y + 4) > y + 0.05) continue;
-        const scale = (0.7 + hash2(i, j, 9) * 0.6) * (field ? 1.5 : 1);
+        const scale = (0.7 + hash2(i, j, 9) * 0.6) * (field ? 1.5 : 1) * (snow ? 0.62 : lv.mini ? 0.8 : 1);
+        if (snow) {
+          const c = this.snowCols[Math.floor(hash2(i, j, 21) * 4)];
+          const b = 0.85 + hash2(i, j, 23) * 0.3;
+          out.push(x, y - 0.07, z, hash2(i, j, 11) * 6.28, scale, scale * (0.7 + hash2(i, j, 13) * 0.5), c.r * b, c.g * b, c.b * b, h1 * 18);
+          continue;
+        }
         const pal = s === SURF.DRYGRASS || s === SURF.DIRT ? this.dryCols : this.cols;
         const c = field ? this.fieldCol : pal[Math.floor(hash2(i, j, 21) * 4)];
         const b = 0.85 + hash2(i, j, 23) * 0.3;

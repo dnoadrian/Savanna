@@ -3,13 +3,20 @@ import { STORM_PHASES, STORM_START_RADIUS, PLAY_RADIUS } from '../constants.js';
 import { RNG } from '../rng.js';
 
 export class Zone {
-  constructor(seed, terrain, enabled = true) {
+  // cfg (Arena): { x, z, r, phases } – feste Mitte, eigene Phasen
+  constructor(seed, terrain, enabled = true, cfg = null) {
     this.enabled = enabled;
     const rng = new RNG(seed ^ 0x5a5a1234);
-    this.circles = [{ x: 0, z: 0, r: STORM_START_RADIUS }];
+    const PH = this.phases = cfg ? cfg.phases : STORM_PHASES;
+    this.circles = [{ x: cfg ? cfg.x : 0, z: cfg ? cfg.z : 0, r: cfg ? cfg.r : STORM_START_RADIUS }];
     let prev = this.circles[0];
-    for (let i = 0; i < STORM_PHASES.length; i++) {
-      const r = STORM_PHASES[i].radius;
+    for (let i = 0; i < PH.length; i++) {
+      const r = PH[i].radius;
+      if (cfg) {
+        this.circles.push({ x: cfg.x, z: cfg.z, r });
+        prev = this.circles[this.circles.length - 1];
+        continue;
+      }
       let best = null;
       for (let tries = 0; tries < 60; tries++) {
         const maxOff = Math.max(0, Math.min(prev.r - r, i === 0 ? PLAY_RADIUS * 0.18 : prev.r - r));
@@ -20,8 +27,8 @@ export class Zone {
         best = { x, z, r };
         if (!terrain) break;
         const h = terrain.heightAt(x, z);
-        // Kreismitte an Land, nicht zu weit draußen und nicht im Hochgebirge
-        if (h > 0.2 && h < 22 && terrain.normalAt(x, z).y > 0.8 && Math.hypot(x, z) < PLAY_RADIUS * 0.6) break;
+        // Kreismitte an Land, nicht zu weit draußen und nicht an einem steilen Hang (Berg ist erlaubt)
+        if (h > 0.2 && h < 60 && terrain.normalAt(x, z).y > 0.8 && Math.hypot(x, z) < PLAY_RADIUS * 0.6) break;
       }
       this.circles.push(best);
       prev = best;
@@ -29,13 +36,13 @@ export class Zone {
     // Zeitplan
     this.schedule = [];
     let t = 0;
-    for (let i = 0; i < STORM_PHASES.length; i++) {
-      const p = STORM_PHASES[i];
+    for (let i = 0; i < PH.length; i++) {
+      const p = PH[i];
       this.schedule.push({ waitStart: t, shrinkStart: t + p.wait, shrinkEnd: t + p.wait + p.shrink });
       t += p.wait + p.shrink;
     }
     this.totalTime = t;
-    this.state = { phase: 0, shrinking: false, x: 0, z: 0, r: STORM_START_RADIUS, next: this.circles[1], timeLeft: 0, dps: 1 };
+    this.state = { phase: 0, total: PH.length, shrinking: false, x: this.circles[0].x, z: this.circles[0].z, r: this.circles[0].r, next: this.circles[1], timeLeft: 0, dps: 1 };
   }
 
   // Zustand zur Match-Zeit t (Sekunden seit GO)
@@ -53,10 +60,10 @@ export class Zone {
     const from = this.circles[idx];
     const to = this.circles[idx + 1];
     s.phase = idx + 1;
-    s.dps = STORM_PHASES[idx].dps;
+    s.dps = this.phases[idx].dps;
     s.next = to;
     if (t >= this.totalTime) {
-      s.shrinking = false; s.x = to.x; s.z = to.z; s.r = to.r; s.timeLeft = 0; s.phase = STORM_PHASES.length; s.done = true;
+      s.shrinking = false; s.x = to.x; s.z = to.z; s.r = to.r; s.timeLeft = 0; s.phase = this.phases.length; s.done = true;
       return s;
     }
     s.done = false;

@@ -63,7 +63,7 @@ export const DEFAULTS = {
   // Konto / Warteschlange
   language: 'de',
   queueWait: QUEUE_WAIT, // Sekunden, die auf echte Spieler gewartet wird (10–120)
-  gameMode: 'solo', // Battle Royale: 'solo' oder 'duo'
+  gameMode: 'solo', // 'solo', 'duo' (Battle Royale) oder '1v1', '2v2' (Arena)
 };
 
 const STORAGE_KEY = 'showdown.settings.v1';
@@ -104,7 +104,7 @@ export class Settings {
       /* Standardwerte */
     }
     this.values.queueWait = clampQueueWait(this.values.queueWait);
-    if (this.values.gameMode !== 'duo') this.values.gameMode = 'solo';
+    if (!['solo', 'duo', '1v1', '2v2'].includes(this.values.gameMode)) this.values.gameMode = 'solo';
     if (this.values.aimAssist !== 'on' && this.values.aimAssist !== 'off') this.values.aimAssist = 'on';
   }
 

@@ -20,7 +20,7 @@ import { mapSteps, randomMapId } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
-import { MATCH_SIZE, clampQueueWait } from '../shared/constants.js';
+import { MATCH_SIZE, clampQueueWait, normMode, modeSize, isArenaMode, ARENA_MAP } from '../shared/constants.js';
 import { initPWA } from './pwa.js';
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -432,15 +432,20 @@ class App {
     return data.nav;
   }
 
-  // Spielmodus: in einer Party bestimmt der Leader (Server), sonst die eigene Einstellung
+  // Spielmodus (Solo, Duo, 1v1, 2v2): in einer Party bestimmt der Leader (Server), sonst die eigene Einstellung
   gameMode() {
     const party = this.party;
-    if (party && party.members.length > 1 && this.net.connected) return party.mode === 'duo' ? 'duo' : 'solo';
-    return this.settings.get('gameMode') === 'duo' ? 'duo' : 'solo';
+    if (party && party.members.length > 1 && this.net.connected) return normMode(party.mode);
+    return normMode(this.settings.get('gameMode'));
+  }
+
+  // Karte, die im gewählten Modus als Nächstes gespielt wird (Arena-Modi: immer die Holzarena)
+  lobbyMapId() {
+    return isArenaMode(this.gameMode()) ? ARENA_MAP : this.soloMapId;
   }
 
   setGameMode(mode) {
-    mode = mode === 'duo' ? 'duo' : 'solo';
+    mode = normMode(mode);
     this.settings.set('gameMode', mode);
     const party = this.party;
     if (party && party.members.length > 1 && party.leader === this.profile.id && this.net.connected) this.net.send({ t: 'partyMode', mode });
@@ -451,15 +456,15 @@ class App {
   // für freie Plätze; ohne Server (Webseite) → dieselbe Wartezeit lokal, dann eine Bot-Lobby.
   ready() {
     if (this.queue) return;
-    if (!this.net.connected) this.prepareMap(this.soloMapId).catch(() => {});
-    const wait = clampQueueWait(this.settings.get('queueWait'));
     const mode = this.gameMode();
+    if (!this.net.connected) this.prepareMap(this.lobbyMapId()).catch(() => {});
+    const wait = clampQueueWait(this.settings.get('queueWait'));
     if (this.net.connected) {
       this.net.send({ t: 'queue', wait, mode });
       return;
     }
     this.localQueue = { start: performance.now(), wait };
-    this.queue = { state: 'waiting', secs: wait, wait, humans: 1, bots: MATCH_SIZE - 1, local: true };
+    this.queue = { state: 'waiting', secs: wait, wait, humans: 1, bots: modeSize(mode) - 1, local: true, mode, map: this.lobbyMapId() };
     this.ui.onQueue();
   }
 
@@ -495,10 +500,12 @@ class App {
     this.audio.stopLobbyMusic();
     this.state = 'loading';
     this.ui.showLoading();
-    const mapId = this.soloMapId;
+    const mode = this.gameMode();
+    const arena = isArenaMode(mode);
+    const mapId = arena ? ARENA_MAP : this.soloMapId;
     const data = await this.prepareMap(mapId, (p) => this.ui.setLoading(p));
     this.mapData = data;
-    this.soloMapId = randomMapId(Math.random, mapId);
+    if (!arena) this.soloMapId = randomMapId(Math.random, mapId);
     this.ui.setLoading(0.92);
     await nextFrame();
     const nav = this.ensureNav(data);
@@ -507,11 +514,10 @@ class App {
     const rng = new RNG(seed);
     const me = { ...this.profile.publicInfo(), isBot: false };
     const champ = prof.soloChampion;
-    const mode = this.gameMode();
     const players = Simulation.fillWithBots([me], rng, champ ? { ...champ, isBot: true, crownStyle: 'gold' } : null, mode);
-    if (players.length !== MATCH_SIZE) throw new Error('Spielerzahl muss ' + MATCH_SIZE + ' sein');
+    if (players.length !== modeSize(mode)) throw new Error('Spielerzahl muss ' + modeSize(mode) + ' sein');
     const map = data.map;
-    const sim = new Simulation({ terrain: map.terrain, collision: map.collision, nav, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot }, { seed, players, mode });
+    const sim = new Simulation({ terrain: map.terrain, collision: map.collision, nav, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot, spawns: map.spawns, storm: map.storm }, { seed, players, mode });
     const session = new LocalSession(sim, me.id);
     this.beginMatch(session, 'solo');
   }
@@ -575,8 +581,9 @@ class App {
   // Match regulär beendet → Ergebnis
   endMatch(r) {
     const mine = r.mine;
-    if (r.mode === 'solo') this.applySoloResult({ mine, results: r.results, winnerId: r.winnerId, players: r.players, silent: true });
-    const xp = this.applyPersonalResult(mine, r.total);
+    const arena = isArenaMode(r.gameMode);
+    if (r.mode === 'solo' && !arena) this.applySoloResult({ mine, results: r.results, winnerId: r.winnerId, players: r.players, silent: true });
+    const xp = this.applyPersonalResult(mine, r.total, arena);
     this.disposeMatch();
     this.state = 'results';
     this.showMenuScene('lobby');
@@ -585,18 +592,19 @@ class App {
   }
 
   // Vorzeitig zurück in die Lobby
-  returnToLobby({ mine, mode, partial, total }) {
-    if (mine && partial) this.applyPersonalResult({ ...mine, placement: mine.placement || 0 }, total);
+  returnToLobby({ mine, mode, partial, total, gameMode }) {
+    if (mine && partial) this.applyPersonalResult({ ...mine, placement: mine.placement || 0 }, total, isArenaMode(gameMode));
     this.disposeMatch();
     this.enterLobby();
   }
 
-  applyPersonalResult(mine, total = MATCH_SIZE) {
-    const r = { kills: mine.kills || 0, damage: mine.damage || 0, headshots: mine.headshots || 0, placement: mine.placement || total, survival: mine.survival || 0 };
+  // arena: 1v1/2v2 – Coins und Statistik ja, aber keine Rangpunkte und keine Kronen-Serie
+  applyPersonalResult(mine, total = MATCH_SIZE, arena = false) {
+    const r = { kills: mine.kills || 0, damage: mine.damage || 0, headshots: mine.headshots || 0, placement: mine.placement || total, survival: mine.survival || 0, arena };
     this.profile.applyMatch(r);
     const xp = { parts: [] };
-    // Ranked-Fortschritt (ersetzt Level/XP)
-    xp.rank = this.profile.applyRank(r);
+    // Ranked-Fortschritt (ersetzt Level/XP) – nur im Battle Royale
+    xp.rank = arena ? null : this.profile.applyRank(r);
     // Coins: 50 pro Kill, 250 für den Sieg
     xp.coins = computeCoins(r);
     if (xp.coins) this.profile.addCoins(xp.coins);

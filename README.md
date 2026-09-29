@@ -6,6 +6,12 @@ Ein Battle-Royale im Low-Poly-Stil, das direkt im Browser läuft.
 
 20 Spieler landen auf der Frostfeste, einer verschneiten Insel mit Festung, Bergen, gefrorenem See, Dorf und Hafen. Man öffnet Truhen, sammelt Waffen und Schilde, und wer am Ende noch steht, gewinnt. Gespielt wird allein (Solo) oder zu zweit (Duo). Freie Plätze werden mit Bots aufgefüllt.
 
+Dazu gibt es 1v1 und 2v2 in der Holzarena. Den Modus wählt man in der Lobby auf der Modus-Karte (SOLO, DUO, 1V1, 2V2).
+
+## Die Karte
+
+Die Berge im Norden sind begehbar. Hinter der Feste beginnt der Gipfelweg, der in Kehren auf die Hornspitze führt (52 m). Unterwegs liegt die Bergstation, oben stehen eine Steinhütte und ein Aussichtsturm mit Truhen. Man kann auch auf dem Berg landen, und der Sturm kann dort enden.
+
 ## Als App installieren
 
 In der Lobby oben rechts auf **App** klicken. Unter Chrome und Edge erscheint direkt der Installations-Dialog, auf dem iPhone geht es über Safari mit „Teilen“ und dann „Zum Home-Bildschirm“. Die App startet im Vollbild, und Solo gegen Bots funktioniert nach dem ersten Start auch offline.
@@ -31,11 +37,19 @@ In der Lobby oben rechts auf **App** klicken. Unter Chrome und Edge erscheint di
 
 Alle Tasten lassen sich unter Einstellungen, Steuerung neu belegen.
 
+## Arena (1v1 und 2v2)
+
+- Jedes Team startet in einer eigenen Holzbox. Die ersten 12 Sekunden steht man still und wählt seine Ausrüstung.
+- Platz 1 bis 3: je eine Waffe in der höchsten Seltenheit. Platz 4 und 5: Heilung (Mini-Schild, Schildtrank oder Medikit).
+- Die letzte Wahl wird gespeichert und beim nächsten Mal gleich wieder benutzt.
+- Fehlende Spieler werden mit Bots aufgefüllt. Es gibt keine Truhen, dafür Holzwände, Kisten und zwei Plattformen als Deckung.
+- Ein kleiner Sturm in 3 Phasen sorgt dafür, dass die Runde nicht ewig dauert. Arena-Runden zählen nicht für den Rang.
+
 ## Spielregeln
 
 - 100 Leben und 100 Schild. Zum Start gibt es 50 Überschild, der nicht wieder aufgeladen wird.
 - Jede Eliminierung gibt 50 zurück, zuerst aufs Leben, der Rest als Schild.
-- Der Sturm zieht sich in 5 Phasen zusammen und trifft nur das Leben.
+- Der Sturm zieht sich in 5 Phasen zusammen (in der Arena 3) und trifft nur das Leben.
 - Im Duo wird man bei 0 Leben erst niedergeschlagen und kann vom Partner wiederbelebt werden.
 - Pro Kill gibt es 50 Coins, für einen Sieg 250. Im Shop gibt es Skins und Messer.
 - Ranked-Stufen von Bronze bis Unreal.

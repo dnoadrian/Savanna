@@ -255,6 +255,11 @@ export class Profile {
     s.damage += r.damage;
     s.headshots += r.headshots;
     s.timePlayed += Math.round(r.survival);
+    if (r.arena) {
+      // Arena: Kills/Schaden zählen, Siege und Kronen-Serie gibt es nur im Battle Royale
+      this.save();
+      return;
+    }
     if (r.placement > 0 && (s.bestPlacement === 0 || r.placement < s.bestPlacement)) s.bestPlacement = r.placement;
     if (r.placement === 1) {
       if (this.data.winStreak > 0) s.crownWins++;

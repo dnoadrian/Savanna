@@ -8,11 +8,11 @@ import { TunnelManager } from './tunnel.js';
 import { Beacon } from './beacon.js';
 import { AdminAuth } from './admin.js';
 import { validateName, suggestAlternatives } from '../shared/names.js';
-import { mapSteps, randomMapId } from '../shared/map/mapgen.js';
+import { mapSteps, randomMapId, mapForMode } from '../shared/map/mapgen.js';
 import { NavGrid } from '../shared/sim/nav.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
-import { MATCH_SIZE, PARTY_MAX, INVITE_TTL, SERVER_PORT, ADMIN_USER, ADMIN_PASS, ADMIN_MAX_COINS, SIM_DT, clampQueueWait } from '../shared/constants.js';
+import { MATCH_SIZE, PARTY_MAX, INVITE_TTL, SERVER_PORT, ADMIN_USER, ADMIN_PASS, ADMIN_MAX_COINS, SIM_DT, clampQueueWait, normMode, modeSize, isArenaMode, ARENA_MAP } from '../shared/constants.js';
 
 const WARMUP_STEPS = 900; // 30 s Spielzeit
 // Lobby-Nachrichten: höchstens 5 gleichzeitig, 160 Zeichen, längstens 30 Tage (0 = dauerhaft)
@@ -163,7 +163,7 @@ export class GameServer {
     // Match-Nachrichten
     if (c.matchId) {
       const match = this.matches.get(c.matchId);
-      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'sel', 'swap', 'drop', 'dropAmmo', 'cheat', 'int', 'use', 'useCancel', 'rev', 'leaveMatch', 'loaded'].includes(m.t)) {
+      if (match && ['st', 'fire', 'reload', 'reloadCancel', 'sel', 'swap', 'drop', 'dropAmmo', 'cheat', 'loadout', 'int', 'use', 'useCancel', 'rev', 'leaveMatch', 'loaded'].includes(m.t)) {
         match.onMessage(c, m);
         return;
       }
@@ -689,7 +689,7 @@ export class GameServer {
   onPartyMode(c, mode) {
     const party = this.partyOf(c.pid);
     if (!party || party.leader !== c.pid) return;
-    party.mode = mode === 'duo' ? 'duo' : 'solo';
+    party.mode = normMode(mode);
     this.store.save();
     this.sendParty(party.id);
   }
@@ -882,8 +882,9 @@ export class GameServer {
       members = party.members.filter((id) => this.byPid.has(id) && !this.byPid.get(id).matchId);
     }
     if (this.queue.some((tk) => tk.members.includes(c.pid))) return;
-    const mode = m.mode === 'duo' ? 'duo' : 'solo';
-    if (mode === 'duo' && members.length > 2) return this.err(c, 'duoTooMany');
+    const mode = normMode(m.mode);
+    // Duo, 1v1, 2v2: höchstens zwei aus einer Party (1v1: die beiden spielen gegeneinander)
+    if (mode !== 'solo' && members.length > 2) return this.err(c, mode === 'duo' ? 'duoTooMany' : 'modeTooMany');
     const ticket = { leader: c.pid, members, created: Date.now(), wait: clampQueueWait(m.wait), mode };
     this.queue.push(ticket);
     this.tickQueue();
@@ -918,13 +919,14 @@ export class GameServer {
       return ok;
     });
     if (!this.queue.length) return;
-    // Parties nie trennen: FIFO auffüllen bis max. 20 Menschen (nur Tickets mit demselben Modus)
+    // Parties nie trennen: FIFO auffüllen bis zur Spielerzahl des Modus (nur Tickets mit demselben Modus)
     const pick = [];
     let humans = 0;
     const mode = this.queue[0].mode;
+    const size = modeSize(mode);
     for (const tk of this.queue) {
       if (tk.mode !== mode) continue;
-      if (humans + tk.members.length <= MATCH_SIZE) {
+      if (humans + tk.members.length <= size) {
         pick.push(tk);
         humans += tk.members.length;
       }
@@ -933,7 +935,7 @@ export class GameServer {
     // dann mit Bots auffüllen
     const first = this.queue[0];
     const waited = (Date.now() - first.created) / 1000;
-    if (humans >= MATCH_SIZE || waited >= first.wait) {
+    if (humans >= size || waited >= first.wait) {
       this.queue = this.queue.filter((tk) => !pick.includes(tk));
       this.startMatch(pick, mode);
       return;
@@ -941,7 +943,8 @@ export class GameServer {
     const secs = Math.max(0, first.wait - waited);
     for (const tk of this.queue) {
       const n = pick.includes(tk) ? humans : tk.members.length;
-      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs: pick.includes(tk) ? secs : Math.max(secs, tk.wait - (Date.now() - tk.created) / 1000), wait: pick.includes(tk) ? first.wait : tk.wait, humans: n, bots: MATCH_SIZE - n, map: this.nextMap, mode: tk.mode });
+      const ts = modeSize(tk.mode);
+      for (const id of tk.members) this.sendTo(id, { t: 'queue', state: 'waiting', secs: pick.includes(tk) ? secs : Math.max(secs, tk.wait - (Date.now() - tk.created) / 1000), wait: pick.includes(tk) ? first.wait : tk.wait, humans: n, bots: Math.max(0, ts - n), map: isArenaMode(tk.mode) ? ARENA_MAP : this.nextMap, mode: tk.mode });
     }
   }
 
@@ -952,12 +955,13 @@ export class GameServer {
       if (c && !c.matchId) clients.push(c);
     }
     if (!clients.length) return;
-    const mapId = this.nextMap;
+    const arena = isArenaMode(mode);
+    const mapId = arena ? ARENA_MAP : this.nextMap;
     const world = this.mapNow(mapId);
     const match = new ServerMatch(this, clients, world, mode);
     this.matches.set(match.id, match);
-    // nächste Runde: andere zufällige Karte, im Hintergrund vorbereiten
-    this.nextMap = randomMapId(Math.random, mapId);
+    // nächste Battle-Royale-Runde: andere zufällige Karte, im Hintergrund vorbereiten
+    if (!arena) this.nextMap = mapForMode(mode, Math.random, mapId);
     this.pruneMaps();
     this.prepareMap(this.nextMap);
     const parties = new Set();
@@ -1059,7 +1063,7 @@ export class GameServer {
       }
       if (!navGen.next().done) return false;
       const m = e.map;
-      e.world = { id, name: m.name, terrain: m.terrain, collision: m.collision, nav: e.nav, pois: m.pois, chests: m.chests, floorLoot: m.floorLoot };
+      e.world = { id, name: m.name, terrain: m.terrain, collision: m.collision, nav: e.nav, pois: m.pois, chests: m.chests, floorLoot: m.floorLoot, spawns: m.spawns, storm: m.storm };
       e.ready = true;
       console.log(`Karte ${m.name} bereit in ${Date.now() - t0} ms (${m.collision.cols.length} Collider).`);
       for (const w of e.waiters.splice(0)) w(e.world);
@@ -1085,7 +1089,7 @@ export class GameServer {
 
   // nicht mehr gebrauchte Karten freigeben (laufende Matches behalten ihre Welt)
   pruneMaps() {
-    const used = new Set([this.nextMap]);
+    const used = new Set([this.nextMap, ARENA_MAP]); // die kleine Arena bleibt vorbereitet
     for (const m of this.matches.values()) used.add(m.mapId);
     for (const id of [...this.maps.keys()]) if (!used.has(id)) this.maps.delete(id);
   }

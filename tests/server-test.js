@@ -209,6 +209,22 @@ export async function runServerTest() {
   assert.equal(db.players['aaaa-1'].friends[0], 'bbbb-2');
   assert.equal(Object.keys(db.parties).length, 1);
 
+  // Arena 1v1: eigener Match-Typ auf der Holzarena, Bot als Gegner, Ausrüstung über das Netz wählen
+  const HT = connect();
+  HT.msg({ t: 'hello', id: 'hhhh-8', name: 'Hotel' });
+  assert.ok(HT.last('welcome'));
+  gs.startMatch([{ members: ['hhhh-8'] }], '1v1');
+  const am = HT.last('matchStart');
+  assert.equal(am.mode, '1v1');
+  assert.equal(am.map, 'arena');
+  assert.equal(am.players.length, 2);
+  const amatch = gs.matches.get(am.matchId);
+  HT.msg({ t: 'loaded', mid: am.matchId });
+  HT.msg({ t: 'loadout', s: { w: ['sniper', 'pump', 'ar'], c: ['medkit', 'big'] } });
+  const hp = amatch.sim.byId.get('hhhh-8');
+  assert.deepEqual(hp.inv.slots.map((it) => it.w || it.c), ['sniper', 'pump', 'ar', 'medkit', 'big']);
+  HT.msg({ t: 'leaveMatch' });
+
   // Admin: Übersicht, Rauswerfen, alle Spieler zurücksetzen
   const ADM = connect();
   ADM.msg({ t: 'adminStats', rid: 40 });
@@ -218,7 +234,7 @@ export async function runServerTest() {
   ADM.msg({ t: 'adminStats', rid: 42 });
   const sr = ADM.last('result');
   assert.ok(sr.ok);
-  assert.equal(sr.stats.accounts, 4);
+  assert.equal(sr.stats.accounts, 5);
   assert.ok(sr.online.some((p) => p.name === 'Delta'));
   ADM.msg({ t: 'adminKick', rid: 43, id: 'dddd-4' });
   assert.ok(ADM.last('result').ok);
@@ -234,7 +250,7 @@ export async function runServerTest() {
   ADM.msg({ t: 'adminWipe', rid: 46, confirm: 'RESET' });
   const wr = ADM.last('result');
   assert.ok(wr.ok);
-  assert.equal(wr.n, 4);
+  assert.equal(wr.n, 5);
   assert.ok(A.last('wiped') && B.last('wiped'), 'alle Verbundenen werden benachrichtigt');
   assert.equal(Object.keys(gs.store.players).length, 0);
   assert.equal(Object.keys(gs.store.parties).length, 0);

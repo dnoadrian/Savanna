@@ -223,7 +223,7 @@ export class HUD {
     const z = d.zone;
     if (d.stormOn && z) {
       const txt = d.phase === 'countdown' ? '' : z.done ? t('stormShrinkLabel') : (z.shrinking ? `${t('stormShrinkLabel')} ${fmtTime(z.timeLeft)}` : `${t('stormNext')} ${fmtTime(z.timeLeft)}`);
-      const html = `${ICON.storm}<span>${esc(txt)}</span><small>${t('stormPhase', { n: z.phase })}</small>`;
+      const html = `${ICON.storm}<span>${esc(txt)}</span><small>${t('stormPhase', { n: z.phase, m: z.total || 5 })}</small>`;
       if (c.storm !== html) { c.storm = html; this.stormEl.innerHTML = html; }
       this.stormEl.classList.toggle('shrinking', !!z.shrinking);
       this.stormEl.classList.remove('hidden');

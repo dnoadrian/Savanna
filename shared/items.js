@@ -89,6 +89,19 @@ export const CONSUMABLES = {
 export const CONSUMABLE_TYPES = Object.keys(CONSUMABLES);
 
 export const weaponItem = (w, r) => ({ k: 'w', w, r, mag: WEAPONS[w].mag });
+
+// Arena (1v1/2v2): Ausrüstung frei wählen – Platz 1 bis 3 je eine Waffe (höchste Seltenheit),
+// Platz 4 und 5 Heilung (voller Stapel)
+export const LOADOUT_WEAPONS = ['ar', 'drum', 'pump', 'hammer', 'tac', 'sniper', 'pistol'];
+export const LOADOUT_HEALS = ['big', 'mini', 'medkit'];
+export const DEFAULT_LOADOUT = { w: ['ar', 'pump', 'drum'], c: ['big', 'mini'] };
+export const loadoutRarity = (w) => WEAPONS[w].rarities[WEAPONS[w].rarities.length - 1];
+// ungültige Angaben durch die Standardauswahl ersetzen
+export function cleanLoadout(sel) {
+  const w = [0, 1, 2].map((i) => (sel && Array.isArray(sel.w) && LOADOUT_WEAPONS.includes(sel.w[i]) ? sel.w[i] : DEFAULT_LOADOUT.w[i]));
+  const c = [0, 1].map((i) => (sel && Array.isArray(sel.c) && LOADOUT_HEALS.includes(sel.c[i]) ? sel.c[i] : DEFAULT_LOADOUT.c[i]));
+  return { w, c };
+}
 export const consumableItem = (c, n = CONSUMABLES[c].drop) => ({ k: 'c', c, n });
 export const ammoItem = (a, n = AMMO_DROP[a]) => ({ k: 'a', a, n });
 

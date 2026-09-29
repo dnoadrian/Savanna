@@ -30,7 +30,7 @@ export const PLAY_RADIUS = 159; // ungefährer Inselradius (Küstenlinie)
 export const SEA_LEVEL = 0;
 export const DEEP_WATER = 1.25; // tieferes Wasser (offenes Meer) kann man nicht betreten
 export const BOUNDARY_RADIUS = 179;
-export const SPAWN_MAX_HEIGHT = 30; // nicht auf Berggipfeln starten
+export const SPAWN_MAX_HEIGHT = 64; // Gipfel der Hornspitze liegt auf 52 m und ist begehbar
 
 // Leben: 100 Gesundheit (grün) + 100 Schild (blau); Start mit 50 Überschild, der nicht zurückkommt
 export const MAX_HEALTH = 100;
@@ -103,8 +103,24 @@ export const F = {
   REVIVING: 4096, // wird gerade wiederbelebt
 };
 
+// Spielmodi: Battle Royale (Solo, Duo – 20 Spieler auf der Insel) und Arena (1v1, 2v2 – kleine
+// Holzarena, Start in Boxen mit freier Waffenwahl). Freie Plätze füllen immer Bots.
+export const MODES = ['solo', 'duo', '1v1', '2v2'];
+export const MODE_INFO = {
+  solo: { size: MATCH_SIZE, team: 1, arena: false },
+  duo: { size: MATCH_SIZE, team: 2, arena: false },
+  '1v1': { size: 2, team: 1, arena: true },
+  '2v2': { size: 4, team: 2, arena: true },
+};
+export const normMode = (m) => (MODES.includes(m) ? m : 'solo');
+export const modeSize = (m) => MODE_INFO[normMode(m)].size;
+export const teamSizeOf = (m) => MODE_INFO[normMode(m)].team;
+export const isArenaMode = (m) => MODE_INFO[normMode(m)].arena;
+export const ARENA_MAP = 'arena';
+// Arena: so lange steht man in der Startbox und wählt seine Ausrüstung
+export const LOADOUT_TIME = 12;
+
 // Duo: Niederschlagen + Wiederbeleben (wie im Original)
-export const MODES = ['solo', 'duo'];
 export const KNOCK_HP = 100; // Leben am Boden
 export const KNOCK_BLEED = 3; // Lebensverlust pro Sekunde am Boden (~33 s)
 export const REVIVE_TIME = 5; // Sekunden zum Wiederbeleben

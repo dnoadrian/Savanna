@@ -112,6 +112,7 @@ export const TX = {
   BRONZE: 8, // Kuppeldach aus Bronze mit Rippen und Patina
   GROUND: 9, // Erdboden/Sand
   PANEL: 10, // große Betonplatten mit Schmutzschlieren
+  GRASS: 11, // Wiese: Farbflecken, Halme, trockene Stellen, kleine Blüten
 };
 
 export class Builder {

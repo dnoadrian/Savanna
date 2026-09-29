@@ -133,14 +133,33 @@ export class WorldView {
     await nextFrame();
     this.grass = new Grass(map);
     this.group.add(this.grass.mesh);
+    // Arena: leuchtende Sperre vor den offenen Startboxen (nur während der Waffenwahl sichtbar)
+    this.barriers = [];
+    for (const bx of map.boxes || []) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffa62b, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(bx.w, bx.h), mat);
+      m.position.set(bx.x, bx.y + bx.h / 2, bx.z);
+      m.rotation.y = bx.ry;
+      m.name = 'barrier';
+      this.group.add(m);
+      this.barriers.push(m);
+    }
     onProgress(1);
+  }
+
+  // Sperren der Startboxen zeigen/ausblenden (leichtes Pulsieren)
+  setBarriers(on, time = 0) {
+    for (const m of this.barriers || []) {
+      m.visible = on;
+      if (on) m.material.opacity = 0.26 + Math.sin(time * 3) * 0.08;
+    }
   }
 
   // Speicher freigeben, wenn die Karte nicht mehr gebraucht wird
   dispose() {
     this.group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
-      if (o.name === 'sign' && o.material) {
+      if ((o.name === 'sign' || o.name === 'barrier') && o.material) {
         if (o.material.map) o.material.map.dispose();
         o.material.dispose();
       }

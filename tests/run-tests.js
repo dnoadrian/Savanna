@@ -6,8 +6,8 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { validateName, suggestAlternatives, randomName } from '../shared/names.js';
-import { F, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, MATCH_SIZE, SIM_DT, QUEUE_WAIT, PLAY_RADIUS, clampQueueWait } from '../shared/constants.js';
-import { WEAPONS, LOOT_WEAPONS, KNIFE_SKINS, CONSUMABLES, AMMO_DROP, KILL_AMMO, AMMO_TYPES, weaponItem, consumableItem, ammoItem, weaponDamage, rollWeapon, decodeItem, chestAmmoFor } from '../shared/items.js';
+import { F, MODES, LOADOUT_TIME, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, MATCH_SIZE, SIM_DT, QUEUE_WAIT, PLAY_RADIUS, clampQueueWait } from '../shared/constants.js';
+import { WEAPONS, LOOT_WEAPONS, KNIFE_SKINS, CONSUMABLES, AMMO_DROP, KILL_AMMO, AMMO_TYPES, AMMO_MAX, weaponItem, consumableItem, ammoItem, weaponDamage, rollWeapon, decodeItem, chestAmmoFor } from '../shared/items.js';
 import { createWeaponRuntime, equipWeapon, canFire, fireWeapon, updateWeapon, weaponSpread } from '../shared/sim/weapon.js';
 import { createInventory, addItem, selectedItem, SLOTS, KNIFE_SLOT } from '../shared/sim/inventory.js';
 import { createBody, stepMovement } from '../shared/sim/movement.js';
@@ -16,8 +16,9 @@ import { SURF } from '../shared/map/terrain.js';
 import { NavGrid } from '../shared/sim/nav.js';
 import { CollisionWorld } from '../shared/physics/collision.js';
 import { Simulation } from '../shared/sim/simulation.js';
+import { BotBrain } from '../shared/sim/bots.js';
 import { RNG } from '../shared/rng.js';
-import { generateMap, MAPS, randomMapId } from '../shared/map/mapgen.js';
+import { generateMap, MAPS, randomMapId, mapForMode } from '../shared/map/mapgen.js';
 import { runHeadlessMatch } from './sim-headless.js';
 import { runServerTest } from './server-test.js';
 
@@ -600,13 +601,72 @@ test('Duo: kein Eigenbeschuss, Niederschlagen, Wiederbeleben, Team-Aus und Team-
   assert.equal(sim.stats(b).placement, 1);
 });
 
+test('Arena 1v1/2v2: Holzarena, Startboxen, Ausrüstung wählen, Bots füllen auf, Runde endet', () => {
+  const m = generateMap('arena');
+  assert.equal(m.biome, 'grass');
+  assert.equal(m.chests.length, 0);
+  assert.equal(m.terrain.surfaceAt(0, 10), SURF.GRASS, 'Rasen');
+  assert.ok(m.terrain.heightAt(0, 120) < -1, 'kleine Insel im Meer');
+  const nav = new NavGrid(m.terrain, m.collision);
+  const aw = { terrain: m.terrain, collision: m.collision, nav, pois: m.pois, chests: m.chests, floorLoot: m.floorLoot, spawns: m.spawns, storm: m.storm };
+  // Außenwand: man kommt nicht hinaus, beide Boxen sind verbunden
+  assert.ok(nav.findPath(0, 21, 0, -21).complete, 'Weg von Box zu Box');
+  assert.ok(!m.collision.lineOfSight(0, 3.2, 20, 0, 3.2, -20), 'keine freie Sicht von Box zu Box');
+  for (const [mode, size, teams] of [['1v1', 2, 2], ['2v2', 4, 2]]) {
+    const me = { id: 'me', name: 'Ich', isBot: false };
+    const players = Simulation.fillWithBots([me], new RNG(7), { name: 'Kronenbot' }, mode);
+    assert.equal(players.length, size, mode + ' Spielerzahl');
+    assert.ok(!players.some((p) => p.name === 'Kronenbot'), 'kein Kronen-Bot in der Arena');
+    const sim = new Simulation(aw, { seed: 9, players, mode });
+    assert.equal(new Set(sim.players.map((p) => p.team)).size, teams);
+    assert.equal(sim.phase, 'countdown');
+    assert.equal(sim.countdown, LOADOUT_TIME);
+    const a = sim.byId.get('me');
+    // Start in der eigenen Box mit vollem Schild, Standard-Ausrüstung
+    assert.ok(Math.abs(Math.abs(a.body.z) - 24.1) < 0.3, 'in der Startbox');
+    assert.deepEqual([a.health, a.shield, a.overshield], [100, 100, 0]);
+    assert.deepEqual(a.inv.slots.map((it) => it.w || it.c), ['ar', 'pump', 'drum', 'big', 'mini']);
+    // Auswahl: Platz 1–3 Waffen (höchste Seltenheit), 4–5 Heilung (voller Stapel), Unsinn wird ersetzt
+    assert.ok(sim.humanLoadout('me', { w: ['sniper', 'hammer', 'rakete'], c: ['medkit', 'medkit'] }));
+    assert.deepEqual(a.inv.slots.map((it) => it.w || it.c), ['sniper', 'hammer', 'drum', 'medkit', 'medkit']);
+    assert.equal(a.inv.slots[0].r, 4);
+    assert.equal(a.inv.slots[3].n, 3);
+    assert.equal(a.inv.ammo.heavy, AMMO_MAX.heavy);
+    // in der Box: keine Bewegung bis zum Start
+    const x0 = a.body.x, z0 = a.body.z;
+    for (let i = 0; i < 60; i++) sim.step(SIM_DT);
+    assert.equal(a.body.x, x0);
+    assert.equal(a.body.z, z0);
+    while (sim.phase === 'countdown') sim.step(SIM_DT);
+    assert.equal(sim.humanLoadout('me', { w: ['pistol', 'pistol', 'pistol'] }), false, 'nach dem Start keine Wahl mehr');
+    // Team 2v2: kein Eigenbeschuss
+    if (mode === '2v2') {
+      const mate = sim.players.find((p) => p !== a && p.team === a.team);
+      const hp = mate.health + mate.shield;
+      sim.applyDamage(mate, 50, a.id, 'b', null, 'ar');
+      assert.equal(mate.health + mate.shield, hp);
+    }
+    // Menschen als Bots weiterspielen lassen: die Runde endet mit einem Siegerteam
+    for (const p of sim.players) if (!p.isBot) p.brain = new BotBrain(sim, p, 'normal');
+    for (const p of sim.players) p.isBot = true;
+    let t = 0;
+    while (sim.phase !== 'ended' && t < 240) { sim.step(SIM_DT); t += SIM_DT; }
+    assert.equal(sim.phase, 'ended', mode + ' endet');
+  }
+  // Sturm der Arena: kleiner Kreis um die Mitte
+  assert.ok(m.storm.r < 50 && m.storm.phases.length === 3);
+  assert.deepEqual(MODES, ['solo', 'duo', '1v1', '2v2']);
+  assert.equal(mapForMode('1v1'), 'arena');
+  assert.equal(mapForMode('solo'), 'frostfeste');
+});
+
 test('Karte Frostfeste: Schneeinsel im Meer (+25 % Fläche), Feste, Gipfel, Eis, alles erreichbar, deterministisch', () => {
   const hash = (m) => {
     let h = 0;
     for (const c of m.collision.cols) h = (h * 31 + Math.round((c.x + c.z) * 100)) | 0;
     return [m.collision.cols.length, h, m.props.length, m.parts.length, m.chests.length];
   };
-  assert.deepEqual(MAPS.map((m) => m.name), ['Frostfeste']);
+  assert.deepEqual(MAPS.map((m) => m.name), ['Frostfeste', 'Holzarena']);
   for (let i = 0; i < 20; i++) assert.equal(randomMapId(Math.random, 'frostfeste'), 'frostfeste');
   const m = generateMap('frostfeste');
   assert.deepEqual(hash(m), hash(generateMap('frostfeste')), 'deterministisch (Server = Client)');
@@ -621,7 +681,18 @@ test('Karte Frostfeste: Schneeinsel im Meer (+25 % Fläche), Feste, Gipfel, Eis,
   assert.ok(land > 480, `Land ${land}`);
   assert.ok(Math.abs((PLAY_RADIUS * PLAY_RADIUS) / (142 * 142) - 1.25) < 0.02);
   // Hornspitze hinter der Feste, Terrasse, Schnee überall, Eis auf See/Fluss und an den Kanten
-  assert.ok(m.terrain.heightAt(4, -122) > 60, 'Gipfel');
+  // Hornspitze: flacher Gipfel auf 52 m mit Hütte, Turm und Truhen, Gipfelweg nirgends steiler als ~40°
+  assert.ok(Math.abs(m.terrain.heightAt(4, -134) - 52) < 0.2, 'Gipfel');
+  for (const n of ['Hornspitze', 'Bergstation']) assert.ok(names.includes(n), 'Ort ' + n);
+  assert.ok(m.chests.filter((c) => c.y > 40).length >= 3, 'Truhen am Berg');
+  const trail = [[-36, -72], [-44, -98], [-34, -124], [-14, -146], [12, -152], [6, -141]];
+  for (let i = 0; i + 1 < trail.length; i++) {
+    const [a, b] = [trail[i], trail[i + 1]];
+    for (let k = 0; k <= 20; k++) {
+      const x = a[0] + ((b[0] - a[0]) * k) / 20, z = a[1] + ((b[1] - a[1]) * k) / 20;
+      assert.ok(m.terrain.normalAt(x, z).y > 0.76, `Gipfelweg zu steil bei ${x.toFixed(0)},${z.toFixed(0)}`);
+    }
+  }
   assert.ok(Math.abs(m.terrain.heightAt(0, -50) - 17) < 0.1, 'Terrasse');
   const cnt = {};
   for (const sf of m.terrain.surf) cnt[sf] = (cnt[sf] || 0) + 1;
@@ -633,8 +704,10 @@ test('Karte Frostfeste: Schneeinsel im Meer (+25 % Fläche), Feste, Gipfel, Eis,
   const region = (x, z) => nav.region[nav.nearestFree(x, z, 3)];
   const r0 = region(0, 40);
   for (const [x, z, n] of [[4, -14, 'Platz'], [0, -31, 'Freitreppe'], [0, -39.5, 'Vorplatz'], [0, -48, 'Halle'], [-25, -45, 'Terrasse W'], [25, -45, 'Terrasse O'],
-    [2, 90, 'Frosttal'], [93, 80, 'Eishafen'], [-84, 40, 'Spiegelsee'], [80, -6, 'Station']]) assert.equal(region(x, z), r0, n + ' erreichbar');
+    [2, 90, 'Frosttal'], [93, 80, 'Eishafen'], [-84, 40, 'Spiegelsee'], [80, -6, 'Station'], [-26, -150, 'Bergstation'], [4, -134, 'Gipfel']]) assert.equal(region(x, z), r0, n + ' erreichbar');
   assert.ok(nav.findPath(0, 40, 0, -48, 40000), 'Weg vom Süden bis in die Halle');
+  const up = nav.findPath(0, 40, 4, -134, 60000);
+  assert.ok(up && up.complete, 'Weg vom Süden bis auf den Gipfel');
   // Startpunkte gleichmäßig über die ganze Insel: weit auseinander, in allen vier Vierteln
   for (const seed of [1, 2, 3]) {
     const players = Simulation.fillWithBots([], new RNG(seed), null, 'solo');

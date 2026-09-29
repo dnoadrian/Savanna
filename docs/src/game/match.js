@@ -1,6 +1,7 @@
 // Ein laufendes Match auf dem Client: verbindet Session, Welt, Beute, Figuren, Steuerung, HUD,
 // Effekte und Audio.
 import { InventoryScreen } from '../ui/inventoryScreen.js';
+import { LoadoutScreen } from '../ui/loadoutScreen.js';
 import * as THREE from 'three';
 import { Character } from '../render/characters.js';
 import { Viewmodel } from '../render/viewmodel.js';
@@ -52,6 +53,8 @@ export class MatchClient {
     this.viewmodel.setOutfit(prof.outfit, prof.color);
     this.hud = app.hud;
     this.invScreen = app.invScreen || (app.invScreen = new InventoryScreen(app.hud.root, app));
+    this.loadoutScreen = app.loadoutScreen || (app.loadoutScreen = new LoadoutScreen(app.hud.root, app));
+    this.loadoutStarted = false;
     this.invScreen.toggle(false);
     this.hud.reset();
     this.hud.setMapImage(mapImage, map.pois);
@@ -143,8 +146,17 @@ export class MatchClient {
       this.fpsFrames = 0;
     }
 
-    // Countdown
-    if (phase === 'countdown') {
+    // Arena: Ausrüstung in der Startbox wählen (nur während der Wahlzeit)
+    if (s.arena) {
+      if (phase === 'countdown') {
+        if (!this.loadoutStarted && this.state === 'alive') { this.loadoutStarted = true; this.loadoutScreen.start(s); }
+        this.loadoutScreen.update(s.countdown);
+      } else if (this.loadoutScreen.open) this.loadoutScreen.hide(false);
+      this.world.setBarriers(phase === 'countdown', now);
+    }
+
+    // Countdown (Arena: erst die letzten 3 Sekunden)
+    if (phase === 'countdown' && (!s.arena || s.countdown < 3.7)) {
       const n = Math.max(1, Math.ceil(s.countdown - 0.6));
       if (n !== this.lastCount && s.countdown > 0.6) {
         this.lastCount = n;
@@ -305,7 +317,7 @@ export class MatchClient {
       revive01: living ? self.revive01 : -1,
       reviveTarget: living && pl.reviveTarget ? { id: pl.reviveTarget.id, name: this.nameOf(pl.reviveTarget.id) } : null,
       team: this.teamInfo(states),
-      mates: s.mode === 'duo' ? states.filter((q) => q.alive && s.isMate(q.id)).map((q) => ({ x: q.x, z: q.z, knocked: !!(q.flags & F.KNOCKED) })) : null,
+      mates: s.teamSize > 1 ? states.filter((q) => q.alive && s.isMate(q.id)).map((q) => ({ x: q.x, z: q.z, knocked: !!(q.flags & F.KNOCKED) })) : null,
     });
     const W = window.innerWidth, H = window.innerHeight;
     this.hud.project(this.camera, W, H);
@@ -397,7 +409,7 @@ export class MatchClient {
   // Duo: Partner-Liste für das HUD
   teamInfo(states) {
     const s = this.session;
-    if (s.mode !== 'duo') return null;
+    if (!(s.teamSize > 1)) return null;
     return s.mateIds().map((id) => {
       const st = states.find((q) => q.id === id);
       return { id, name: this.nameOf(id), health: st ? st.health : 0, shield: st ? st.shield + st.overshield : 0, alive: !!(st && st.alive), knocked: !!(st && st.alive && st.flags & F.KNOCKED) };
@@ -706,7 +718,7 @@ export class MatchClient {
     this.hud.showScoreboard(false);
     const text = this.killedBy ? t('eliminatedBy', { name: this.nameOf(this.killedBy) }) : this.deathCause === 'storm' ? t('eliminatedStorm') : t('eliminatedLeft');
     // Duo: Partner lebt noch → Platzierung steht erst am Ende fest
-    const teamAlive = this.session.mode === 'duo' && this.session.states().some((q) => q.alive && this.session.isMate(q.id));
+    const teamAlive = this.session.teamSize > 1 && this.session.states().some((q) => q.alive && this.session.isMate(q.id));
     this.app.ui.showDeath({
       text,
       placement: this.placement,
@@ -721,7 +733,7 @@ export class MatchClient {
   // Anzahl Platzierungen: Solo = Spieler, Duo = Teams
   totalEntries() {
     const s = this.session;
-    return s.mode === 'duo' ? new Set(s.players.map((p) => p.team)).size : s.players.length;
+    return s.teamSize > 1 ? new Set(s.players.map((p) => p.team)).size : s.players.length;
   }
 
   startSpectate() {
@@ -828,7 +840,7 @@ export class MatchClient {
     const finalize = (res, winnerId) => {
       const mine = res.find((r) => r.id === s.youId) || { kills: 0, damage: 0, headshots: 0, placement: this.totalEntries(), survival: 0 };
       const winnerInfo = this.info(winnerId);
-      this.app.endMatch({ mode: this.mode, mine, results: res, winner: winnerInfo, winnerId, youId: s.youId, players: s.players, total: this.totalEntries(), duo: s.mode === 'duo' });
+      this.app.endMatch({ mode: this.mode, mine, results: res, winner: winnerInfo, winnerId, youId: s.youId, players: s.players, total: this.totalEntries(), duo: s.teamSize > 1, gameMode: s.mode });
     };
     if (results) finalize(results, s.winnerId);
     else {
@@ -848,16 +860,16 @@ export class MatchClient {
     else if (this.state === 'alive' && !this.ended) s.leave();
     // Duo mit lebendem Partner: Platz = Zahl der Teams, die gerade noch im Spiel sind
     const states = s.states();
-    const aliveTeams = new Set(s.players.filter((p) => states.find((q) => q.id === p.id && q.alive)).map((p) => (s.mode === 'duo' ? p.team : p.id))).size;
+    const aliveTeams = new Set(s.players.filter((p) => states.find((q) => q.id === p.id && q.alive)).map((p) => (s.teamSize > 1 ? p.team : p.id))).size;
     const total = this.totalEntries();
     if (s.isLocal && s.phase !== 'ended') {
       const mineNow = s.sim.stats(s.sim.byId.get(s.youId));
       if (!mineNow.placement) mineNow.placement = Math.max(1, aliveTeams);
-      this.app.returnToLobby({ mine: mineNow, mode: 'solo', partial: true, total });
+      this.app.returnToLobby({ mine: mineNow, mode: 'solo', partial: true, total, gameMode: s.mode });
       return;
     }
     if (!s.isLocal && !this.ended) {
-      this.app.returnToLobby({ mine: { ...s.self(), placement: this.placement || Math.max(1, aliveTeams), survival: s.matchTime }, mode: 'party', partial: true, total });
+      this.app.returnToLobby({ mine: { ...s.self(), placement: this.placement || Math.max(1, aliveTeams), survival: s.matchTime }, mode: 'party', partial: true, total, gameMode: s.mode });
       return;
     }
     this.finish();
@@ -865,6 +877,11 @@ export class MatchClient {
 
   dispose() {
     this.disposed = true;
+    if (this.loadoutScreen.open) {
+      this.loadoutScreen.open = false;
+      this.loadoutScreen.el.classList.add('hidden');
+    }
+    this.world.setBarriers(false);
     window.removeEventListener('resize', this.resizeFn);
     this.unsubSettings && this.unsubSettings();
     this.session.dispose();

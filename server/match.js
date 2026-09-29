@@ -3,7 +3,7 @@
 import { Simulation } from '../shared/sim/simulation.js';
 import { encodeItem , KNIFE_SKINS } from '../shared/items.js';
 import { RNG } from '../shared/rng.js';
-import { SIM_DT, SIM_HZ, SNAPSHOT_HZ, MATCH_SIZE, MAX_REWIND } from '../shared/constants.js';
+import { SIM_DT, SIM_HZ, SNAPSHOT_HZ, MATCH_SIZE, MAX_REWIND, normMode, isArenaMode } from '../shared/constants.js';
 
 let nextMatch = 1;
 
@@ -16,7 +16,7 @@ export class ServerMatch {
     this.id = 'm' + nextMatch++ + '_' + Date.now().toString(36);
     this.seed = (Math.random() * 0xffffffff) >>> 0;
     const rng = new RNG(this.seed ^ 0xabc);
-    this.mode = mode === 'duo' ? 'duo' : 'solo';
+    this.mode = normMode(mode);
     const humans = clients.slice(0, MATCH_SIZE).map((c) => ({ ...gs.publicProfile(c.pid), isBot: false, party: gs.partyOf(c.pid)?.id || null }));
     const champ = gs.store.data.champion;
     // freie Plätze bis 20 mit Bots auffüllen (Duo: Zweierteams)
@@ -157,6 +157,9 @@ export class ServerMatch {
         sim.humanCheat(c.pid, { infAmmo: !!m.ia, god: !!m.gm });
         if (m.op) sim.humanOpLoot(c.pid);
         if (m.heal) sim.humanHeal(c.pid);
+        break;
+      case 'loadout':
+        if (m.s && typeof m.s === 'object') sim.humanLoadout(c.pid, { w: Array.isArray(m.s.w) ? m.s.w.slice(0, 3).map(String) : null, c: Array.isArray(m.s.c) ? m.s.c.slice(0, 2).map(String) : null });
         break;
       case 'int':
         if (Number.isInteger(m.c)) sim.humanInteract(c.pid, { c: m.c });

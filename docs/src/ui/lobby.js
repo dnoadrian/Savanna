@@ -5,7 +5,7 @@ import { h, esc } from './dom.js';
 import { ICON, logo } from './icons.js';
 import { isInstalledApp } from '../pwa.js';
 import { t } from '../i18n.js';
-import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, SKIN_SHOP, KNIFE_SHOP, DEFAULT_OUTFIT, clampQueueWait } from '../../shared/constants.js';
+import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, SKIN_SHOP, KNIFE_SHOP, DEFAULT_OUTFIT, clampQueueWait, MODES, modeSize, isArenaMode } from '../../shared/constants.js';
 import { RARITY_COLORS, KNIFE_SKINS, knifeItem } from '../../shared/items.js';
 import { itemIcon } from '../render/itemIcons.js';
 import { skinPortrait } from '../render/skinPortraits.js';
@@ -262,9 +262,16 @@ export class LobbyScreen {
     const humans = q ? q.humans : Math.max(1, inParty ? party.members.length : 1);
     const gm = app.gameMode();
     this.kickerEl.textContent = t('modeKicker_' + gm);
-    this.modeTitle.textContent = mapDef((q && q.map) || app.soloMapId).name.toUpperCase();
-    this.countEl.textContent = gm === 'duo' ? t('playersCountDuo', { n: MATCH_SIZE, t: MATCH_SIZE / 2 }) : t('playersCount', { n: MATCH_SIZE, h: humans, b: MATCH_SIZE - humans });
-    this.modeSwitch.innerHTML = `<span class="${gm === 'solo' ? 'on' : ''}">SOLO</span><span class="${gm === 'duo' ? 'on' : ''}">DUO</span>`;
+    this.modeTitle.textContent = mapDef((q && q.map) || app.lobbyMapId()).name.toUpperCase();
+    const size = modeSize(gm);
+    this.countEl.textContent = gm === 'duo' ? t('playersCountDuo', { n: MATCH_SIZE, t: MATCH_SIZE / 2 })
+      : isArenaMode(gm) ? t('playersCountArena', { n: size, b: Math.max(0, size - humans) })
+        : t('playersCount', { n: MATCH_SIZE, h: humans, b: MATCH_SIZE - humans });
+    // Modus direkt anklicken (Solo, Duo, 1v1, 2v2)
+    this.modeSwitch.innerHTML = '';
+    for (const m of MODES) {
+      this.modeSwitch.appendChild(h('span', { class: gm === m ? 'on' : '', onclick: (e) => { e.stopPropagation(); this.chooseMode(m); } }, m.toUpperCase()));
+    }
     // BEREIT-Knopf
     const myId = prof.id;
     const leader = party ? party.leader === myId : true;
@@ -294,7 +301,7 @@ export class LobbyScreen {
       const pct = Math.max(0, Math.min(100, (1 - q.secs / (q.wait || myWait)) * 100));
       this.queueEl.innerHTML = `<div class="q-top"><span class="q-spin"></span><b>${esc(t('queueSearching'))}</b><span class="q-secs">${secs}s</span></div>
         <div class="q-bar"><div style="width:${pct}%"></div></div>
-        <div class="q-info">${esc(t('queueInfo', { h: q.humans, b: MATCH_SIZE - q.humans }))}</div>`;
+        <div class="q-info">${esc(t('queueInfo', { h: q.humans, b: Math.max(0, modeSize(q.mode || gm) - q.humans) }))}</div>`;
     } else this.queueEl.classList.add('hidden');
     this.renderParty();
     this.updateCoins();
@@ -306,7 +313,7 @@ export class LobbyScreen {
   // Karte oben: Vorschau der nächsten Karte (sobald berechnet), sonst eine stilisierte Insel
   drawMapThumb() {
     const q = this.app.queue;
-    const id = (q && q.map) || this.app.soloMapId;
+    const id = (q && q.map) || this.app.lobbyMapId();
     const e = this.app.mapCache.get(id);
     const img = e && e.data ? e.data.mapImage : null;
     const key = img ? id : 'placeholder';
@@ -326,14 +333,29 @@ export class LobbyScreen {
       this.ui.toast(t('onlyLeaderMode'), 'error');
       return;
     }
-    const next = app.gameMode() === 'duo' ? 'solo' : 'duo';
-    if (next === 'duo' && party && party.members.length > 2) {
+    const next = MODES[(MODES.indexOf(app.gameMode()) + 1) % MODES.length];
+    this.chooseMode(next);
+  }
+
+  chooseMode(next) {
+    const app = this.app;
+    const party = app.party;
+    if (next === app.gameMode()) return;
+    if (app.queue) { app.audio.uiError(); return; }
+    if (party && party.members.length > 1 && party.leader !== app.profile.id) {
       app.audio.uiError();
-      this.ui.toast(t('duoTooMany'), 'error');
+      this.ui.toast(t('onlyLeaderMode'), 'error');
+      return;
+    }
+    if (next !== 'solo' && party && party.members.length > 2) {
+      app.audio.uiError();
+      this.ui.toast(t(next === 'duo' ? 'duoTooMany' : 'modeTooMany'), 'error');
       return;
     }
     app.audio.uiClick();
     app.setGameMode(next);
+    // Arena-Karte schon im Hintergrund vorbereiten (Vorschau + schneller Start)
+    app.prepareMap(app.lobbyMapId()).then(() => this.refresh()).catch(() => {});
     this.refresh();
   }
 
