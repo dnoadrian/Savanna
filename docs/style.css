@@ -74,13 +74,15 @@ body.menu #wallpaper { display: block; }
 
 /* ---------- Logo ---------- */
 .logo { display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 0.82; font-weight: 900; font-style: italic; text-transform: uppercase; letter-spacing: 0.01em; filter: drop-shadow(0 4px 0 rgba(3, 14, 60, 0.55)); }
-.logo-a { color: #fff; font-size: 1em; }
+.logo-a { position: relative; color: #fff; font-size: 1em; }
+.logo-flake { display: inline-block; width: 0.62em; height: 0.62em; margin-left: 0.08em; vertical-align: 0.26em; color: var(--cyan); filter: drop-shadow(0 0 6px rgba(120, 220, 255, 0.7)); animation: flake-spin 14s linear infinite; }
+@keyframes flake-spin { to { transform: rotate(360deg); } }
 .logo-b { position: relative; color: var(--accent); font-size: 1.32em; padding-right: 0.1em; }
 .logo-wave { position: absolute; left: 0.04em; bottom: -0.26em; width: 1.9em; height: 0.3em; color: var(--cyan); }
 .logo.big { font-size: clamp(48px, 7vw, 86px); }
-.logo.small { font-size: 22px; flex-direction: row; align-items: baseline; gap: 6px; filter: none; }
+.logo.small { font-size: 22px; flex-direction: row; align-items: baseline; gap: 0; filter: none; }
 .logo.small .logo-b { font-size: 1em; }
-.logo.small .logo-wave { display: none; }
+.logo.small .logo-wave, .logo.small .logo-flake { display: none; }
 
 /* ---------- Knöpfe ---------- */
 .btn { pointer-events: auto; border: 0; border-radius: 6px; padding: 10px 20px; font-size: 19px; font-weight: 800; font-style: italic; text-transform: uppercase; letter-spacing: 0.02em; color: #fff; background: linear-gradient(180deg, #3d85ff, #2360e0); box-shadow: 0 2px 0 rgba(4, 20, 80, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25); transition: transform 0.08s, filter 0.12s, background 0.12s; }
@@ -629,7 +631,7 @@ body.menu #wallpaper { display: block; }
 .outfit-btn.locked { opacity: 0.55; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .outfit-btn.locked .icon { width: 16px; height: 16px; display: inline-block; }
 .outfit-btn.locked .icon svg { width: 100%; height: 100%; }
-.admin-coins { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.admin-coins .field { flex: 1; min-width: 0; }
 .admin-coins .row { display: flex; gap: 6px; margin-top: 6px; }
 .admin-coins .field[type=number] { width: 110px; }
 /* Ausdauer (Sprint) */
@@ -749,7 +751,41 @@ body.menu #wallpaper { display: block; }
 .acc-row .acc-uses { min-width: 80px; text-align: right; color: #7dffa0; font-weight: 700; }
 .acc-row.used .acc-uses { color: #ff8a95; }
 .acc-row .close-x.small { width: 26px; height: 26px; font-size: 13px; }
-.modal.admin { max-height: calc(100vh - 40px); overflow-y: auto; }
+.modal.admin { width: min(700px, 96vw); max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden; }
+.modal.admin.small { width: min(470px, 94vw); overflow-y: auto; display: block; }
+.admin-user { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 15px; margin-bottom: 8px; }
+.admin-user b { color: #fff; }
+.admin-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.admin-tab { pointer-events: auto; position: relative; display: flex; align-items: center; gap: 7px; border: 0; border-radius: 8px; padding: 8px 14px; background: rgba(255, 255, 255, 0.07); color: #cfe0ff; font-size: 17px; font-weight: 800; font-style: italic; text-transform: uppercase; cursor: pointer; }
+.admin-tab .icon { width: 20px; height: 20px; display: inline-block; }
+.admin-tab .icon svg { width: 100%; height: 100%; }
+.admin-tab:hover { background: rgba(47, 123, 255, 0.35); }
+.admin-tab.sel { background: linear-gradient(180deg, #3d85ff, #2360e0); color: #fff; }
+.admin-tab-n { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; border-radius: 9px; background: #e6283c; color: #fff; font-size: 12px; font-style: normal; line-height: 18px; text-align: center; padding: 0 4px; }
+.admin-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.admin-foot { margin-top: 10px; }
+.admin-box { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px var(--line); }
+.admin-box .row { display: flex; gap: 6px; margin-top: 6px; }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.admin-actions .btn { display: flex; align-items: center; gap: 6px; }
+.admin-actions .icon { width: 18px; height: 18px; display: inline-block; }
+.admin-actions .icon svg { width: 100%; height: 100%; }
+.admin-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.admin-stats .stat-tile { padding: 8px; }
+.admin-stats .stat-tile b { font-size: 22px; }
+.admin-sub { margin-top: 10px; }
+.player-row .btn.small { padding: 4px 10px; font-size: 14px; }
+.player-row b { display: flex; align-items: center; gap: 6px; }
+.admin-tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #e6283c; }
+.pl-status { font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.1); }
+.pl-status.st-game { background: rgba(255, 180, 40, 0.25); color: #ffd27a; }
+.pl-status.st-queue { background: rgba(80, 200, 255, 0.2); color: #9fe6ff; }
+.admin-danger { background: rgba(230, 40, 60, 0.12); box-shadow: inset 0 0 0 1px rgba(255, 90, 110, 0.5); }
+.admin-danger .field { flex: 0 0 120px; font-family: ui-monospace, monospace; letter-spacing: 0.1em; text-transform: uppercase; }
+.admin-danger .btn { flex: 1; }
+.admin-ann select.field { flex: 0 0 150px; }
+.wc-notice { margin: -6px 0 12px; padding: 8px 12px; border-left: 4px solid var(--accent); border-radius: 4px; background: rgba(255, 225, 77, 0.14); font-size: 16px; }
+@media (max-width: 600px) { .admin-stats { grid-template-columns: repeat(2, 1fr); } .admin-tab { padding: 7px 10px; font-size: 15px; } }
 /* Lobby unten links: verbundener Server */
 .lobby-ann { position: absolute; top: 72px; left: 50%; transform: translateX(-50%); width: min(620px, calc(100vw - 32px)); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; z-index: 3; }
 .ann-item { display: flex; align-items: center; gap: 10px; max-width: 100%; padding: 8px 18px 8px 12px; border-radius: 10px; background: linear-gradient(90deg, rgba(255, 190, 40, 0.92), rgba(255, 150, 30, 0.92)); color: #2a1600; font-size: 17px; font-weight: 800; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.45); animation: ann-in 0.35s ease-out; }
@@ -814,3 +850,17 @@ body.menu #wallpaper { display: block; }
 .nt-down { font-size: 11px; padding: 0 5px; border-radius: 5px; background: #ff5a5a; color: #fff; }
 .name-tag small { font-size: 11px; opacity: 0.8; }
 .kf-row.knock .kf-weapon { color: #ffb14d; }
+
+/* ---------- Web-App installieren ---------- */
+.install-pill { pointer-events: auto; display: flex; align-items: center; gap: 6px; height: 42px; border: 0; border-radius: 8px; padding: 0 12px 0 10px; background: linear-gradient(180deg, #ffec7a, var(--accent) 45%, var(--accent2)); color: #15161a; font-size: 17px; font-weight: 800; font-style: italic; text-transform: uppercase; box-shadow: 0 2px 0 #9c7a00; cursor: pointer; }
+.install-pill .ico { width: 20px; height: 20px; }
+.install-pill:hover { filter: brightness(1.08); }
+.install-box { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; }
+.install-icon { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4); }
+.install-why { margin: 0; color: var(--muted); font-size: 17px; line-height: 1.35; }
+.install-go { display: flex; align-items: center; gap: 10px; }
+.install-go .icon { width: 26px; height: 26px; display: inline-block; }
+.install-steps { margin: 0; padding-left: 22px; text-align: left; font-size: 16px; line-height: 1.45; }
+.install-steps li { margin: 4px 0; }
+.install-ok { margin: 0; color: #8cf5a8; font-weight: 700; }
+@media (max-width: 760px) { .install-pill span { display: none; } }

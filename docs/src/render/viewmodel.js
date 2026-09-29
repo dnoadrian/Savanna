@@ -114,6 +114,9 @@ export class Viewmodel {
       this.gun.visible = false;
       this.held.visible = !!item;
       if (item) this.held.geometry = consumableGeometry(item.c);
+      this.heldType = item ? item.c : null;
+      // Mini-Schild etwas größer zeigen, damit man die Flasche in der Hand gut erkennt
+      this.held.scale.setScalar(item && item.c === 'mini' ? 1.3 : 1);
     }
   }
 
@@ -295,8 +298,14 @@ export class Viewmodel {
       this.held.position.set(0.14 - use * 0.1, -0.2 + use * 0.1 + drink * 0.02, -0.42 + use * 0.1);
       this.held.rotation.set(-0.2 + use * 0.9, 0.3 - use * 0.3, 0.1 + use * 0.5 + u * 0.3);
       this.held.updateMatrix();
-      rp = new THREE.Vector3(0, 0.05, 0.02).applyMatrix4(this.held.matrix);
-      lp = new THREE.Vector3(-0.08, 0.08, 0.0).applyMatrix4(this.held.matrix);
+      if (this.heldType === 'mini') {
+        // kleine Flasche: rechte Hand hält sie unten, die linke bleibt unten am Rand
+        rp = new THREE.Vector3(0.005, -0.012, 0.03).applyMatrix4(this.held.matrix);
+        lp = new THREE.Vector3(-0.32, -0.5, -0.3);
+      } else {
+        rp = new THREE.Vector3(0, 0.05, 0.02).applyMatrix4(this.held.matrix);
+        lp = new THREE.Vector3(-0.08, 0.08, 0.0).applyMatrix4(this.held.matrix);
+      }
       this.placeArm(this.armL, lp, new THREE.Vector3(-0.2, -0.66, -0.3));
     } else {
       rp = new THREE.Vector3(0, meta.melee ? -0.01 : -0.07, 0.05).applyMatrix4(g);

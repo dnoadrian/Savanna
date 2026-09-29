@@ -69,6 +69,23 @@ function freshStats() {
   return { xp: 0, level: 1, wins: 0, crownWins: 0, kills: 0, deaths: 0, matches: 0, damage: 0, headshots: 0, bestPlacement: 0, timePlayed: 0, bestStreak: 0 };
 }
 
+// Admin hat alle Spieler zurückgesetzt: alle Profile dieses Geräts löschen und merken, wann
+// (neue Profile gelten danach sicher als „nach dem Reset“, auch wenn die Uhr falsch geht)
+const WIPED_KEY = 'showdown.wipedAt';
+export function wipeAllProfiles(at) {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && (k === BASE_KEY || k.startsWith(BASE_KEY + '.s'))) localStorage.removeItem(k);
+    }
+    const prev = Number(localStorage.getItem(WIPED_KEY)) || 0;
+    localStorage.setItem(WIPED_KEY, String(Math.max(prev, Number(at) || Date.now())));
+  } catch { /* ignorieren */ }
+}
+function wipedAt() {
+  try { return Number(localStorage.getItem(WIPED_KEY)) || 0; } catch { return 0; }
+}
+
 export class Profile {
   constructor() {
     this.data = null;
@@ -115,7 +132,7 @@ export class Profile {
       id: uuid(),
       name,
       auth,
-      createdAt: Date.now(),
+      createdAt: Math.max(Date.now(), wipedAt() + 1),
       outfit: DEFAULT_OUTFIT,
       coins: 0,
       owned: [DEFAULT_OUTFIT],

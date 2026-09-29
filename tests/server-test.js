@@ -3,7 +3,7 @@ import assert from 'assert';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import { QUEUE_WAIT } from '../shared/constants.js';
+import { QUEUE_WAIT, ADMIN_USER, ADMIN_PASS } from '../shared/constants.js';
 import { birthKey } from '../shared/sha256.js';
 
 export async function runServerTest() {
@@ -126,6 +126,8 @@ export async function runServerTest() {
   // Schuss über das Netzwerkformat: Pistole trifft einen Bot
   const me = sim.byId.get('aaaa-1');
   const bot = sim.players.find((p) => p.isBot && p.alive);
+  // beide hoch in die Luft: kein Haus/Baum dazwischen (Startplätze liegen überall auf der Insel)
+  me.body.y = 150;
   bot.body.x = me.body.x; bot.body.z = me.body.z - 5; bot.body.y = me.body.y; bot.flags = 0;
   bot.brain.update = () => bot.brain.input;
   A.msg({ t: 'fire', s: 0, o: [me.body.x, me.body.y + 1.62, me.body.z], d: [[0, -0.05, -1]], rw: 0 });
@@ -206,5 +208,48 @@ export async function runServerTest() {
   assert.notEqual(db.players['dddd-4'].auth, key, 'Schlüssel nur gesalzen gespeichert');
   assert.equal(db.players['aaaa-1'].friends[0], 'bbbb-2');
   assert.equal(Object.keys(db.parties).length, 1);
+
+  // Admin: Übersicht, Rauswerfen, alle Spieler zurücksetzen
+  const ADM = connect();
+  ADM.msg({ t: 'adminStats', rid: 40 });
+  assert.equal(ADM.last('result').key, 'adminNoRight');
+  ADM.msg({ t: 'adminLogin', rid: 41, user: ADMIN_USER, pass: ADMIN_PASS });
+  assert.ok(ADM.last('result').ok);
+  ADM.msg({ t: 'adminStats', rid: 42 });
+  const sr = ADM.last('result');
+  assert.ok(sr.ok);
+  assert.equal(sr.stats.accounts, 4);
+  assert.ok(sr.online.some((p) => p.name === 'Delta'));
+  ADM.msg({ t: 'adminKick', rid: 43, id: 'dddd-4' });
+  assert.ok(ADM.last('result').ok);
+  assert.ok(E.last('kicked'));
+  const E2 = connect();
+  E2.msg({ t: 'hello', id: 'dddd-4', name: 'Delta', auth: key });
+  assert.ok(E2.last('kicked'), 'rausgeworfen: 10 Minuten gesperrt');
+  assert.ok(!E2.last('welcome'));
+  ADM.msg({ t: 'adminWipe', rid: 44 });
+  assert.equal(ADM.last('result').key, 'adminWipeConfirm');
+  B.msg({ t: 'adminWipe', rid: 45, confirm: 'RESET' });
+  assert.equal(B.last('result').key, 'adminNoRight');
+  ADM.msg({ t: 'adminWipe', rid: 46, confirm: 'RESET' });
+  const wr = ADM.last('result');
+  assert.ok(wr.ok);
+  assert.equal(wr.n, 4);
+  assert.ok(A.last('wiped') && B.last('wiped'), 'alle Verbundenen werden benachrichtigt');
+  assert.equal(Object.keys(gs.store.players).length, 0);
+  assert.equal(Object.keys(gs.store.parties).length, 0);
+  // Browser mit altem Spielstand (vor dem Reset angelegt): wird gelöscht statt neu registriert
+  const G = connect();
+  G.msg({ t: 'hello', id: 'aaaa-1', name: 'Alpha', save: { coins: 900, createdAt: 1000 } });
+  assert.ok(G.last('wiped'));
+  assert.ok(!G.last('welcome'));
+  assert.equal(Object.keys(gs.store.players).length, 0);
+  // neues Profil nach dem Reset: normal registrieren
+  G.msg({ t: 'hello', id: 'aaaa-9', name: 'Alpha', save: { coins: 0, createdAt: gs.store.data.resetAt + 5 } });
+  assert.ok(G.last('welcome'));
+  assert.equal(Object.keys(gs.store.players).length, 1);
+  gs.saveNow();
+  assert.ok(JSON.parse(fs.readFileSync(path.join(dir, 'showdownbay.json'), 'utf8')).resetAt > 0);
+  await wait(250);
   fs.rmSync(dir, { recursive: true, force: true });
 }

@@ -142,7 +142,11 @@ export class LocalSession {
   swap(a, b) { this.sim.humanSwap(this.youId, a, b); }
   drop(slot) { this.sim.humanDrop(this.youId, slot); }
   dropAmmo(a) { this.sim.humanDropAmmo(this.youId, a); }
-  cheat(o) { this.sim.humanCheat(this.youId, { infAmmo: !!o.ia }); if (o.op) this.sim.humanOpLoot(this.youId); }
+  cheat(o) {
+    this.sim.humanCheat(this.youId, { infAmmo: !!o.ia, god: !!o.gm });
+    if (o.op) this.sim.humanOpLoot(this.youId);
+    if (o.heal) this.sim.humanHeal(this.youId);
+  }
   interact(target) { this.sim.humanInteract(this.youId, target); }
   use(slot) { this.sim.humanUse(this.youId, slot); }
   cancelUse() { this.sim.humanCancelUse(this.youId); }
@@ -392,6 +396,7 @@ export class NetSession {
     const r4 = (v) => Math.round(v * 10000) / 10000;
     const msg = { t: 'fire', s: shot.s, o: [r4(shot.ox), r4(shot.oy), r4(shot.oz)], d: shot.dirs.map((d) => [r4(d.x), r4(d.y), r4(d.z)]), rw: +rewind.toFixed(3) };
     if (shot.wall) msg.wb = 1;
+    if (shot.hit) msg.h = [shot.hit.id, shot.hit.part];
     this.net.send(msg);
   }
 
@@ -401,7 +406,7 @@ export class NetSession {
   swap(a, b) { this.net.send({ t: 'swap', a, b }); }
   drop(slot) { this.net.send({ t: 'drop', s: slot }); }
   dropAmmo(a) { this.net.send({ t: 'dropAmmo', a }); }
-  cheat(o) { this.net.send({ t: 'cheat', ia: !!o.ia, op: !!o.op }); }
+  cheat(o) { this.net.send({ t: 'cheat', ia: !!o.ia, op: !!o.op, gm: !!o.gm, heal: !!o.heal }); }
   interact(target) { this.net.send({ t: 'int', ...target }); }
   use(slot) { this.net.send({ t: 'use', s: slot }); }
   cancelUse() { this.net.send({ t: 'useCancel' }); }

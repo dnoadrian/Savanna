@@ -49,6 +49,7 @@ export class WelcomeScreen {
       card.append(
         h('h2', {}, t('welcomeTitle')),
         h('p', { class: 'sub' }, t('welcomeSub')),
+        opts.msg ? h('div', { class: 'wc-notice' }, opts.msg) : null,
         h('div', { class: 'name-row' }, this.input, this.dice),
         this.status,
         this.suggest,

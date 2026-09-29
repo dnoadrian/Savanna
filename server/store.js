@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SHOWDOWN_DATA_DIR || path.join(__dirname, 'data');
-// neue Datei für Showdown Bay: alle Spielerkonten starten frisch
+// Datei-Name bleibt (auch nach der Umbenennung in SNOWDOWN), damit Konten erhalten bleiben
 const FILE = path.join(DATA_DIR, 'showdownbay.json');
 // Version 3: alle Spielerkonten erneut zurückgesetzt (die Browser verwerfen ihr altes Profil ebenfalls)
 const DATA_VERSION = 3;

@@ -26,18 +26,39 @@ export const WEAPON_META = {
   sniper: { sightY: 0.16, muzzle: [0, 0.03, -0.95], eject: [0.05, 0.06, -0.04], mag: [0, -0.04, -0.12], fore: [0, -0.02, -0.4], hip: [0.28, -0.265, -0.7], adsZ: -0.4, scale: 1.0 },
 };
 
+// Pistole: Schlitten aus Stahl mit Griffrillen und Auswurffenster, Rahmen und Griffschalen in
+// Seltenheitsfarbe, Zubehörschiene, echter Abzugsbügel, Biberschwanz, Leuchtpunkt-Korn
 function pistol(g, r, detail) {
-  const body = RAR_BODY[r], dark = RAR_DARK[r];
-  g.box(0, 0.05, -0.07, 0.036, 0.04, 0.23, GUNMETAL); // Schlitten
-  g.box(0, 0.074, -0.07, 0.03, 0.01, 0.21, BLACK);
-  if (detail) for (let i = 0; i < 5; i++) g.box(0.019, 0.055, 0.02 + i * 0.008 - 0.03, 0.003, 0.02, 0.004, BLACK);
-  g.box(0, 0.018, -0.06, 0.034, 0.03, 0.19, body); // Rahmen
-  g.box(0, -0.045, 0.012, 0.034, 0.11, 0.05, dark, { rx: -0.25 }); // Griff
-  g.box(0, -0.01, -0.045, 0.01, 0.01, 0.06, BLACK); // Abzugsbügel
-  g.box(0, 0.083, -0.17, 0.006, 0.012, 0.01, BLACK); // Korn
-  g.box(0.009, 0.083, 0.03, 0.006, 0.014, 0.01, BLACK); // Kimme
-  g.box(-0.009, 0.083, 0.03, 0.006, 0.014, 0.01, BLACK);
-  g.cyl(0, 0.05, -0.19, 0.009, 0.02, BLACK, { rx: Math.PI / 2, seg: 6 });
+  const A = RAR_BODY[r], D = RAR_DARK[r], L = RAR_LIGHT[r];
+  g.box(0, 0.05, -0.078, 0.038, 0.04, 0.244, GUNMETAL);
+  g.box(0, 0.073, -0.078, 0.028, 0.008, 0.24, 0x30343a);
+  g.box(0.0195, 0.061, -0.035, 0.002, 0.018, 0.055, 0x101214);
+  if (detail) {
+    for (let i = 0; i < 6; i++) for (const x of [-0.0195, 0.0195]) g.box(x, 0.05, 0.03 - i * 0.009, 0.002, 0.03, 0.004, BLACK);
+    for (let i = 0; i < 3; i++) for (const x of [-0.0195, 0.0195]) g.box(x, 0.05, -0.16 - i * 0.009, 0.002, 0.026, 0.004, BLACK);
+    g.box(-0.0195, 0.034, -0.1, 0.002, 0.004, 0.12, L);
+  }
+  g.cyl(0, 0.048, -0.2, 0.009, 0.01, 0x101214, { rx: Math.PI / 2, seg: 8 });
+  // Rahmen + Schiene
+  g.box(0, 0.018, -0.07, 0.036, 0.028, 0.2, A);
+  g.box(0, 0.0, -0.14, 0.03, 0.014, 0.07, D);
+  if (detail) for (let i = 0; i < 3; i++) g.box(0, -0.008, -0.162 + i * 0.022, 0.032, 0.005, 0.009, BLACK);
+  // Abzugsbügel + Abzug
+  g.box(0, -0.03, -0.058, 0.012, 0.008, 0.07, A);
+  g.box(0, -0.014, -0.091, 0.012, 0.03, 0.008, A, { rx: -0.2 });
+  g.box(0, -0.014, -0.043, 0.005, 0.022, 0.006, BLACK, { rx: 0.35 });
+  // Griff mit Griffschalen und Riffelung, Biberschwanz
+  g.box(0, -0.05, 0.014, 0.032, 0.116, 0.052, D, { rx: -0.25 });
+  g.box(0, -0.046, 0.015, 0.037, 0.078, 0.04, A, { rx: -0.25 });
+  if (detail) for (let i = 0; i < 5; i++) g.box(0, -0.02 - i * 0.014, 0.008 + i * 0.0036, 0.039, 0.004, 0.034, D, { rx: -0.25 });
+  g.box(0, 0.016, 0.046, 0.03, 0.012, 0.024, A, { rx: -0.3 });
+  // Visier (Korn mit Leuchtpunkt, Kimme), Hahn, Schlittenfang
+  g.box(0, 0.08, -0.186, 0.006, 0.012, 0.01, BLACK);
+  if (detail) g.box(0, 0.086, -0.186, 0.004, 0.004, 0.004, 0x7dff6a, { e: 0.8 });
+  g.box(0.009, 0.08, 0.028, 0.006, 0.014, 0.012, BLACK);
+  g.box(-0.009, 0.08, 0.028, 0.006, 0.014, 0.012, BLACK);
+  g.box(0, 0.058, 0.045, 0.012, 0.018, 0.01, BLACK, { rx: 0.4 });
+  g.box(-0.02, 0.028, -0.03, 0.004, 0.008, 0.03, BLACK);
 }
 
 // SCAR (Sturmgewehr): Oberteil in Seltenheitsfarbe mit durchgehender Picatinny-Schiene,
@@ -104,26 +125,50 @@ function ar(g, r, detail) {
   g.box(0, 0.02, 0.33, 0.054, 0.134, 0.008, 0x141517);
 }
 
+// Trommel-MP: schwarzes Gehäuse mit Seltenheitsstreifen, gerippter Lauf mit Kompensator,
+// Trommelmagazin mit Speichen und Aufziehschlüssel, Holzgriffe und -schaft, Klappvisier
 function drum(g, r, detail) {
-  const band = RAR_BODY[r];
-  g.box(0, 0.035, -0.12, 0.06, 0.07, 0.36, BLACK); // Gehäuse
+  const A = RAR_BODY[r], D = RAR_DARK[r], L = RAR_LIGHT[r];
+  const X = Math.PI / 2;
+  g.box(0, 0.035, -0.12, 0.06, 0.07, 0.36, BLACK);
   g.box(0, 0.075, -0.12, 0.05, 0.014, 0.34, GUNMETAL);
-  g.box(0.031, 0.035, -0.1, 0.004, 0.035, 0.2, band); // Seltenheitsstreifen
-  g.box(-0.031, 0.035, -0.1, 0.004, 0.035, 0.2, band);
-  g.cyl(0, 0.03, -0.44, 0.024, 0.26, BLACK, { rx: Math.PI / 2, seg: 8 }); // Lauf
-  if (detail) for (let i = 0; i < 7; i++) g.cyl(0, 0.03, -0.35 - i * 0.028, 0.03, 0.01, GUNMETAL, { rx: Math.PI / 2, seg: 8 }); // Kühlrippen
-  g.cyl(0, 0.03, -0.585, 0.028, 0.04, GUNMETAL, { rx: Math.PI / 2, seg: 8 });
-  g.box(0, 0.09, -0.56, 0.008, 0.03, 0.008, BLACK); // Korn
-  g.box(0, 0.094, 0.0, 0.03, 0.02, 0.02, BLACK); // Kimme
-  // Trommelmagazin
-  g.cyl(0, -0.08, -0.14, 0.085, 0.05, 0x2d3036, { rz: Math.PI / 2, seg: 14 });
-  g.cyl(0, -0.08, -0.14, 0.05, 0.056, band, { rz: Math.PI / 2, seg: 10 });
-  // Holz: Pistolengriff, Vordergriff, Schaft
+  g.box(0.031, 0.035, -0.1, 0.004, 0.035, 0.2, A);
+  g.box(-0.031, 0.035, -0.1, 0.004, 0.035, 0.2, A);
+  if (detail) {
+    g.box(0.032, 0.02, -0.1, 0.003, 0.006, 0.18, L);
+    g.box(0.031, 0.056, -0.02, 0.004, 0.012, 0.05, 0x101214); // Auswurffenster
+    g.box(0, 0.088, -0.07, 0.014, 0.014, 0.02, GUNMETAL); // Spannhebel oben
+    g.ico(0, 0.098, -0.07, 0.008, BLACK, { detail: 0, jitter: 0 });
+  }
+  // Lauf mit Kühlrippen, Kompensator mit Schlitzen
+  g.cyl(0, 0.03, -0.44, 0.024, 0.26, BLACK, { rx: X, seg: 8 });
+  if (detail) for (let i = 0; i < 7; i++) g.cyl(0, 0.03, -0.35 - i * 0.028, 0.03, 0.01, GUNMETAL, { rx: X, seg: 8 });
+  g.box(0, 0.03, -0.6, 0.044, 0.044, 0.05, GUNMETAL);
+  if (detail) for (let i = 0; i < 3; i++) g.box(0, 0.053, -0.587 - i * 0.013, 0.03, 0.004, 0.006, BLACK);
+  // Visier: Korn mit Schutz, Klappkimme
+  g.box(0, 0.085, -0.56, 0.008, 0.03, 0.008, BLACK);
+  g.box(0, 0.094, 0.0, 0.03, 0.02, 0.02, BLACK);
+  if (detail) g.box(0, 0.108, 0.0, 0.01, 0.012, 0.012, BLACK);
+  // Trommelmagazin mit Speichen und Aufziehschlüssel
+  g.cyl(0, -0.08, -0.14, 0.085, 0.05, 0x2d3036, { rz: X, seg: 16 });
+  g.cyl(0, -0.08, -0.14, 0.05, 0.056, A, { rz: X, seg: 12 });
+  if (detail) {
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      for (const x of [-0.027, 0.027]) g.box(x, -0.08 + Math.sin(a) * 0.066, -0.14 + Math.cos(a) * 0.066, 0.004, 0.012, 0.03, D, { rx: -a });
+    }
+    g.cyl(0.03, -0.08, -0.14, 0.014, 0.012, GUNMETAL, { rz: X, seg: 8 });
+    g.box(0.04, -0.08, -0.14, 0.006, 0.036, 0.01, GUNMETAL);
+  }
+  // Holz: Pistolengriff, Vordergriff mit Fingerrillen, Schaft
   g.box(0, -0.07, 0.05, 0.04, 0.12, 0.055, WOOD, { rx: -0.3 });
   g.box(0, -0.1, -0.3, 0.036, 0.12, 0.045, WOOD, { rx: 0.15 });
+  if (detail) for (let i = 0; i < 3; i++) g.box(0, -0.075 - i * 0.03, -0.323 + i * 0.0045, 0.038, 0.008, 0.012, WOOD_DARK, { rx: 0.15 });
   g.box(0, 0.02, 0.2, 0.05, 0.075, 0.22, WOOD, { rx: 0.08 });
+  if (detail) g.box(0, 0.012, 0.2, 0.052, 0.012, 0.16, D, { rx: 0.08 });
   g.box(0, -0.01, 0.31, 0.056, 0.12, 0.03, WOOD_DARK);
   g.box(0, -0.025, -0.035, 0.012, 0.012, 0.07, BLACK);
+  g.box(0, -0.02, -0.02, 0.006, 0.02, 0.006, GUNMETAL, { rx: 0.3 });
 }
 
 // Taktische Schrotflinte: kantiger Hitzeschutz in Seltenheitsfarbe mit Lüftungsschlitzen,
@@ -187,6 +232,12 @@ function pump(g, r, detail) {
   g.box(-0.034, 0.03, -0.12, 0.004, 0.05, 0.16, A);
   g.box(0.036, 0.05, -0.07, 0.004, 0.024, 0.06, 0x101214);
   if (detail) g.box(0.036, 0.012, -0.16, 0.003, 0.008, 0.08, L);
+  // Patronenhalter links am Gehäuse (4 rote Schrotpatronen)
+  g.box(-0.037, 0.03, -0.1, 0.006, 0.06, 0.1, BLACK);
+  if (detail) for (let i = 0; i < 4; i++) {
+    g.cyl(-0.046, 0.03, -0.138 + i * 0.025, 0.009, 0.05, 0xc0392b, { seg: 6 });
+    g.cyl(-0.046, 0.0, -0.138 + i * 0.025, 0.0095, 0.012, 0xd9b24a, { seg: 6 });
+  }
   // Abzugsbügel + Abzug
   g.box(0, -0.035, -0.02, 0.01, 0.01, 0.08, BLACK);
   g.box(0, -0.025, -0.02, 0.006, 0.022, 0.006, GUNMETAL, { rx: 0.3 });
@@ -316,30 +367,57 @@ function knife(g, r, detail) {
   }
 }
 
+// Schweres Scharfschützengewehr: kantiges Gehäuse mit Schiene, Kammerstängel mit Kugelknauf,
+// breiter Handschutz mit Kühlschlitzen, kannelierter Lauf, große Mündungsbremse, Zielfernrohr mit
+// Türmen, Ringen und leuchtender Linse, Daumenloch-Schaft mit Wangenauflage, eingeklapptes Zweibein
 function sniper(g, r, detail) {
-  const A = RAR_BODY[r], L = RAR_LIGHT[r];
-  g.box(0, 0.03, -0.1, 0.07, 0.08, 0.34, A); // Gehäuse
-  g.box(0, 0.075, -0.1, 0.05, 0.012, 0.3, BLACK);
-  g.cyl(0, 0.03, -0.55, 0.022, 0.56, 0x2b2f35, { rx: Math.PI / 2, seg: 8 }); // schwerer Lauf
-  g.box(0, 0.03, -0.9, 0.06, 0.05, 0.1, BLACK); // Mündungsbremse
-  if (detail) for (const x of [-0.031, 0.031]) g.box(x, 0.03, -0.9, 0.004, 0.03, 0.06, 0x111111);
-  g.box(0, 0.03, -0.35, 0.08, 0.07, 0.26, A); // Handschutz
-  if (detail) g.box(0.041, 0.03, -0.35, 0.003, 0.02, 0.2, L);
+  const A = RAR_BODY[r], D = RAR_DARK[r], L = RAR_LIGHT[r];
+  const X = Math.PI / 2;
+  g.box(0, 0.032, -0.1, 0.07, 0.078, 0.34, A);
+  g.box(0, 0.074, -0.1, 0.052, 0.012, 0.32, BLACK);
+  if (detail) for (let i = 0; i < 10; i++) g.box(0, 0.082, -0.24 + i * 0.03, 0.056, 0.006, 0.012, BLACK);
+  g.box(0.036, 0.04, -0.06, 0.004, 0.03, 0.09, 0x101214);
+  if (detail) g.box(-0.036, 0.02, -0.12, 0.003, 0.01, 0.22, L);
+  g.box(0.055, 0.05, 0.0, 0.05, 0.012, 0.012, GUNMETAL, { rz: -0.35 });
+  g.ico(0.08, 0.04, 0.0, 0.015, BLACK, { detail: 1, jitter: 0 });
+  // Handschutz
+  g.box(0, 0.03, -0.37, 0.078, 0.072, 0.28, A);
+  g.box(0, -0.008, -0.37, 0.062, 0.012, 0.28, D);
+  if (detail) {
+    for (let i = 0; i < 5; i++) for (const x of [-0.04, 0.04]) g.box(x, 0.036, -0.46 + i * 0.045, 0.004, 0.03, 0.026, 0x111316);
+    g.box(0.041, 0.006, -0.37, 0.003, 0.008, 0.24, L);
+  }
+  // Lauf mit Kanneluren, Mündungsbremse mit Schlitzen
+  g.cyl(0, 0.03, -0.66, 0.02, 0.5, 0x2b2f35, { rx: X, seg: 10 });
+  if (detail) for (let k = 0; k < 4; k++) g.box(Math.cos(k * X + 0.785) * 0.019, 0.03 + Math.sin(k * X + 0.785) * 0.019, -0.66, 0.006, 0.006, 0.36, 0x1a1c20);
+  g.box(0, 0.03, -0.922, 0.058, 0.052, 0.08, BLACK);
+  if (detail) for (let i = 0; i < 3; i++) for (const x of [-0.03, 0.03]) g.box(x, 0.03, -0.896 - i * 0.024, 0.004, 0.036, 0.012, 0x0b0b0b);
   // Zielfernrohr
-  g.cyl(0, 0.16, -0.12, 0.03, 0.3, BLACK, { rx: Math.PI / 2, seg: 10 });
-  g.cyl(0, 0.16, -0.3, 0.04, 0.07, BLACK, { rx: Math.PI / 2, seg: 10 });
-  g.cyl(0, 0.16, 0.04, 0.036, 0.05, BLACK, { rx: Math.PI / 2, seg: 10 });
-  g.box(0, 0.11, -0.05, 0.03, 0.04, 0.03, BLACK);
-  g.box(0, 0.11, -0.2, 0.03, 0.04, 0.03, BLACK);
-  if (detail) g.cyl(0, 0.16, -0.338, 0.034, 0.004, 0x5fb8ff, { rx: Math.PI / 2, seg: 10, e: 0.4 });
-  // Griff, Kammerstängel, Schaft, Zweibein
+  g.cyl(0, 0.16, -0.12, 0.03, 0.3, BLACK, { rx: X, seg: 12 });
+  g.cyl(0, 0.16, -0.305, 0.03, 0.07, BLACK, { rx: X, seg: 12, rt: 0.03, rb: 0.044 });
+  g.cyl(0, 0.16, 0.05, 0.036, 0.05, BLACK, { rx: X, seg: 12 });
+  g.cyl(0, 0.16, 0.012, 0.0315, 0.012, A, { rx: X, seg: 12 });
+  g.cyl(0, 0.2, -0.12, 0.013, 0.022, GUNMETAL, { seg: 10 });
+  g.cyl(0.04, 0.16, -0.12, 0.013, 0.022, GUNMETAL, { rz: X, seg: 10 });
+  for (const z of [-0.04, -0.2]) {
+    g.box(0, 0.11, z, 0.034, 0.05, 0.022, BLACK);
+    g.cyl(0, 0.16, z, 0.034, 0.024, GUNMETAL, { rx: X, seg: 12 });
+  }
+  g.cyl(0, 0.16, -0.342, 0.039, 0.004, 0x5fb8ff, { rx: X, seg: 12, e: 0.55 });
+  if (detail) g.cyl(0, 0.16, 0.076, 0.028, 0.003, 0x1d3a5c, { rx: X, seg: 12, e: 0.3 });
+  // Pistolengriff, Abzugsbügel, Magazinschacht
   g.box(0, -0.07, 0.05, 0.042, 0.12, 0.055, BLACK, { rx: -0.3 });
-  g.box(0.05, 0.05, 0.0, 0.05, 0.014, 0.014, BLACK);
-  g.box(0.075, 0.05, 0.0, 0.02, 0.02, 0.02, GUNMETAL);
-  g.box(0, 0.02, 0.2, 0.06, 0.08, 0.22, A);
-  g.box(0, 0.07, 0.19, 0.05, 0.02, 0.12, BLACK);
-  g.box(0, -0.01, 0.31, 0.066, 0.14, 0.035, BLACK);
-  g.box(0, -0.03, -0.42, 0.012, 0.012, 0.16, BLACK, { rx: 0.2 });
+  g.box(0, -0.035, -0.01, 0.01, 0.01, 0.07, BLACK);
+  g.box(0, -0.025, -0.01, 0.006, 0.02, 0.006, GUNMETAL, { rx: 0.3 });
+  // Daumenloch-Schaft mit Wangenauflage und Schaftkappe
+  g.box(0, 0.036, 0.2, 0.06, 0.05, 0.22, A);
+  g.box(0, 0.072, 0.21, 0.05, 0.024, 0.13, D);
+  g.box(0, -0.04, 0.245, 0.056, 0.05, 0.13, A, { rx: 0.25 });
+  g.box(0, 0.0, 0.312, 0.066, 0.15, 0.032, BLACK);
+  if (detail) g.box(0, 0.0, 0.33, 0.068, 0.152, 0.006, 0x141517);
+  // eingeklapptes Zweibein
+  g.box(0, -0.012, -0.44, 0.05, 0.012, 0.03, GUNMETAL);
+  for (const x of [-0.018, 0.018]) g.box(x, -0.024, -0.54, 0.01, 0.01, 0.2, BLACK);
 }
 
 const BUILDERS = { pistol, ar, drum, tac, pump, hammer, sniper, knife };
@@ -396,29 +474,105 @@ export function magazineGeometry(type, rarity) {
   return geo;
 }
 
-// Heil-/Schild-Gegenstände (Ursprung = Boden des Gegenstands)
+// Heil-/Schild-Gegenstände (Ursprung = Boden des Gegenstands), im Stil des Originals:
+// Mini-Schild = kleine runde Glasflasche mit leuchtend blauem Inhalt, Schild-Emblem und Kappe,
+// großer Schild = bauchige Flasche mit Etikett, Emblem, Schraubdeckel und Tragegriff,
+// Medikit = weißer Koffer mit rotem Kreuz, grauen Kantenschützern, Schnallen und Griff.
+const SHIELD_GLOW = 0x2f9dff, SHIELD_DEEP = 0x1f6fe0, GLASS = 0xcff1ff, CAP = 0x23407e, CAP_LIGHT = 0x3b6fd4;
+
+// kleines Schild-Emblem (Wappenform) auf der Vorderseite (+Z), Mitte (x, y), Größe s
+function shieldEmblem(g, x, y, z, s, col, e = 0.5, ry = 0) {
+  g.box(x, y + s * 0.18, z, s * 0.9, s * 0.64, s * 0.12, col, { e, ry });
+  g.box(x, y - s * 0.26, z, s * 0.62, s * 0.36, s * 0.12, col, { e, ry, rz: 0 });
+  g.box(x, y - s * 0.46, z, s * 0.28, s * 0.2, s * 0.12, col, { e, ry });
+}
+
+function miniShield(g, detail) {
+  // runder Flaschenbauch: oben helles Glas, unten die leuchtende Füllung (ragt etwas heraus)
+  g.ico(0, 0.06, 0, 0.049, 0xa8e2ff, { detail: 2, e: 0.3, jitter: 0, vary: 0.02 });
+  g.ico(0, 0.05, 0, 0.0525, SHIELD_GLOW, { detail: 2, e: 0.6, jitter: 0, vary: 0.02 });
+  g.cyl(0, 0.078, 0, 0.0425, 0.004, 0xe8f8ff, { seg: 18, e: 0.6 }); // Flüssigkeitsspiegel
+  g.cyl(0, 0.006, 0, 0.026, 0.012, SHIELD_DEEP, { seg: 12 }); // Standfuß
+  // Hals aus Glas, Kragen, Kappe mit Riffeln und gewölbtem Deckel
+  g.cyl(0, 0.108, 0, 0.018, 0.03, GLASS, { rt: 0.015, seg: 10, e: 0.25 });
+  g.cyl(0, 0.124, 0, 0.022, 0.008, CAP_LIGHT, { seg: 12 });
+  g.cyl(0, 0.139, 0, 0.02, 0.024, CAP, { seg: 12 });
+  g.ico(0, 0.151, 0, 0.02, CAP_LIGHT, { detail: 1, jitter: 0, sy: 0.35 });
+  if (detail) {
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      g.box(Math.sin(a) * 0.02, 0.139, Math.cos(a) * 0.02, 0.006, 0.022, 0.004, CAP_LIGHT, { ry: a });
+    }
+    // Schild-Emblem vorn und Glanzpunkte/Bläschen
+    shieldEmblem(g, 0, 0.044, 0.051, 0.03, 0xeaf8ff, 0.8);
+    g.ico(-0.03, 0.07, 0.036, 0.006, 0xffffff, { detail: 0, jitter: 0, e: 1 });
+    g.ico(0.034, 0.04, 0.03, 0.004, 0xbff3ff, { detail: 0, jitter: 0, e: 1 });
+    g.ico(0.018, 0.084, 0.034, 0.0035, 0xbff3ff, { detail: 0, jitter: 0, e: 1 });
+  }
+}
+
+function bigShield(g, detail) {
+  // bauchige Flasche: runder Boden, gerader Körper, Schultern zum Hals
+  g.cyl(0, 0.012, 0, 0.066, 0.024, SHIELD_DEEP, { rt: 0.07, rb: 0.058, seg: 14, e: 0.3 });
+  g.cyl(0, 0.09, 0, 0.07, 0.132, SHIELD_GLOW, { seg: 14, e: 0.5 });
+  g.cyl(0, 0.176, 0, 0.07, 0.04, SHIELD_GLOW, { rt: 0.036, rb: 0.07, seg: 14, e: 0.5 });
+  // weißes Etikett mit blauem Emblem, Glasglanz-Streifen
+  g.cyl(0, 0.088, 0, 0.0715, 0.07, 0xf3f6fa, { seg: 14 });
+  g.cyl(0, 0.124, 0, 0.0718, 0.006, SHIELD_DEEP, { seg: 14 });
+  g.cyl(0, 0.052, 0, 0.0718, 0.006, SHIELD_DEEP, { seg: 14 });
+  shieldEmblem(g, 0, 0.09, 0.07, 0.05, SHIELD_DEEP, 0.3);
+  if (detail) {
+    g.box(-0.05, 0.1, 0.049, 0.008, 0.15, 0.004, GLASS, { ry: -0.8, e: 0.4 });
+    g.box(-0.058, 0.1, 0.037, 0.004, 0.12, 0.004, 0xffffff, { ry: -0.95, e: 0.6 });
+  }
+  // Hals, Schraubdeckel mit Riffeln
+  g.cyl(0, 0.207, 0, 0.032, 0.026, GLASS, { seg: 10, e: 0.25 });
+  g.cyl(0, 0.232, 0, 0.04, 0.03, CAP, { seg: 12 });
+  g.cyl(0, 0.25, 0, 0.034, 0.008, CAP_LIGHT, { seg: 12 });
+  if (detail) for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * Math.PI * 2;
+    g.box(Math.sin(a) * 0.04, 0.232, Math.cos(a) * 0.04, 0.008, 0.026, 0.005, CAP_LIGHT, { ry: a });
+  }
+  // Tragegriff an der Seite
+  g.box(0.074, 0.165, 0, 0.018, 0.016, 0.022, CAP);
+  g.box(0.074, 0.06, 0, 0.018, 0.016, 0.022, CAP);
+  g.box(0.09, 0.112, 0, 0.014, 0.12, 0.022, CAP_LIGHT);
+}
+
+function medkit(g, detail) {
+  const W = 0xf4f5f7, GREY = 0x9aa3ad, DARK = 0x3a3f46, RED = 0xe63946;
+  // Koffer mit Deckelfuge
+  g.box(0, 0.082, 0, 0.23, 0.15, 0.11, W);
+  g.box(0, 0.118, 0, 0.234, 0.007, 0.114, 0xc4cad2);
+  // Kantenschützer an allen vier senkrechten Kanten + Bodenleiste
+  for (const x of [-0.112, 0.112]) for (const z of [-0.052, 0.052]) g.box(x, 0.082, z, 0.018, 0.154, 0.018, GREY);
+  g.box(0, 0.006, 0, 0.236, 0.012, 0.116, GREY);
+  // rotes Kreuz vorn und hinten (leuchtet leicht), rechts ein kleines
+  for (const z of [-0.056, 0.056]) {
+    g.box(0, 0.075, z, 0.1, 0.032, 0.006, RED, { e: 0.35 });
+    g.box(0, 0.075, z, 0.032, 0.1, 0.006, RED, { e: 0.35 });
+  }
+  g.box(0.117, 0.075, 0, 0.006, 0.02, 0.06, RED, { e: 0.35 });
+  g.box(0.117, 0.075, 0, 0.006, 0.06, 0.02, RED, { e: 0.35 });
+  // Schnallen vorn
+  for (const x of [-0.075, 0.075]) {
+    g.box(x, 0.118, -0.058, 0.026, 0.03, 0.008, GREY);
+    if (detail) g.box(x, 0.124, -0.063, 0.014, 0.01, 0.004, DARK);
+  }
+  // Tragegriff oben
+  for (const x of [-0.05, 0.05]) g.box(x, 0.168, 0, 0.014, 0.024, 0.024, DARK);
+  g.box(0, 0.184, 0, 0.12, 0.016, 0.026, DARK);
+  if (detail) g.box(0, 0.194, 0, 0.09, 0.006, 0.02, 0x555b63);
+}
+
 export function consumableGeometry(type) {
   const key = 'c:' + type;
   let geo = geoCache.get(key);
   if (!geo) {
     const g = new GeoBuilder();
-    if (type === 'mini') {
-      g.ico(0, 0.05, 0, 0.05, 0x3fb2ff, { detail: 1, e: 0.35, jitter: 0 });
-      g.cyl(0, 0.11, 0, 0.017, 0.04, 0x9fe0ff, { seg: 8 });
-      g.cyl(0, 0.14, 0, 0.02, 0.02, 0xc08a50, { seg: 8 });
-      g.ico(0, 0.05, 0, 0.056, 0xbfeaff, { detail: 1, jitter: 0, sy: 0.35 });
-    } else if (type === 'big') {
-      g.cyl(0, 0.08, 0, 0.065, 0.16, 0x2f8fff, { seg: 10, e: 0.35 });
-      g.cyl(0, 0.08, 0, 0.068, 0.07, 0xf2f2f2, { seg: 10 });
-      g.cyl(0, 0.18, 0, 0.035, 0.05, 0x7fcaff, { seg: 8 });
-      g.cyl(0, 0.215, 0, 0.04, 0.025, 0x3a3f46, { seg: 8 });
-      g.box(0.07, 0.12, 0, 0.012, 0.06, 0.03, 0x3a3f46);
-    } else {
-      g.box(0, 0.08, 0, 0.22, 0.16, 0.1, 0xf5f5f5);
-      g.box(0, 0.165, 0, 0.1, 0.02, 0.03, 0x888888);
-      g.box(0, 0.08, -0.052, 0.1, 0.03, 0.01, 0xe63946, { e: 0.3 });
-      g.box(0, 0.08, -0.052, 0.03, 0.1, 0.01, 0xe63946, { e: 0.3 });
-    }
+    if (type === 'mini') miniShield(g, 1);
+    else if (type === 'big') bigShield(g, 1);
+    else medkit(g, 1);
     geo = g.toGeometry();
     geoCache.set(key, geo);
   }

@@ -50,6 +50,7 @@ export class Renderer {
     this.canvas.id = 'game-canvas';
     container.appendChild(this.canvas);
     this.settings = {};
+    this.dynScale = 1; // automatische Auflösung bei zu wenig FPS (0.7 … 1)
     this.width = 1;
     this.height = 1;
     this.composer = null;
@@ -76,11 +77,31 @@ export class Renderer {
     this.onResize && this.onResize(this.width, this.height);
   }
 
+  // Leistungsmodus: höchstens 1,5-fache Pixeldichte (Retina/4K sieht fast gleich aus, braucht
+  // aber nur gut die Hälfte der Pixel von 2×), dazu die automatische Auflösung bei wenig FPS
   applyPixelRatio() {
-    const scale = (this.settings.resolution ?? 100) / 100;
-    const pr = Math.min(window.devicePixelRatio || 1, 2) * scale;
+    const scale = ((this.settings.resolution ?? 100) / 100) * this.dynScale;
+    const pr = Math.min(window.devicePixelRatio || 1, 1.5) * scale;
+    if (Math.abs(pr - this.renderer.getPixelRatio()) < 0.01) return;
     this.renderer.setPixelRatio(pr);
     if (this.composer) this.composer.setPixelRatio(pr);
+  }
+
+  // Bildrate beobachten: bleibt sie länger unter 40 FPS, Auflösung in kleinen Schritten senken
+  // (bis 70 %), bei genug Luft wieder anheben. Nur im Match (fps = gemessene Bildrate).
+  adaptResolution(fps, dt) {
+    this.fpsAvg = this.fpsAvg ? this.fpsAvg + (fps - this.fpsAvg) * Math.min(1, dt * 1.5) : fps;
+    this.resT = (this.resT || 0) + dt;
+    if (this.resT < 3) return;
+    let s = this.dynScale;
+    if (this.fpsAvg < 40 && s > 0.7) s = Math.max(0.7, s - 0.1);
+    else if (this.fpsAvg > 57 && s < 1) s = Math.min(1, s + 0.05);
+    if (s === this.dynScale) return;
+    this.resT = 0;
+    this.dynScale = s;
+    this.applyPixelRatio();
+    this.renderer.setSize(this.width, this.height);
+    if (this.composer) this.composer.setSize(this.width, this.height);
   }
 
   apply(settings) {

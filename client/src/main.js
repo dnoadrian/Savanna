@@ -1,8 +1,8 @@
-// SHOWDOWN BAY – Client-Einstieg: App-Zustände (Anmeldung → Lobby → Warteschlange → Laden → Match → Ergebnis).
+// SNOWDOWN – Client-Einstieg: App-Zustände (Anmeldung → Lobby → Warteschlange → Laden → Match → Ergebnis).
 import * as THREE from 'three';
 import { Settings } from './settings.js';
 import { setLanguage, t } from './i18n.js';
-import { Profile, computeCoins } from './profile.js';
+import { Profile, computeCoins, wipeAllProfiles } from './profile.js';
 import { AudioEngine } from './audio/engine.js';
 import { Renderer, GRAPHICS } from './render/renderer.js';
 import { LobbyScene } from './render/lobbyScene.js';
@@ -21,6 +21,7 @@ import { NavGrid } from '../shared/sim/nav.js';
 import { Simulation } from '../shared/sim/simulation.js';
 import { RNG } from '../shared/rng.js';
 import { MATCH_SIZE, clampQueueWait } from '../shared/constants.js';
+import { initPWA } from './pwa.js';
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
@@ -126,6 +127,9 @@ class App {
       this.renderer.vmScene = r.vmScene;
       this.renderer.vmCamera = r.vmCamera;
       this.renderer.render();
+      // automatische Auflösung nur, wenn die Bildrate nicht absichtlich begrenzt ist
+      const lim = this.settings.get('fpsLimit');
+      if (lim === 'unlimited' || Number(lim) >= 60) this.renderer.adaptResolution(this.match.fps, dt);
     } else if (this.state !== 'loading') {
       this.lobbyScene.update(dt);
       this.ui.updateLobbyOverlay(dt);
@@ -323,6 +327,19 @@ class App {
         break;
       case 'ann':
         this.setAnnouncements(m.ann);
+        break;
+      case 'wiped':
+        this.onWiped(m.at);
+        break;
+      case 'kicked':
+        // vom Admin rausgeworfen: Online-Runde verlassen, Hinweis höchstens einmal pro Minute
+        if (this.match && !this.match.session.isLocal) { this.disposeMatch(); this.enterLobby(); }
+        this.registered = false;
+        this.party = null;
+        if (!this.kickToast || Date.now() - this.kickToast > 60000) {
+          this.kickToast = Date.now();
+          this.ui.toast(t('kickedMsg', { n: m.left || 10 }), 'error');
+        }
         break;
       case 'coins':
         // Geschenk vom Admin
@@ -623,6 +640,19 @@ class App {
     return this.net.request({ t: 'checkName', name }, 3000);
   }
 
+  // Admin hat alle Spieler zurückgesetzt: Spielstand auf diesem Gerät löschen, neu anmelden
+  onWiped(at) {
+    if (this.wipeHandled === at) return;
+    this.wipeHandled = at;
+    if (this.match) this.disposeMatch();
+    wipeAllProfiles(at);
+    this.profile.data = null;
+    this.party = null;
+    this.social = null;
+    this.registered = false;
+    this.showWelcome({ msg: t('wipedMsg') });
+  }
+
   resetAccount() {
     if (this.net.connected) this.net.send({ t: 'resetAccount' });
     this.profile.reset();
@@ -636,6 +666,7 @@ class App {
   }
 }
 
+initPWA();
 const app = new App();
 window.__app = app;
 app.start();

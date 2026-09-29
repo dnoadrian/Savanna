@@ -183,7 +183,7 @@ export class LocalPlayer {
     this.inv.sel = 0;
     this.inv.ammo.medium = Math.max(this.inv.ammo.medium, AMMO_MAX.medium);
     this.inv.ammo.heavy = Math.max(this.inv.ammo.heavy, AMMO_MAX.heavy);
-    this.game.session.cheat({ ia: this.admin.active('infammo'), op: true });
+    this.game.session.cheat({ ia: this.admin.active('infammo'), gm: this.admin.active('god'), op: true });
     this.onHandChanged();
   }
 
@@ -575,13 +575,29 @@ export class LocalPlayer {
     const dirs = [];
     for (let k = 0; k < def.pellets; k++) dirs.push(applySpread(base, spread, Math.random));
     const wall = this.admin.active('wallbang');
-    g.session.fire({ s: this.inv.sel, ox: eye.x, oy: eye.y, oz: eye.z, dirs, wall });
+    const shot = { s: this.inv.sel, ox: eye.x, oy: eye.y, oz: eye.z, dirs, wall };
+    // Sniper im Zielfernrohr: getroffen ist, was im Fadenkreuz war (Server prüft das nach)
+    if (def.scope && this.scoped) shot.hit = this.scopedHit(states, eye, dirs[0], def.range, wall);
+    g.session.fire(shot);
     g.onLocalShot(eye.clone(), dirs, item, wall);
     // kein Rückstoß: das Fadenkreuz bleibt, wo du zielst (nur leichtes Bildwackeln bei Schrot/Sniper)
     this.shake = Math.min(1, this.shake + (def.pellets > 1 || def.scope ? 0.45 : 0));
     g.viewmodel.fire(item.w);
     this.audio.gunshot(null, 0, item.w);
     if (def.scope && this.scoped) this.adsK = 0.3; // nach dem Schuss kurz aus dem Zielfernrohr
+  }
+
+  // Wen trifft der Strahl auf dem eigenen Bildschirm? { id, part } oder undefined
+  scopedHit(states, eye, d, range, wall) {
+    let best = wall ? range : this.map.collision.raycast(eye.x, eye.y, eye.z, d.x, d.y, d.z, range, true, true);
+    if (best < 0) best = range;
+    let hit;
+    for (const st of states) {
+      if (st.id === this.game.session.youId || !st.alive || this.isMate(st.id)) continue;
+      const r = rayPlayer(st, eye.x, eye.y, eye.z, d.x, d.y, d.z, best);
+      if (r) { best = r.t; hit = { id: st.id, part: r.part }; }
+    }
+    return hit;
   }
 
   // Admin-Aimbot: lockt immer auf den nächsten Gegner (Entfernung, nicht Blickwinkel) und rastet

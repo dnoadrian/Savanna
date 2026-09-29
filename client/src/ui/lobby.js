@@ -3,6 +3,7 @@
 // BEREIT = 15 s Warteschlange, danach geht es immer in eine Lobby mit Bots (freie Plätze).
 import { h, esc } from './dom.js';
 import { ICON, logo } from './icons.js';
+import { isInstalledApp } from '../pwa.js';
 import { t } from '../i18n.js';
 import { OUTFITS, OUTFIT_COLORS, CROWN_STYLES, MATCH_SIZE, PARTY_MAX, SKIN_SHOP, KNIFE_SHOP, DEFAULT_OUTFIT, clampQueueWait } from '../../shared/constants.js';
 import { RARITY_COLORS, KNIFE_SKINS, knifeItem } from '../../shared/items.js';
@@ -76,6 +77,7 @@ export class LobbyScreen {
     this.menuEl = h('div', { class: 'dropdown hidden' },
       this.menuItem('chart', t('menuStats'), () => this.ui.openStats()),
       this.menuItem('globe', app.net.staticSite ? t('menuServer') : t('menuHost'), () => this.ui.openHost()),
+      isInstalledApp() ? null : this.menuItem('download', t('installApp'), () => this.ui.openInstall()),
       this.menuItem('info', t('menuCredits'), () => this.ui.openCredits()),
       this.menuItem('exit', t('menuQuit'), () => this.ui.quitGame()));
     const nav = h('nav', { class: 'top-nav' },
@@ -86,6 +88,7 @@ export class LobbyScreen {
     const top = h('header', { class: 'topbar' },
       h('div', { class: 'tb-left' }, logo('small'), nav),
       h('div', { class: 'tb-right' }, this.coinPill = h('button', { class: 'coin-pill', title: t('shop'), onclick: (e) => { e.stopPropagation(); app.audio.uiClick(); this.toggleLocker(true, 'shop'); } }), this.serverDot, this.friendsBtn,
+        this.installBtn = isInstalledApp() ? null : h('button', { class: 'install-pill', title: t('installApp'), html: ICON.download + '<span>' + t('installShort') + '</span>', onclick: (e) => { e.stopPropagation(); app.audio.uiClick(); this.ui.openInstall(); }, onmouseenter: () => app.audio.uiHover() }),
         iconBtn('gear', t('menuSettings'), () => this.ui.openSettings()),
         iconBtn('fullscreen', t('fullscreen'), () => this.ui.toggleFullscreen()),
         iconBtn('menu', t('menu'), () => this.toggleMenu()), this.menuEl));

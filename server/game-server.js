@@ -47,6 +47,8 @@ export class GameServer {
     this.beacon = new Beacon(this.tunnel);
     this.admin = new AdminAuth(this.store);
     this.loginFails = new Map(); // Konto-ID -> Zeitpunkte falscher Anmeldungen
+    this.kicked = new Map(); // Spieler-ID -> gesperrt bis (Admin-Kick, 10 min)
+    this.startedAt = Date.now();
     // Angaben für die Lobby-Anzeige „Server“ (Name, Standort, Spieler online)
     this.info = {
       name: process.env.SHOWDOWN_SERVER_NAME || process.env.RENDER_SERVICE_NAME || null,
@@ -143,6 +145,19 @@ export class GameServer {
     if (m.t === 'checkName') return this.onCheckName(c, m);
     if (m.t === 'hello') return this.onHello(c, m);
     if (m.t === 'login') return this.onLogin(c, m);
+    // Admin-Werkzeuge prüfen ihre Rechte selbst (gehen auch ohne Spielerkonto, z. B. nach dem Reset)
+    switch (m.t) {
+      case 'adminCoins': return this.onAdminCoins(c, m);
+      case 'adminLogin': return this.onAdminLogin(c, m);
+      case 'adminResume': return this.onAdminResume(c, m);
+      case 'adminLogout': c.admin = null; return;
+      case 'adminAccounts': return this.onAdminAccounts(c, m);
+      case 'adminAnnounce': return this.onAdminAnnounce(c, m);
+      case 'adminStats': return this.onAdminStats(c, m);
+      case 'adminKick': return this.onAdminKick(c, m);
+      case 'adminWipe': return this.onAdminWipe(c, m);
+      default: break;
+    }
     if (!c.pid) return;
     // Match-Nachrichten
     if (c.matchId) {
@@ -176,13 +191,7 @@ export class GameServer {
       case 'partyMode': return this.onPartyMode(c, m.mode);
       case 'queue': return this.onQueue(c, m);
       case 'queueCancel': return this.onQueueCancel(c);
-      case 'adminCoins': return this.onAdminCoins(c, m);
-      case 'adminLogin': return this.onAdminLogin(c, m);
-      case 'adminResume': return this.onAdminResume(c, m);
-      case 'adminLogout': c.admin = null; return;
-      case 'adminAccounts': return this.onAdminAccounts(c, m);
-      case 'adminAnnounce': return this.onAdminAnnounce(c, m);
-      case 'cheat': c.cheats = { ia: !!m.ia }; return;
+      case 'cheat': c.cheats = { ia: !!m.ia, gm: !!m.gm }; return;
       case 'hostStatus': return this.sendHost(c);
       case 'hostStart':
         if (!c.isHost) return this.err(c, 'err_not_host');
@@ -217,6 +226,17 @@ export class GameServer {
     const name = String(m.name || '');
     if (!id || !/^[a-zA-Z0-9-]+$/.test(id)) return;
     let p = this.store.player(id);
+    // Admin hat alle Spieler zurückgesetzt: Spielstände von vorher werden auch im Browser gelöscht
+    const resetAt = this.store.data.resetAt || 0;
+    if (!p && resetAt && !(Number(m.save && m.save.createdAt) > resetAt)) {
+      this.send(c, { t: 'wiped', at: resetAt });
+      return;
+    }
+    const kick = this.kicked.get(id);
+    if (kick && kick > Date.now()) {
+      this.send(c, { t: 'kicked', left: Math.ceil((kick - Date.now()) / 60000) });
+      return;
+    }
     const r = this.nameResult(name, id);
     if (!r.ok) {
       this.send(c, { t: 'nameTaken', err: r.err, suggestions: r.suggestions || suggestAlternatives(name || 'Spieler', (n) => this.store.nameTaken(n, id)) });
@@ -465,6 +485,83 @@ export class GameServer {
   broadcastAnnouncements() {
     const ann = this.announcements();
     for (const c of this.clients) if (c.pid) this.send(c, { t: 'ann', ann });
+  }
+
+  isMaster(c) {
+    return !!(c.admin && c.admin.role === 'master');
+  }
+
+  // Übersicht für das Admin-Panel: Spieler online, laufende Runden, Warteschlange, Server
+  onAdminStats(c, m) {
+    const reply = (r) => this.send(c, { t: 'result', rid: m.rid, ...r });
+    if (!this.isMaster(c)) return reply({ ok: false, key: 'adminNoRight' });
+    const online = [];
+    for (const [id, cc] of this.byPid) {
+      const p = this.store.player(id);
+      online.push({ id, name: p ? p.name : '?', status: cc.matchId ? 'game' : this.queue.some((tk) => tk.members.includes(id)) ? 'queue' : 'lobby', admin: !!cc.admin, rank: p && p.profile ? p.profile.rank : 0 });
+    }
+    online.sort((a, b) => a.name.localeCompare(b.name));
+    const matches = [...this.matches.values()].map((mt) => ({
+      id: mt.id, mode: mt.mode, humans: mt.humanCount(), alive: mt.sim.players.filter((p) => p.alive).length, time: Math.round(mt.sim.matchTime || 0),
+    }));
+    reply({
+      ok: true, online, matches,
+      stats: {
+        accounts: Object.keys(this.store.players).length,
+        online: online.length,
+        queue: this.queue.reduce((n, tk) => n + tk.members.length, 0),
+        matches: matches.length,
+        uptime: Math.round((Date.now() - this.startedAt) / 1000),
+        mem: Math.round(process.memoryUsage().rss / 1048576),
+        resetAt: this.store.data.resetAt || 0,
+      },
+    });
+  }
+
+  // Spieler rauswerfen: Verbindung trennen und 10 Minuten sperren
+  onAdminKick(c, m) {
+    const reply = (r) => this.send(c, { t: 'result', rid: m.rid, ...r });
+    if (!this.isMaster(c)) return reply({ ok: false, key: 'adminNoRight' });
+    const id = String(m.id || '');
+    const tc = this.byPid.get(id);
+    if (!tc || tc === c) return reply({ ok: false, key: 'err_not_found' });
+    const name = this.nameOf(id);
+    this.kicked.set(id, Date.now() + 10 * 60000);
+    this.send(tc, { t: 'kicked', left: 10 });
+    this.onClose(tc);
+    tc.pid = null;
+    setTimeout(() => { try { tc.ws.close(); } catch { /* ignorieren */ } }, 200);
+    console.log(`[admin] ${name} wurde rausgeworfen`);
+    reply({ ok: true, name });
+  }
+
+  // Alle Spieler zurücksetzen: Konten, Freunde, Partys, Kronen-Bot und Spielstände (auch im Browser)
+  onAdminWipe(c, m) {
+    const reply = (r) => this.send(c, { t: 'result', rid: m.rid, ...r });
+    if (!this.isMaster(c)) return reply({ ok: false, key: 'adminNoRight' });
+    if (m.confirm !== 'RESET') return reply({ ok: false, key: 'adminWipeConfirm' });
+    const n = Object.keys(this.store.players).length;
+    const at = Date.now();
+    for (const cc of this.clients) {
+      if (cc.matchId) {
+        const mt = this.matches.get(cc.matchId);
+        if (mt) mt.leave(cc);
+      }
+      cc.pid = null;
+    }
+    this.byPid.clear();
+    this.queue = [];
+    this.invites.clear();
+    this.loginFails.clear();
+    const d = this.store.data;
+    d.players = {};
+    d.parties = {};
+    d.champion = null;
+    d.resetAt = at;
+    this.store.saveNow();
+    for (const cc of this.clients) this.send(cc, { t: 'wiped', at });
+    console.log(`[admin] Alle Spieler zurückgesetzt (${n} Konten gelöscht)`);
+    reply({ ok: true, n });
   }
 
   onAdminCoins(c, m) {

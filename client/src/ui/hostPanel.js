@@ -134,7 +134,7 @@ export class HostPanel {
     }, h('span', { class: 'icon', html: ICON.copy }), ' ', t('copy'));
     const row = h('div', { class: 'link-box' + (small ? ' small' : '') }, input, copy);
     if (!small && navigator.share) {
-      row.appendChild(h('button', { class: 'btn small ghost', onclick: () => navigator.share({ title: 'SHOWDOWN BAY', text: 'Spiel mit mir SHOWDOWN BAY!', url }).catch(() => {}) }, t('hostShare')));
+      row.appendChild(h('button', { class: 'btn small ghost', onclick: () => navigator.share({ title: 'SNOWDOWN', text: 'Spiel mit mir SNOWDOWN!', url }).catch(() => {}) }, t('hostShare')));
     }
     return row;
   }

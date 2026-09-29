@@ -1,6 +1,6 @@
 // Zentrale Spielkonstanten – Server und Client verwenden exakt dieselben Werte.
 
-export const GAME_NAME = 'SHOWDOWN BAY';
+export const GAME_NAME = 'SNOWDOWN';
 export const MATCH_SIZE = 20; // jedes Match: 20 Spieler, freie Plätze füllen Bots
 export const PARTY_MAX = 4;
 export const SERVER_PORT = 4242;

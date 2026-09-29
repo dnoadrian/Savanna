@@ -109,9 +109,14 @@ export function reloadProgress(rt, item) {
 // Streuung in Grad für den nächsten Schuss (bei Schrotflinten: Kegel der Kugeln)
 // Spieler: reiner Hitscan – Kugeln fliegen immer genau aufs Fadenkreuz, egal ob man steht,
 // läuft oder springt. Nur Schrotflinten haben ihren festen Streukegel (Pump eng, Taktische weit).
+// Sniper ohne Zielfernrohr (Noscope) streut dagegen – im Zielfernrohr sitzt jeder Schuss.
 export function weaponSpread(rt, item, flags) {
   if (!item || item.k !== 'w') return 0;
   const def = WEAPONS[item.w];
+  if (def.scope && !(flags & F.ADS)) {
+    const s = def.spread.noscope * (flags & F.AIR ? 1.5 : 1);
+    return flags & (F.CROUCH | F.SLIDE) ? s * def.spread.crouch : s;
+  }
   if (def.pellets <= 1) return 0;
   let s = def.spread.base;
   if (flags & (F.CROUCH | F.SLIDE)) s *= def.spread.crouch;

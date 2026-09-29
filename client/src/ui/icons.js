@@ -33,14 +33,19 @@ export const ICON = {
   shield: `<svg viewBox="0 0 32 32" class="ico"><path d="M16 2l12 5v8c0 8-5 13-12 15C9 28 4 23 4 15V7z" fill="currentColor"/></svg>`,
   cross2: `<svg viewBox="0 0 32 32" class="ico"><path d="M12 3h8v9h9v8h-9v9h-8v-9H3v-8h9z" fill="currentColor"/></svg>`,
   chest: `<svg viewBox="0 0 32 32" class="ico"><path d="M4 13h24v14H4z" fill="#b8742f"/><path d="M4 13c0-6 5-9 12-9s12 3 12 9z" fill="#d18a3a"/><path d="M4 13h24v3H4z" fill="#f2c230"/><rect x="13" y="12" width="6" height="7" rx="1" fill="#f2c230"/></svg>`,
+  download: `<svg viewBox="0 0 32 32" class="ico"><path d="M16 4v15M9.5 12.5L16 19l6.5-6.5" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 21v5h22v-5" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   copy: `<svg viewBox="0 0 32 32" class="ico"><rect x="10" y="10" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="3"/><path d="M6 22V6h16" fill="none" stroke="currentColor" stroke-width="3"/></svg>`,
 };
 
-// Schriftzug „SHOWDOWN BAY“
+const FLAKE_ARM = '<path d="M12 9.5V1.2M8.9 2.7L12 5.8l3.1-3.1"/>';
+const FLAKE = '<svg viewBox="0 0 24 24" class="logo-flake" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<circle cx="12" cy="12" r="2.3" stroke-width="1.8"/>' + [0, 60, 120, 180, 240, 300].map((a) => `<g transform="rotate(${a} 12 12)">${FLAKE_ARM}</g>`).join('') + '</svg>';
+
+// Schriftzug „SNOWDOWN“ (Schneeflocke + Schneewehe)
 export function logo(size = 'big') {
   const el = document.createElement('div');
   el.className = 'logo ' + size;
-  el.innerHTML = '<span class="logo-a">SHOWDOWN</span><span class="logo-b">BAY<svg viewBox="0 0 120 16" class="logo-wave"><path d="M2 10c10-8 18-8 28 0s18 8 28 0 18-8 28 0 18 8 30-2" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg></span>';
+  el.innerHTML = '<span class="logo-a">SNOW' + FLAKE + '</span><span class="logo-b">DOWN<svg viewBox="0 0 120 16" class="logo-wave"><path d="M2 10c10-8 18-8 28 0s18 8 28 0 18-8 28 0 18 8 30-2" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg></span>';
   return el;
 }
 

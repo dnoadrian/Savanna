@@ -12,7 +12,7 @@ import { createBody, stepMovement, bodyFlags } from './movement.js';
 import { createWeaponRuntime, equipWeapon, fireWeapon, startReload, cancelReload, updateWeapon, weaponSpread, botWeaponSpread } from './weapon.js';
 import { createInventory, addItem, dropAll, selectedItem, stackRoom, KNIFE_SLOT } from './inventory.js';
 import { Loot } from './loot.js';
-import { rayPlayer, dirFromAngles, applySpread } from './combat.js';
+import { rayPlayer, dirFromAngles, applySpread, stanceScale } from './combat.js';
 import { Zone } from './zone.js';
 import { BotBrain } from './bots.js';
 import { MAT } from '../physics/collision.js';
@@ -38,6 +38,27 @@ export function decodeHand(code) {
 const EXPAND_PER_TICK = 5000;
 
 // Richtungen für einen Messerhieb: Mitte zuerst, dann ein kleiner Fächer (±9° seitlich, ±6° hoch/runter)
+// kürzester Abstand zwischen einem Strahl (o + d·t) und einer senkrechten Strecke (x, y0..y1, z)
+function raySegment(ox, oy, oz, d, x, y0, y1, z) {
+  const wx = ox - x, wz = oz - z;
+  const hh = d.x * d.x + d.z * d.z;
+  let t;
+  if (hh < 1e-6) t = Math.max(0, ((y0 + y1) / 2 - oy) / (d.y || 1e-6));
+  else {
+    // Strahl-Parameter, bei dem der waagrechte Abstand minimal ist; dann auf die Strecke begrenzen
+    t = Math.max(0, -(wx * d.x + wz * d.z) / hh);
+    const y = oy + d.y * t;
+    if (y < y0 || y > y1) {
+      // Endpunkt der Strecke nehmen und den Strahl dazu optimieren
+      const ey = y < y0 ? y0 : y1;
+      t = Math.max(0, (x - ox) * d.x + (ey - oy) * d.y + (z - oz) * d.z);
+    }
+  }
+  const px = ox + d.x * t, py = oy + d.y * t, pz = oz + d.z * t;
+  const cy = Math.max(y0, Math.min(y1, py));
+  return { t, y: cy, dist: Math.hypot(px - x, py - cy, pz - z) };
+}
+
 function meleeFan(d) {
   const out = [d];
   const yaw = Math.atan2(d.x, d.z), pitch = Math.asin(Math.max(-1, Math.min(1, d.y)));
@@ -472,7 +493,8 @@ export class Simulation {
 
   // Hitscan-Schuss mit einer oder mehreren Kugeln (Schrotflinten); Schaden je Ziel summiert
   // wall: Admin „durch Wände schießen“ – Welt-Geometrie wird ignoriert
-  fireShot(shooter, item, ox, oy, oz, dirs, rewind, wall = false) {
+  // claim: { id, part } – Treffer, den der Schütze im Zielfernrohr auf seinem Bildschirm hatte
+  fireShot(shooter, item, ox, oy, oz, dirs, rewind, wall = false, claim = null) {
     const def = WEAPONS[item.w];
     const range = def.range;
     const col = this.world.collision;
@@ -512,6 +534,13 @@ export class Simulation {
         const r = rayPlayer(st, ox, oy, oz, d.x, d.y, d.z, best);
         if (r && r.t < best) { best = r.t; hitP = o; hitPart = r.part; }
       }
+      // Sniper im Zielfernrohr: was der Schütze getroffen hat, zählt („favor the shooter“),
+      // solange Ziel und Strahl zur Lag-Kompensation passen und keine Wand dazwischen ist
+      if (claim && def.scope && dirs.length === 1 && (!hitP || (hitP.id === claim.id && hitPart !== 'h'))) {
+        const o = this.byId.get(claim.id);
+        const c = o && states.has(o) && !this.isMate(shooter, o) ? this.checkClaim(o, rt, ox, oy, oz, d, tWorld, claim.part) : null;
+        if (c && (!hitP || c.part === 'h')) { best = c.t; hitP = o; hitPart = c.part; }
+      }
       const ex = ox + d.x * best, ey = oy + d.y * best, ez = oz + d.z * best;
       ends.push([r2(ex), r2(ey), r2(ez), hitP ? MAT.PLAYER : mat]);
       if (hitP) {
@@ -531,9 +560,31 @@ export class Simulation {
     }
   }
 
+  // Trefferbehauptung des Schützen prüfen: Abstand des Strahls zum Ziel (um die Rückspulzeit
+  // herum ±0,12 s abgetastet) und keine Wand davor. Rückgabe { t, part } oder null.
+  checkClaim(o, rt, ox, oy, oz, d, tWorld, part) {
+    const st = this._claimSt || (this._claimSt = { x: 0, y: 0, z: 0, yaw: 0, flags: 0 });
+    let best = null;
+    for (const dt of [0, -0.12, 0.12, -0.24]) {
+      const t0 = Math.min(this.time, rt + dt);
+      if (t0 >= this.time) { st.x = o.body.x; st.y = o.body.y; st.z = o.body.z; st.flags = o.flags; }
+      else this.rewindState(o, t0, st);
+      const sy = stanceScale(st.flags);
+      // Kopf: Abstand Strahl ↔ Kopfmitte
+      const hx = st.x - ox, hy = st.y + 1.6 * sy - oy, hz = st.z - oz;
+      const th = hx * d.x + hy * d.y + hz * d.z;
+      const dh = Math.hypot(hx - d.x * th, hy - d.y * th, hz - d.z * th);
+      if (part === 'h' && th > 0 && dh < 0.42) return th < tWorld + 0.3 ? { t: th, part: 'h' } : null;
+      // Körper: Abstand Strahl ↔ senkrechte Achse (Füße bis Hals)
+      const r = raySegment(ox, oy, oz, d, st.x, st.y + 0.15 * sy, st.y + 1.4 * sy, st.z);
+      if (r.t > 0 && r.dist < 0.62 && r.t < tWorld + 0.3 && (!best || r.dist < best.dist)) best = { t: r.t, dist: r.dist, part: r.y < st.y + 0.85 * sy ? 'l' : 'b' };
+    }
+    return best && { t: best.t, part: best.part };
+  }
+
   // Schaden: Überschild → Schild → Gesundheit (Sturm trifft nur die Gesundheit)
   applyDamage(target, dmg, attackerId, part, pos, weapon) {
-    if (!target.alive || this.phase === 'ended') return;
+    if (!target.alive || this.phase === 'ended' || target.god) return;
     const attacker = attackerId && attackerId !== 'storm' ? this.byId.get(attackerId) : null;
     if (attacker && this.isMate(attacker, target)) return; // kein Eigenbeschuss im Duo
     if (target.knocked) {
@@ -846,7 +897,8 @@ export class Simulation {
     if (Math.hypot(ox - b.x, oz - b.z) > 3 || Math.abs(oy - b.y - 1.2) > 2.5) {
       ox = b.x; oy = b.y + EYE_STAND; oz = b.z;
     }
-    this.fireShot(p, item, ox, oy, oz, dirs, shot.rewind || 0, !!shot.wall);
+    const claim = shot.hit && typeof shot.hit.id === 'string' ? { id: shot.hit.id, part: shot.hit.part === 'h' ? 'h' : 'b' } : null;
+    this.fireShot(p, item, ox, oy, oz, dirs, shot.rewind || 0, !!shot.wall, claim);
     return true;
   }
 
@@ -921,7 +973,18 @@ export class Simulation {
   // Admin-Cheats (Server prüft vorher, ob der Spieler Admin ist)
   humanCheat(id, o) {
     const p = this.byId.get(id);
-    if (p) p.infAmmo = !!o.infAmmo;
+    if (!p) return;
+    p.infAmmo = !!o.infAmmo;
+    p.god = !!o.god; // Admin: unverwundbar (auch im Sturm)
+  }
+
+  // Admin: sofort volles Leben und volles Schild
+  humanHeal(id) {
+    const p = this.byId.get(id);
+    if (!p || !p.alive || p.knocked) return false;
+    p.health = MAX_HEALTH;
+    p.shield = MAX_SHIELD;
+    return true;
   }
 
   // OP-Loot: goldene SCAR auf Platz 1, goldenes Scharfschützengewehr auf Platz 2, Rest leer

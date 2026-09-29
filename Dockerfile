@@ -1,4 +1,4 @@
-# SHOWDOWN BAY – eigener Server (VPS, Heimserver, Cloud)
+# SNOWDOWN – eigener Server (VPS, Heimserver, Cloud)
 FROM node:22-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./

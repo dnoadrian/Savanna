@@ -1,4 +1,4 @@
-# SHOWDOWN BAY 🌊🤠
+# SNOWDOWN ❄️🏔️
 
 ## ▶️ [JETZT SPIELEN – hier klicken](https://dnoadrian.github.io/Savanna/docs/)
 
@@ -56,6 +56,8 @@ Alle Tasten lassen sich in *Einstellungen → Steuerung* neu belegen.
 | Schildtrank | +50 Schild (bis 100) | **sofort** | 3 |
 | Medikit | Leben auf 100 | **sofort** | 3 |
 
+Modelle im Stil des Originals: **Mini-Schild** = kleine runde Glasflasche mit leuchtend blauer Füllung, Schild-Emblem und Schraubkappe; **Schildtrank** = bauchige Flasche mit Etikett und Tragegriff; **Medikit** = weißer Koffer mit rotem Kreuz, Kantenschützern, Schnallen und Griff. Auch alle Waffen wurden überarbeitet (u. a. Pistole mit Griffschalen und Leuchtkorn, Trommel-MP mit Speichen-Trommel, schweres Sniper mit Zielfernrohr-Türmen, Mündungsbremse und Zweibein, Pump mit Patronenhalter).
+
 Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen automatisch eingesammelt.
 
 **Waffen** (Werte orientieren sich an den bekannten Originalen)
@@ -66,13 +68,14 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 | Sturmgewehr (SCAR) | mittel | 30 | **7,2** | 1,15 s | 30 / 31 / 33 / 35 / 36 |
 | Trommelgewehr | leicht | 40 | 13 | 1,5 s | 19–23 |
 | Taktische Schrotflinte | Schrot | 8 | 1,95 | 0,3 s/Patrone | 70–85 |
-| Pump-Schrotflinte | Schrot | 5 | 1,1 | 0,45 s/Patrone | **100–125** |
-| **Hammer-Pump** (neu) | Schrot | 6 | 1,5 | 0,4 s/Patrone | 84–104 |
+| Pump-Schrotflinte | Schrot | 5 | **1,2** | 0,42 s/Patrone | **110–138** |
+| **Hammer-Pump** | Schrot | 6 | **1,6** | 0,38 s/Patrone | **92–114** |
 | Schweres Scharfschützengewehr | schwer | 1 | 0,45 | 2,4 s | 150 / 157, Kopf ×2,5 |
 
 - Seltenheiten: **Grau, Grün, Blau, Lila, Gold** (Farbe am Modell, Lichtsäule und Inventar)
 - **Hitscan & kein Rückstoß:** Kugeln treffen immer genau das Fadenkreuz – im Stehen, Laufen und Springen. Nur Schrotflinten haben einen festen Streukegel; der runde Kreis im Fadenkreuz zeigt ihn exakt (Pump eng, Taktische weit).
-- Schrotflinten verschießen 10 Kugeln, der Schaden fällt mit der Entfernung ab. Die Pump ist bis etwa 12 m tödlich.
+- **Sniper:** Im Zielfernrohr zählt der Treffer, den du auf deinem Bildschirm siehst – auch online bei Ping und laufenden Gegnern (der Server prüft nur nach, ob es passen kann und keine Wand dazwischen ist). **Ohne Zielfernrohr (Noscope)** streut die Sniper dagegen (4,5°, in der Luft mehr).
+- Schrotflinten verschießen 10 Kugeln, der Schaden fällt mit der Entfernung ab. Pump und Hammer-Pump wurden verstärkt (mehr Schaden, engere Streuung, schneller) – die Pump ist bis etwa 14 m tödlich.
 - Spieler-Hitboxen sind 25 % größer. Kugeln fliegen durch Zäune und Geländer und streifen knapp an Felskanten vorbei.
 - **Keine unendliche Munition:** Start mit grauer Pistole **20 + 60 = 80 Schuss**. Waffen aus Truhen bringen das **Dreifache ihres Magazins** an Munition mit (SCAR: 30 + 90 = 120).
 - **Jede Eliminierung** lässt zusätzlich **ein volles Magazin jeder Munitionsart** fallen (Leicht 40, Mittel 30, Schrot 8, Schwer 3). Die Munitionsarten haben eigene Modelle: graublaue Schachtel, grüne Munitionskiste, dunkelrote schwere Kiste, rote Schrotpatronen.
@@ -118,6 +121,7 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 ## ⚙️ Einstellungen
 
 - **Grafik (für alle gleich):** Rendermodus *Leistung*, **Schatten niedrig**, **Sichtweite episch**, **Grasdichte aus**, 100 % 3D-Auflösung. Einstellbar bleiben FPS-Limit, V-Sync, Sichtfeld (**FOV, Standard 100**) und Vollbild.
+- **Leistung:** Auf Retina-/4K-Bildschirmen wird mit höchstens 1,5-facher Pixeldichte gerechnet. Fällt die Bildrate länger unter 40 FPS, senkt das Spiel die Auflösung automatisch in kleinen Schritten (bis 70 %) und hebt sie wieder an, sobald genug Luft ist.
 - **Aim-Assist: An / Aus.** „An“ bremst das Fadenkreuz am Gegner leicht ab und zieht mit, wenn du dich bewegst oder zielst – es ist bewusst kein Aimbot.
 - **Wartezeit auf echte Spieler:** 10–120 s (Standard 15 s)
 - Maus-, ADS- und Zielfernrohr-Empfindlichkeit, HUD-Größe, Fadenkreuz, Farbenblind-Modus, Lautstärken, Sprache (Deutsch/English)
@@ -126,12 +130,23 @@ Hat man schon einen Stapel davon im Inventar, werden weitere beim Drüberlaufen 
 
 In der Lobby (oder im Spiel) die Taste **0** drücken. Die Taste steht absichtlich nicht in den Tastenbelegungen.
 - Haupt-Admin: Benutzer **adrian**, Passwort **1234**
-- **Zugänge für andere:** Der Haupt-Admin legt Name + Passwort an und wählt, **wie oft** man sich damit anmelden kann (1×, 3×, 5×, 10×, 25× oder unbegrenzt). Mit Server gelten die Zugänge überall und werden dort gezählt; ohne Server nur auf diesem Gerät. Zugänge lassen sich jederzeit löschen.
-- Cheats, die der Server ausführt (unendliche Munition, OP-Loot, durch Wände schießen), gelten online nur für angemeldete Admins.
-- **Unendlich Munition** (Magazin wird nie leer), **OP-Loot** (goldene SCAR auf Platz 1, goldenes Scharfschützengewehr auf Platz 2, Rest leer – sofort und in jedem Match),
-- **Skelett-ESP** (rotes Skelett aller Gegner, durch Wände), **Aimbot** (zielt auf den Kopf; mit **Radius**: ein einstellbarer Kreis ums Fadenkreuz – der Aimbot wirkt nur auf Gegner im Kreis, ohne Radius überall), **Durch Wände schießen**, **Spinbot**, **Fliegen** (Tempo einstellbar), **Tempo** (Laufgeschwindigkeit frei einstellbar)
-- **Lobby-Nachrichten** (nur Haupt-Admin): Text + Dauer (10 min bis 1 Woche oder dauerhaft) – erscheint bei allen Spielern oben in der Mitte der Lobby. Höchstens 5 gleichzeitig, jederzeit löschbar.
-- **Coins geben** (nur Haupt-Admin): Spielername + Menge – der Spieler muss mit dem Server verbunden sein (eigener Name geht auch offline)
+- Das Panel ist in **Kategorien** aufgeteilt (Zahl am Reiter = aktive Cheats, oben **„Alles aus“**):
+  - **Kampf:** **Aimbot** (zielt auf den Kopf; mit **Radius**: ein einstellbarer Kreis ums Fadenkreuz – der Aimbot wirkt nur auf Gegner im Kreis), **Skelett-ESP** (rotes Skelett aller Gegner, durch Wände), **Durch Wände schießen**, **Unendlich Munition**, **Unverwundbar** (kein Schaden, auch nicht vom Sturm), **OP-Loot** (goldene SCAR + goldenes Scharfschützengewehr, sofort und in jedem Match). Sofort-Aktionen: **Voll heilen** (Leben + Schild 100) und **OP-Loot jetzt**.
+  - **Bewegung:** **Fliegen** (Tempo einstellbar), **Tempo** (Laufgeschwindigkeit), **Spinbot**, **Teleport** zu jedem Ort der Insel oder an einen zufälligen Platz.
+  - **Server** (nur Haupt-Admin): Übersicht (Spieler online, Runden, Warteschlange, Konten, Laufzeit, Speicher – aktualisiert sich von selbst), **Spielerliste** mit „+1000 Coins“ und **Rauswerfen** (10 Minuten kein Online-Spiel), **Lobby-Nachrichten** (Text + Dauer von 10 min bis 1 Woche oder dauerhaft, höchstens 5), **Coins geben** (Spielername + Menge) und **„Alle Spieler zurücksetzen“**.
+  - **Zugänge** (nur Haupt-Admin): Name + Passwort anlegen und wählen, **wie oft** man sich damit anmelden kann (1×, 3×, 5×, 10×, 25× oder unbegrenzt). Mit Server gelten die Zugänge überall und werden dort gezählt; ohne Server nur auf diesem Gerät.
+- **Alle Spieler zurücksetzen:** erst **RESET** eintippen, dann bestätigen. Der Server löscht alle Konten, Freundeslisten, Partys und den Kronen-Bot; alle verbundenen Spieler landen sofort wieder bei der Anmeldung. Wer gerade offline ist, verliert seinen alten Spielstand (Coins, Skins, Rang, Statistik) beim nächsten Verbinden automatisch. Ohne Server löscht der Knopf alle Spielstände auf diesem Gerät. *Hinweis:* Auf einem Server ohne dauerhaften Speicher (z. B. Render Free ohne Disk) gilt die Reset-Markierung nur bis zum nächsten Neustart/Update – wer bis dahin nicht online war, behält danach seinen alten Stand.
+- Cheats, die der Server ausführt (unendliche Munition, unverwundbar, heilen, OP-Loot, durch Wände schießen), gelten online nur für angemeldete Admins.
+
+---
+
+## 📲 Als App installieren (Web-App)
+
+SNOWDOWN ist eine **installierbare Web-App**: eigenes Symbol auf dem Startbildschirm bzw. Desktop, startet im Vollbild – und **Solo gegen Bots geht nach dem ersten Start sogar offline** (ein Service Worker speichert die Spieldateien).
+- In der Lobby oben rechts auf **„App“** (oder **≡ → „App installieren“**) klicken.
+- **Chrome/Edge (PC, Android):** Es erscheint direkt der Installations-Dialog. Alternativ Adressleiste → Installieren-Symbol bzw. Menü ⋮ → „App installieren“.
+- **iPhone/iPad:** In Safari auf **Teilen** → **„Zum Home-Bildschirm“**.
+- Updates kommen automatisch: Die App lädt immer zuerst die neueste Version aus dem Netz.
 
 ---
 
@@ -200,7 +215,7 @@ Dann **http://localhost:4242** öffnen.
 
 **Mehrspieler-Technik:** Server-autoritativ für Treffer, Schaden, Beute, Truhen, Inventar, Munition und Sturm. Clients senden 30×/s, der Server schickt 20 Snapshots/s, andere Spieler werden mit 100 ms Puffer interpoliert, Treffer mit Lag-Kompensation (bis 300 ms).
 
-Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsammeln, Ausdauer, Slide-Befreiung, Objekt-Hitboxen, Waffenwerte, Messer, keine unendliche Munition, Inventar + Sortieren + Fallenlassen, Admin-Zugänge, unendliche Munition + OP-Loot, Truhen, Sofort-Heilung, 20 Spieler, Duo-Teams + Niederschlagen + Wiederbeleben, Karte Frostfeste (Orte, Gipfel, Eis, alles zu Fuß erreichbar, deterministisch), komplettes Solo- und Duo-Bot-Match, Leuchtfeuer, Syntax aller Dateien, Server mit Warteschlange, Duo-Party, Anmeldung mit Geburtsdatum, Webseite aktuell).
+Tests: `npm test` (Leben/Schild/Überschild, Siphon, Kill-Munition, Auto-Aufsammeln, Ausdauer, Slide-Befreiung, Objekt-Hitboxen, Waffenwerte, Messer, keine unendliche Munition, Inventar + Sortieren + Fallenlassen, Admin-Zugänge, unendliche Munition + OP-Loot + unverwundbar + heilen, Sniper-Treffer im Zielfernrohr + Noscope-Streuung, Truhen, Sofort-Heilung, 20 Spieler, Duo-Teams + Niederschlagen + Wiederbeleben, Karte Frostfeste (Orte, Gipfel, Eis, alles zu Fuß erreichbar, deterministisch), komplettes Solo- und Duo-Bot-Match, Leuchtfeuer, Syntax aller Dateien, Server mit Warteschlange, Duo-Party, Anmeldung mit Geburtsdatum, Admin: Übersicht + Rauswerfen + alle Spieler zurücksetzen, Webseite aktuell).
 
 Die Karte entsteht deterministisch aus Code (Server und Client bauen dieselbe Insel). Der Server berechnet sie im Hintergrund in kleinen Häppchen, damit laufende Matches nicht ruckeln; der Browser baut sie schon in der Lobby vor (Kartenvorschau auf der Moduskarte).
 
@@ -220,6 +235,7 @@ Die Karte entsteht deterministisch aus Code (Server und Client bauen dieselbe In
 │   └── sim/              Simulation, Bewegung, Waffen, Inventar, Beute/Truhen, Sturm, Navigation, Bot-KI
 ├── client/
 │   ├── index.html, style.css, favicon.svg
+│   ├── manifest.webmanifest, sw.js, icons/   Web-App (installierbar, offline spielbar)
 │   └── src/
 │       ├── main.js       Anmeldung → Lobby → Warteschlange → Match → Ergebnis
 │       ├── game/         Match, Spielersteuerung, Eingabe, Aim-Assist

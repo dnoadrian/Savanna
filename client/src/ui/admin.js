@@ -1,15 +1,25 @@
 // Admin-Panel: öffnet sich mit der Taste 0 (bewusst nicht in den Tastenbelegungen).
+// Aufgeteilt in Kategorien: Kampf, Bewegung, Server (nur Haupt-Admin) und Zugänge (nur Haupt-Admin).
 // Haupt-Admin (adrian) kann Zugänge für andere anlegen – mit wählbarer Anzahl an Anmeldungen.
 // Mit Server werden Zugänge und Anmeldungen dort geprüft (gelten für alle Geräte), ohne Server
-// nur auf diesem Gerät. Cheats: Skelett-ESP, Aimbot, Durch Wände, Spinbot, Fliegen, Tempo,
-// unendliche Munition, OP-Loot (goldene SCAR + goldenes Scharfschützengewehr).
+// nur auf diesem Gerät. Server-Werkzeuge: Übersicht, Spieler rauswerfen, Coins verschenken,
+// Lobby-Nachrichten und „Alle Spieler zurücksetzen“ (löscht alle Konten und Spielstände).
 import { h } from './dom.js';
 import { t } from '../i18n.js';
+import { ICON } from './icons.js';
 import { ADMIN_USER as USER, ADMIN_PASS as PASS, ADMIN_MAX_COINS } from '../../shared/constants.js';
+import { wipeAllProfiles } from '../profile.js';
 
 const STORE = 'showdown.admin';
 const LOCAL_ACCOUNTS = 'showdown.adminAccounts';
-const TOGGLES = ['esp', 'aimbot', 'aimbotFov', 'wallbang', 'spinbot', 'fly', 'speed', 'infammo', 'oploot'];
+// Kategorien mit ihren Schaltern; master: nur für den Haupt-Admin
+const TABS = [
+  { id: 'combat', icon: 'headshot', toggles: ['aimbot', 'aimbotFov', 'esp', 'wallbang', 'infammo', 'god', 'oploot'] },
+  { id: 'move', icon: 'map', toggles: ['fly', 'speed', 'spinbot'] },
+  { id: 'server', icon: 'globe', master: true, toggles: [] },
+  { id: 'access', icon: 'lock', master: true, toggles: [] },
+];
+const TOGGLES = TABS.flatMap((tb) => tb.toggles);
 // Unteroptionen erscheinen nur, wenn die übergeordnete Option an ist
 const PARENT = { aimbotFov: 'aimbot' };
 // Regler: [Schlüssel, min, max, Schritt, Standard, Anzeige]
@@ -50,6 +60,7 @@ export class AdminPanel {
     this.token = null;
     this.user = null;
     this.accounts = null;
+    this.tab = 'combat';
     this.flags = Object.fromEntries(TOGGLES.map((k) => [k, false]));
     this.values = Object.fromEntries(Object.values(SLIDERS).map(([k, , , , d]) => [k, d]));
     try {
@@ -61,6 +72,7 @@ export class AdminPanel {
         this.user = s.user || USER;
         for (const k of TOGGLES) this.flags[k] = !!(s.flags && s.flags[k]);
         for (const k of Object.keys(this.values)) if (Number.isFinite(s.values?.[k])) this.values[k] = s.values[k];
+        if (TABS.some((tb) => tb.id === s.tab)) this.tab = s.tab;
       }
     } catch { /* ignorieren */ }
     this.badge = h('div', { class: 'admin-badge hidden' });
@@ -93,7 +105,7 @@ export class AdminPanel {
 
   save() {
     try {
-      sessionStorage.setItem(STORE, JSON.stringify({ ok: this.loggedIn, role: this.role, token: this.token, user: this.user, flags: this.flags, values: this.values }));
+      sessionStorage.setItem(STORE, JSON.stringify({ ok: this.loggedIn, role: this.role, token: this.token, user: this.user, flags: this.flags, values: this.values, tab: this.tab }));
     } catch { /* ignorieren */ }
   }
 
@@ -116,10 +128,11 @@ export class AdminPanel {
   }
 
   // Cheat-Zustand an die laufende Runde schicken (Server/Simulation)
-  syncCheats(op = false) {
+  syncCheats(op = false, heal = false) {
     const m = this.app.match;
-    if (!m || !m.session || !m.session.cheat) return;
-    m.session.cheat({ ia: this.active('infammo'), op });
+    if (!m || !m.session || !m.session.cheat) return false;
+    m.session.cheat({ ia: this.active('infammo'), gm: this.active('god'), op, heal });
+    return true;
   }
 
   async login(user, pass) {
@@ -170,11 +183,16 @@ export class AdminPanel {
     app.ui.overlayRoot.appendChild(this.el);
     app.audio.uiClick();
     this.accounts = null;
+    this.stats = null;
     this.render();
+    // Server-Übersicht aktuell halten, solange sie offen ist
+    clearInterval(this.statsTimer);
+    this.statsTimer = setInterval(() => { if (this.el && this.tab === 'server' && this.isMaster && !this.typing) this.loadStats(); }, 4000);
   }
 
   close() {
     if (!this.el) return;
+    clearInterval(this.statsTimer);
     this.el.remove();
     this.el = null;
     this.app.ui.onOverlayClosed();
@@ -182,12 +200,163 @@ export class AdminPanel {
 
   render() {
     const p = this.panel;
-    const scroll = p.scrollTop;
+    const body = p.querySelector('.admin-body');
+    const scroll = body ? body.scrollTop : 0;
     p.innerHTML = '';
     p.appendChild(h('div', { class: 'modal-head' }, h('h2', {}, t('adminTitle')), h('button', { class: 'close-x', onclick: () => this.close() }, '✕')));
-    if (!this.loggedIn) this.renderLogin(p);
-    else this.renderToggles(p);
-    p.scrollTop = scroll;
+    if (!this.loggedIn) {
+      this.panel.classList.add('small');
+      this.renderLogin(p);
+      return;
+    }
+    this.panel.classList.remove('small');
+    this.renderMain(p);
+    const nb = p.querySelector('.admin-body');
+    if (nb) nb.scrollTop = scroll;
+  }
+
+  visibleTabs() {
+    return TABS.filter((tb) => !tb.master || this.isMaster);
+  }
+
+  renderMain(p) {
+    const app = this.app;
+    const tabs = this.visibleTabs();
+    if (!tabs.some((tb) => tb.id === this.tab)) this.tab = 'combat';
+    const anyOn = TOGGLES.some((k) => this.flags[k]);
+    p.appendChild(h('div', { class: 'admin-user' },
+      h('span', {}, t('adminHint'), ' ', h('b', {}, (this.user || '') + (this.isMaster ? ' · ' + t('adminMaster') : ''))),
+      anyOn ? h('button', { class: 'btn ghost small', onclick: () => { app.audio.uiClick(); this.allOff(); } }, t('adminAllOff')) : null));
+    p.appendChild(h('div', { class: 'admin-tabs' }, ...tabs.map((tb) => {
+      const on = tb.toggles.filter((k) => this.active(k)).length;
+      return h('button', {
+        class: 'admin-tab' + (this.tab === tb.id ? ' sel' : ''),
+        onclick: () => { if (this.tab === tb.id) return; app.audio.uiClick(); this.tab = tb.id; this.save(); this.render(); if (tb.id === 'server') this.loadStats(); },
+      }, h('span', { class: 'icon', html: ICON[tb.icon] || '' }), t('adminTab_' + tb.id), on ? h('i', { class: 'admin-tab-n' }, String(on)) : null);
+    })));
+    const body = h('div', { class: 'admin-body' });
+    p.appendChild(body);
+    const tab = TABS.find((tb) => tb.id === this.tab);
+    if (tab.toggles.length) this.renderToggles(body, tab.toggles);
+    if (tab.id === 'combat') this.renderCombatActions(body);
+    else if (tab.id === 'move') this.renderTeleport(body);
+    else if (tab.id === 'server') {
+      this.renderServer(body);
+      this.renderAnnounce(body);
+      this.renderCoins(body);
+      this.renderWipe(body);
+    } else if (tab.id === 'access') this.renderAccounts(body);
+    p.appendChild(h('div', { class: 'row end admin-foot' },
+      h('button', { class: 'btn ghost small', onclick: () => { app.audio.uiClick(); this.logout(); } }, t('adminLogout')),
+      h('button', { class: 'btn yellow small', onclick: () => this.close() }, t('close'))));
+  }
+
+  // alle Cheats aus (Regler behalten ihre Werte)
+  allOff() {
+    for (const k of TOGGLES) this.flags[k] = false;
+    this.save();
+    this.updateBadge();
+    this.syncCheats();
+    this.render();
+  }
+
+  renderToggles(p, keys) {
+    const app = this.app;
+    for (const k of keys) {
+      if (PARENT[k] && !this.flags[PARENT[k]]) continue;
+      const on = this.flags[k];
+      p.appendChild(h('div', { class: 'set-row' + (PARENT[k] ? ' sub-toggle' : '') },
+        h('div', { class: 'set-label' }, t('admin_' + k), h('small', {}, t('admin_' + k + 'Desc'))),
+        h('div', { class: 'set-ctrl' }, h('button', {
+          class: 'toggle' + (on ? ' on' : ''),
+          onclick: () => {
+            app.audio.uiClick();
+            this.flags[k] = !this.flags[k];
+            this.save();
+            this.updateBadge();
+            if (k === 'infammo' || k === 'god') this.syncCheats();
+            if (k === 'oploot' && this.flags[k]) this.giveOpLoot();
+            this.render();
+          },
+        }, h('span', { class: 'knob' }), h('span', { class: 'tl' }, on ? t('on') : t('off'))))));
+      // Regler für Flug- und Laufgeschwindigkeit
+      const sl = SLIDERS[k];
+      if (sl && on) {
+        const [key, min, max, step, , fmt] = sl;
+        const out = h('span', { class: 'slider-val' }, fmt(this.values[key]));
+        const inp = h('input', { type: 'range', min, max, step, value: this.values[key] });
+        inp.addEventListener('input', () => {
+          this.values[key] = Number(inp.value);
+          out.textContent = fmt(this.values[key]);
+          this.save();
+        });
+        p.appendChild(h('div', { class: 'set-row sub' }, h('div', { class: 'set-label' }, t('admin_' + key)), h('div', { class: 'set-ctrl' }, h('div', { class: 'slider' }, inp, out))));
+      }
+    }
+  }
+
+  // lebt man gerade in einer Runde? (für Heilen, OP-Loot, Teleport)
+  liveMatch() {
+    const m = this.app.match;
+    return m && m.state === 'alive' && m.player && m.session.phase !== 'ended' ? m : null;
+  }
+
+  renderCombatActions(p) {
+    const app = this.app;
+    const heal = () => {
+      app.audio.uiClick();
+      const m = this.liveMatch();
+      if (!m || !this.syncCheats(false, true)) { app.ui.toast(t('adminOnlyInMatch'), 'error'); return; }
+      app.audio.uiConfirm();
+      app.ui.toast(t('adminHealed'), 'ok');
+    };
+    const loot = () => {
+      app.audio.uiClick();
+      if (!this.liveMatch()) { app.ui.toast(t('adminOnlyInMatch'), 'error'); return; }
+      this.giveOpLoot();
+    };
+    p.appendChild(h('div', { class: 'admin-box' },
+      h('div', { class: 'set-label' }, t('adminActions'), h('small', {}, t('adminActionsDesc'))),
+      h('div', { class: 'admin-actions' },
+        h('button', { class: 'btn small', onclick: heal }, h('span', { class: 'icon', html: ICON.heart }), t('adminHeal')),
+        h('button', { class: 'btn small', onclick: loot }, h('span', { class: 'icon', html: ICON.star }), t('adminOpLootNow')))));
+  }
+
+  // Teleport zu den Orten der Karte (oder zufällig auf die Insel)
+  renderTeleport(p) {
+    const app = this.app;
+    const m = this.liveMatch();
+    const box = h('div', { class: 'admin-box' }, h('div', { class: 'set-label' }, t('adminTeleport'), h('small', {}, t(m ? 'adminTeleportDesc' : 'adminOnlyInMatch'))));
+    if (m) {
+      const pois = ((m.map && m.map.pois) || []).filter((q) => q.name && q.name.trim());
+      const go = (x, z, name) => {
+        app.audio.uiConfirm();
+        this.teleport(m, x, z);
+        app.ui.toast(t('adminTeleported', { name }), 'ok');
+      };
+      const rnd = () => {
+        const tr = m.map.terrain;
+        for (let i = 0; i < 60; i++) {
+          const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * (tr.half || 200) * 0.85;
+          const x = Math.cos(a) * r, z = Math.sin(a) * r;
+          if (tr.heightAt(x, z) > 1) return go(x, z, t('adminRandomSpot'));
+        }
+      };
+      box.appendChild(h('div', { class: 'admin-actions tp-list' },
+        ...pois.map((q) => h('button', { class: 'btn small ghost', onclick: () => go(q.x, q.z, q.name) }, q.name)),
+        h('button', { class: 'btn small', onclick: rnd }, h('span', { class: 'icon', html: ICON.dice }), t('adminRandomSpot'))));
+    }
+    p.appendChild(box);
+  }
+
+  teleport(m, x, z) {
+    const b = m.player.body;
+    const col = m.map.collision;
+    const top = 400;
+    const tHit = col.raycast(x, top, z, 0, -1, 0, top + 200, true, false);
+    const ground = Math.max(m.map.terrain.heightAt(x, z), tHit >= 0 ? top - tHit : -1e9);
+    b.x = x; b.z = z; b.y = ground + 0.2;
+    b.vx = 0; b.vy = 0; b.vz = 0;
   }
 
   renderLogin(p) {
@@ -225,50 +394,6 @@ export class AdminPanel {
     setTimeout(() => user.focus(), 30);
   }
 
-  renderToggles(p) {
-    const app = this.app;
-    p.appendChild(h('p', { class: 'hint' }, t('adminHint'), ' ', h('b', {}, (this.user || '') + (this.isMaster ? ' · ' + t('adminMaster') : ''))));
-    for (const k of TOGGLES) {
-      if (PARENT[k] && !this.flags[PARENT[k]]) continue;
-      const on = this.flags[k];
-      p.appendChild(h('div', { class: 'set-row' + (PARENT[k] ? ' sub-toggle' : '') },
-        h('div', { class: 'set-label' }, t('admin_' + k), h('small', {}, t('admin_' + k + 'Desc'))),
-        h('div', { class: 'set-ctrl' }, h('button', {
-          class: 'toggle' + (on ? ' on' : ''),
-          onclick: () => {
-            app.audio.uiClick();
-            this.flags[k] = !this.flags[k];
-            this.save();
-            this.updateBadge();
-            if (k === 'infammo') this.syncCheats();
-            if (k === 'oploot' && this.flags[k]) this.giveOpLoot();
-            this.render();
-          },
-        }, h('span', { class: 'knob' }), h('span', { class: 'tl' }, on ? t('on') : t('off'))))));
-      // Regler für Flug- und Laufgeschwindigkeit
-      const sl = SLIDERS[k];
-      if (sl && on) {
-        const [key, min, max, step, , fmt] = sl;
-        const out = h('span', { class: 'slider-val' }, fmt(this.values[key]));
-        const inp = h('input', { type: 'range', min, max, step, value: this.values[key] });
-        inp.addEventListener('input', () => {
-          this.values[key] = Number(inp.value);
-          out.textContent = fmt(this.values[key]);
-          this.save();
-        });
-        p.appendChild(h('div', { class: 'set-row sub' }, h('div', { class: 'set-label' }, t('admin_' + key)), h('div', { class: 'set-ctrl' }, h('div', { class: 'slider' }, inp, out))));
-      }
-    }
-    if (this.isMaster) {
-      this.renderAnnounce(p);
-      this.renderAccounts(p);
-      this.renderCoins(p);
-    }
-    p.appendChild(h('div', { class: 'row end' },
-      h('button', { class: 'btn ghost small', onclick: () => { app.audio.uiClick(); this.logout(); } }, t('adminLogout')),
-      h('button', { class: 'btn yellow small', onclick: () => this.close() }, t('close'))));
-  }
-
   // OP-Loot sofort geben, wenn man gerade im Match lebt (sonst beim nächsten Match)
   giveOpLoot() {
     const m = this.app.match;
@@ -279,6 +404,100 @@ export class AdminPanel {
     } else {
       this.app.ui.toast(t('adminOpLootNext'), '');
     }
+  }
+
+  // ---------------- Server: Übersicht, Spieler, Rauswerfen ----------------
+  async loadStats() {
+    const net = this.app.net;
+    if (!net.connected || !this.isMaster) return;
+    const r = await net.request({ t: 'adminStats' }, 4000);
+    if (!r.ok) return;
+    this.stats = r;
+    if (this.el && this.tab === 'server' && !this.typing) this.render();
+  }
+
+  renderServer(p) {
+    const app = this.app;
+    const box = h('div', { class: 'admin-box' });
+    p.appendChild(box);
+    if (!app.net.connected) {
+      box.append(h('div', { class: 'set-label' }, t('adminServer'), h('small', {}, t('adminServerOffline'))));
+      return;
+    }
+    const r = this.stats;
+    if (!r) {
+      this.loadStats();
+      box.append(h('div', { class: 'set-label' }, t('adminServer'), h('small', {}, t('loading'))));
+      return;
+    }
+    const st = r.stats;
+    const tile = (v, k) => h('div', { class: 'stat-tile' }, h('b', {}, String(v)), h('small', {}, t(k)));
+    box.append(
+      h('div', { class: 'set-label' }, t('adminServer'), h('small', {}, t('adminServerDesc'))),
+      h('div', { class: 'admin-stats' },
+        tile(st.online, 'adminStOnline'), tile(st.matches, 'adminStMatches'), tile(st.queue, 'adminStQueue'),
+        tile(st.accounts, 'adminStAccounts'), tile(fmtUptime(st.uptime), 'adminStUptime'), tile(st.mem + ' MB', 'adminStMem')));
+    if (r.matches.length) {
+      box.appendChild(h('div', { class: 'acc-list admin-matches' }, ...r.matches.map((mt) => h('div', { class: 'acc-row' },
+        h('b', {}, (mt.mode === 'duo' ? 'Duo' : 'Solo') + ' · ' + fmtClock(mt.time)),
+        h('span', {}, t('adminMatchRow', { h: mt.humans, a: mt.alive }))))));
+    }
+    const list = h('div', { class: 'acc-list admin-players' });
+    if (!r.online.length) list.appendChild(h('div', { class: 'hint small' }, t('adminNoPlayers')));
+    const me = app.profile.id;
+    for (const pl of r.online) {
+      const coins = async () => {
+        app.audio.uiClick();
+        const res = await app.net.request({ t: 'adminCoins', name: pl.name, amount: 1000 });
+        if (res.ok) { app.audio.uiConfirm(); app.ui.toast(t('adminCoinsSent', { name: pl.name, n: 1000 }), 'ok'); }
+        else app.ui.toast(t(res.key || 'err_generic', { name: pl.name }), 'error');
+      };
+      const kick = () => {
+        app.audio.uiClick();
+        app.ui.confirm(t('adminKickConfirm', { name: pl.name }), async () => {
+          const res = await app.net.request({ t: 'adminKick', id: pl.id });
+          if (res.ok) { app.ui.toast(t('adminKicked', { name: pl.name }), 'ok'); this.loadStats(); }
+          else app.ui.toast(t(res.key || 'err_generic'), 'error');
+        });
+      };
+      list.appendChild(h('div', { class: 'acc-row player-row' },
+        h('b', {}, pl.name, pl.admin ? h('span', { class: 'admin-tag' }, 'ADMIN') : null),
+        h('span', { class: 'pl-status st-' + pl.status }, t('adminSt_' + pl.status)),
+        h('button', { class: 'btn small ghost', title: t('adminCoinsGive'), onclick: coins }, '+1000'),
+        pl.id === me ? null : h('button', { class: 'btn small danger', onclick: kick }, t('adminKick'))));
+    }
+    box.append(h('div', { class: 'set-label admin-sub' }, t('adminPlayersOnline', { n: r.online.length })), list);
+  }
+
+  // ---------------- Alle Spieler zurücksetzen ----------------
+  renderWipe(p) {
+    const app = this.app;
+    const online = app.net.connected;
+    const input = h('input', { type: 'text', class: 'field', placeholder: 'RESET', autocomplete: 'off', spellcheck: 'false', maxlength: 5 });
+    const btn = h('button', { class: 'btn danger', disabled: true }, t(online ? 'adminWipeBtn' : 'adminWipeLocalBtn'));
+    input.addEventListener('focus', () => { this.typing = true; });
+    input.addEventListener('blur', () => { this.typing = false; });
+    input.addEventListener('input', () => { btn.disabled = input.value.trim().toUpperCase() !== 'RESET'; });
+    btn.addEventListener('click', () => {
+      app.audio.uiClick();
+      app.ui.confirm(t(online ? 'adminWipeConfirm2' : 'adminWipeLocalConfirm'), async () => {
+        if (online) {
+          const r = await app.net.request({ t: 'adminWipe', confirm: 'RESET' }, 8000);
+          if (!r.ok) { app.audio.uiError(); app.ui.toast(t(r.key || 'err_generic'), 'error'); return; }
+          app.ui.toast(t('adminWiped', { n: r.n }), 'ok');
+        } else {
+          const at = Date.now();
+          wipeAllProfiles(at);
+          app.onWiped(at);
+          app.ui.toast(t('adminWipedLocal'), 'ok');
+        }
+        this.typing = false;
+        this.close();
+      });
+    });
+    p.appendChild(h('div', { class: 'admin-box admin-danger' },
+      h('div', { class: 'set-label' }, t('adminWipe'), h('small', {}, t(online ? 'adminWipeDesc' : 'adminWipeLocalDesc'))),
+      h('div', { class: 'row' }, input, btn)));
   }
 
   // ---------------- Lobby-Nachrichten ----------------
@@ -314,11 +533,11 @@ export class AdminPanel {
 
   renderAnnounce(p) {
     const app = this.app;
-    const box = h('div', { class: 'admin-coins admin-ann' },
+    const box = h('div', { class: 'admin-box admin-ann' },
       h('div', { class: 'set-label' }, t('adminAnn'), h('small', {}, t(app.net.connected ? 'adminAnnDesc' : 'adminAnnLocal'))));
     const text = h('input', { type: 'text', class: 'field', placeholder: t('adminAnnText'), maxlength: 160, spellcheck: 'true' });
-    text.addEventListener('focus', () => { this.annTyping = true; });
-    text.addEventListener('blur', () => { this.annTyping = false; });
+    text.addEventListener('focus', () => { this.annTyping = true; this.typing = true; });
+    text.addEventListener('blur', () => { this.annTyping = false; this.typing = false; });
     const dur = h('select', { class: 'field' }, ...ANN_MINS.map((n) => h('option', { value: n, selected: n === 60 }, annDuration(n))));
     const send = async () => {
       app.audio.uiClick();
@@ -390,7 +609,7 @@ export class AdminPanel {
   renderAccounts(p) {
     const app = this.app;
     if (!this.accounts) this.loadAccounts();
-    const box = h('div', { class: 'admin-coins admin-accounts' },
+    const box = h('div', { class: 'admin-box admin-accounts' },
       h('div', { class: 'set-label' }, t('adminAccounts'), h('small', {}, t(this.accountsOnServer === false ? 'adminAccountsLocal' : 'adminAccountsDesc'))));
     const name = h('input', { type: 'text', class: 'field', placeholder: t('adminUser'), autocomplete: 'off', spellcheck: 'false', maxlength: 24 });
     const pass = h('input', { type: 'text', class: 'field', placeholder: t('adminPass'), autocomplete: 'off', spellcheck: 'false', maxlength: 32, value: String(1000 + Math.floor(Math.random() * 9000)) });
@@ -436,7 +655,7 @@ export class AdminPanel {
       if (r.ok) { app.audio.uiConfirm(); say(t('adminCoinsSent', { name: r.name || who, n }), true); }
       else { app.audio.uiError(); say(t(r.err === 'offline' ? 'adminCoinsNoServer' : (r.key || 'err_generic'), { name: r.name || who }), false); }
     };
-    p.appendChild(h('div', { class: 'admin-coins' },
+    p.appendChild(h('div', { class: 'admin-box admin-coins' },
       h('div', { class: 'set-label' }, t('adminCoins'), h('small', {}, t('adminCoinsDesc'))),
       h('div', { class: 'row' }, name, amount, h('button', { class: 'btn yellow small', onclick: give }, t('adminCoinsGive'))),
       msg));
@@ -447,6 +666,17 @@ export class AdminPanel {
     this.badge.classList.toggle('hidden', !on.length);
     this.badge.textContent = 'ADMIN · ' + on.map((k) => t('admin_' + k).toUpperCase()).join(' · ');
   }
+}
+
+// Laufzeit des Servers: 3 h 12 min / 2 Tage 4 h
+function fmtUptime(sec) {
+  const m = Math.floor(sec / 60), hh = Math.floor(m / 60), d = Math.floor(hh / 24);
+  if (d) return d + ' d ' + (hh % 24) + ' h';
+  if (hh) return hh + ' h ' + (m % 60) + ' min';
+  return m + ' min';
+}
+function fmtClock(sec) {
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
 }
 
 // Dauer lesbar: 45 min, 3 h, 2 Tage, dauerhaft

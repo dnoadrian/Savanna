@@ -6,9 +6,9 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { validateName, suggestAlternatives, randomName } from '../shared/names.js';
-import { MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, MATCH_SIZE, SIM_DT, QUEUE_WAIT, PLAY_RADIUS, clampQueueWait } from '../shared/constants.js';
+import { F, MAX_HEALTH, MAX_SHIELD, START_OVERSHIELD, SIPHON, MATCH_SIZE, SIM_DT, QUEUE_WAIT, PLAY_RADIUS, clampQueueWait } from '../shared/constants.js';
 import { WEAPONS, LOOT_WEAPONS, KNIFE_SKINS, CONSUMABLES, AMMO_DROP, KILL_AMMO, AMMO_TYPES, weaponItem, consumableItem, ammoItem, weaponDamage, rollWeapon, decodeItem, chestAmmoFor } from '../shared/items.js';
-import { createWeaponRuntime, equipWeapon, canFire, fireWeapon, updateWeapon } from '../shared/sim/weapon.js';
+import { createWeaponRuntime, equipWeapon, canFire, fireWeapon, updateWeapon, weaponSpread } from '../shared/sim/weapon.js';
 import { createInventory, addItem, selectedItem, SLOTS, KNIFE_SLOT } from '../shared/sim/inventory.js';
 import { createBody, stepMovement } from '../shared/sim/movement.js';
 import { PT, PROP_TYPES, propColliders } from '../shared/map/props.js';
@@ -37,7 +37,7 @@ function test(name, fn) {
   }
 }
 
-console.log('SHOWDOWN BAY – Tests\n');
+console.log('SNOWDOWN – Tests\n');
 
 const map = generateMap();
 const world = { terrain: map.terrain, collision: map.collision, nav: null, pois: map.pois, chests: map.chests, floorLoot: map.floorLoot };
@@ -180,7 +180,7 @@ test('Inventar: Gegenstand und Munition fallen lassen (nicht sofort wieder einge
   assert.equal(sim.humanDrop(a.id, 0), false);
 });
 
-test('Admin-Cheats: OP-Loot (goldene SCAR + Sniper) und unendliche Munition', () => {
+test('Admin-Cheats: OP-Loot (goldene SCAR + Sniper), unendliche Munition, unverwundbar, heilen', () => {
   const sim = makeSim(10, 2);
   playing(sim);
   const a = sim.players[0];
@@ -192,10 +192,67 @@ test('Admin-Cheats: OP-Loot (goldene SCAR + Sniper) und unendliche Munition', ()
   const shot = () => sim.humanFire(a.id, { s: 0, ox: a.body.x, oy: a.body.y + 1.6, oz: a.body.z, dirs: [{ x: 0, y: 0, z: -1 }] });
   for (let i = 0; i < 40; i++) { a.fireTokens = 2; a.wr.cooldown = 0; shot(); }
   assert.equal(a.inv.slots[0].mag, 30, 'Magazin bleibt voll');
+  // Unverwundbar (Admin): kein Schaden, auch nicht vom Sturm; Voll heilen
+  const b = sim.players[1];
+  sim.humanCheat(b.id, { god: true });
+  const hp = [b.health, b.shield];
+  sim.applyDamage(b, 80, a.id, 'b', null, 'ar');
+  sim.applyDamage(b, 20, 'storm', 'x', null);
+  assert.deepEqual([b.health, b.shield], hp, 'unverwundbar');
+  sim.humanCheat(b.id, { god: false });
+  sim.applyDamage(b, 60, a.id, 'b', null, 'ar');
+  assert.ok(b.health + b.shield < hp[0] + hp[1]);
+  assert.ok(sim.humanHeal(b.id));
+  assert.deepEqual([b.health, b.shield], [100, 100]);
   sim.humanCheat(a.id, { infAmmo: false });
   a.fireTokens = 2; a.wr.cooldown = 0;
   assert.ok(shot());
   assert.equal(a.inv.slots[0].mag, 29);
+});
+
+test('Sniper: im Zielfernrohr zählt der Treffer vom Bildschirm, Noscope streut', () => {
+  const sim = makeSim(14, 2);
+  playing(sim);
+  const [a, b] = sim.players;
+  a.body.x = 0; a.body.y = 150; a.body.z = 0;
+  b.body.x = 0; b.body.y = 150; b.body.z = -80;
+  a.inv.slots[0] = weaponItem('sniper', 4);
+  a.inv.sel = 0;
+  const total = () => b.health + b.shield + b.overshield;
+  // knapp daneben (0,6 m seitlich am Kopf vorbei), der Client meldet aber einen Kopftreffer
+  const fire = (dx, hit, dy = 0) => {
+    a.fireTokens = 2; a.wr.cooldown = 0; a.wr.equipT = 0; a.inv.slots[0].mag = 1;
+    const l = Math.hypot(dx, dy, 1);
+    return sim.humanFire(a.id, { s: 0, ox: 0, oy: 151.6, oz: 0, dirs: [{ x: dx / l, y: dy / l, z: -1 / l }], hit });
+  };
+  b.health = 1000; b.shield = 0; b.overshield = 0;
+  let before = total();
+  fire(0.34 / 80, { id: b.id, part: 'h' });
+  assert.equal(before - total(), Math.round(weaponDamage('sniper', 4, 'h', 80)), 'Kopftreffer trotz kleiner Abweichung');
+  // Körper knapp verfehlt, Client meldet Körpertreffer
+  before = total();
+  fire(0.56 / 80, { id: b.id, part: 'b' }, -0.4 / 80);
+  assert.ok(before - total() >= 140, 'Körpertreffer');
+  // weit daneben: keine Chance
+  before = total();
+  fire(3 / 80, { id: b.id, part: 'h' });
+  assert.equal(before - total(), 0, 'zu weit daneben');
+  // ohne Behauptung zählt nur der echte Strahl
+  fire(0.34 / 80);
+  assert.equal(before - total(), 0);
+  before = total();
+  // Wand dazwischen: Behauptung wird abgelehnt
+  const col = world.collision;
+  const rc = col.raycast;
+  col.raycast = () => 20;
+  fire(0, { id: b.id, part: 'h' });
+  col.raycast = rc;
+  assert.equal(before - total(), 0, 'durch die Wand');
+  // Noscope streut, im Zielfernrohr exakt
+  const rt = createWeaponRuntime();
+  assert.ok(weaponSpread(rt, weaponItem('sniper', 3), 0) >= 4);
+  assert.equal(weaponSpread(rt, weaponItem('sniper', 3), F.ADS), 0);
+  assert.equal(weaponSpread(rt, weaponItem('ar', 3), 0), 0);
 });
 
 test('Messer: eigener Platz, Nahkampf 40 Schaden (Kopf 60), keine Munition, nie in Truhen', () => {
@@ -334,7 +391,7 @@ test('Waffen: SCAR 7,2 Schuss/s + 30er Magazin, Schrotflinten 10 Kugeln, Schwere
   // Schrot: volle Ladung aus der Nähe = Grundschaden
   let pump = 0;
   for (let k = 0; k < 10; k++) pump += weaponDamage('pump', 4, 'b', 3);
-  assert.equal(Math.round(pump), 125);
+  assert.equal(Math.round(pump), 138);
   // Schadensabfall der SCAR ab 50 m
   assert.ok(weaponDamage('ar', 4, 'b', 100) < weaponDamage('ar', 4, 'b', 40));
   const rng = new RNG(4);

@@ -45,10 +45,11 @@ export function itemIcon(item) {
     const c = box.getCenter(new THREE.Vector3());
     const sz = box.getSize(new THREE.Vector3());
     const half = Math.max(sz.x / 2, sz.y) * 1.08;
-    cam.left = c.x - half;
-    cam.right = c.x + half;
-    cam.top = c.y + half / 2;
-    cam.bottom = c.y - half / 2;
+    // Bildausschnitt relativ zur Kamera, die auf der Mitte des Gegenstands steht
+    cam.left = -half;
+    cam.right = half;
+    cam.top = half / 2;
+    cam.bottom = -half / 2;
     cam.position.set(c.x, c.y, 5);
     cam.updateProjectionMatrix();
     renderer.render(scene, cam);

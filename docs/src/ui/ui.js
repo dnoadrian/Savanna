@@ -12,6 +12,7 @@ import { INVITE_TTL } from '../../shared/constants.js';
 import { rankBadge, rankName, rankColor } from './rankBadge.js';
 import { UNREAL } from '../../shared/ranks.js';
 import { toggleFullscreen, exitFullscreen } from '../game/input.js';
+import { installApp, hasInstallPrompt, isIOS, isInstalledApp } from '../pwa.js';
 
 export class UI {
   constructor(app) {
@@ -209,6 +210,24 @@ export class UI {
   openCredits() {
     const body = h('div', { class: 'credits' }, ...t('creditsText').split('\n\n').map((p) => h('p', {}, p)));
     this.openModal(t('creditsTitle'), body);
+  }
+
+  // Web-App installieren: echter Browser-Dialog, sonst eine kurze Anleitung
+  openInstall() {
+    const steps = isIOS() ? t('installIOS') : t('installManual');
+    const btn = h('button', { class: 'btn yellow big install-go', onclick: async () => {
+      this.app.audio.uiClick();
+      const r = await installApp();
+      if (r === 'accepted') { this.closeModal(); this.toast(t('installDone'), 'ok'); }
+      else if (r === 'ios' || r === 'manual') hint.classList.remove('hidden');
+    } }, h('span', { class: 'icon', html: ICON.download }), t('installApp'));
+    const hint = h('ol', { class: 'install-steps' + (hasInstallPrompt() ? ' hidden' : '') }, ...steps.split('\n').map((s) => h('li', {}, s)));
+    const body = h('div', { class: 'install-box' },
+      h('img', { class: 'install-icon', src: 'icons/icon-192.png', alt: '' }),
+      h('p', { class: 'install-why' }, t('installWhy')),
+      isInstalledApp() ? h('p', { class: 'install-ok' }, t('installAlready')) : (hasInstallPrompt() ? btn : null),
+      hint);
+    this.openModal(t('installTitle'), body, { cls: 'small' });
   }
 
   quitGame() {

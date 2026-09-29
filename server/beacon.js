@@ -47,7 +47,7 @@ export class Beacon {
       await fetch(`${this.cfg.base}/${encodeURIComponent(this.cfg.topic)}`, {
         method: 'POST',
         body,
-        headers: { Title: 'SHOWDOWN BAY', Tags: 'video_game' },
+        headers: { Title: 'SNOWDOWN', Tags: 'video_game' },
         signal: AbortSignal.timeout(8000),
       });
     } catch { /* offline: nächster Versuch beim nächsten Intervall */ }

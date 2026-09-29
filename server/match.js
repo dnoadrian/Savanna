@@ -53,7 +53,7 @@ export class ServerMatch {
 
   onLoaded(c) {
     this.loaded.add(c.pid);
-    if (c.admin && c.cheats && c.cheats.ia) this.sim.humanCheat(c.pid, { infAmmo: true });
+    if (c.admin && c.cheats && (c.cheats.ia || c.cheats.gm)) this.sim.humanCheat(c.pid, { infAmmo: !!c.cheats.ia, god: !!c.cheats.gm });
   }
 
   pump() {
@@ -140,7 +140,8 @@ export class ServerMatch {
         if (!Array.isArray(m.o) || !Array.isArray(m.d) || m.d.length > 12) break;
         const [ox, oy, oz] = m.o.map(Number);
         const dirs = m.d.filter((d) => Array.isArray(d) && d.length === 3 && d.every((v) => Number.isFinite(+v))).map((d) => ({ x: +d[0], y: +d[1], z: +d[2] }));
-        if ([ox, oy, oz].every(Number.isFinite) && dirs.length) sim.humanFire(c.pid, { s: m.s | 0, ox, oy, oz, dirs, rewind: rw, wall: !!m.wb && !!c.admin });
+        const hit = Array.isArray(m.h) && typeof m.h[0] === 'string' ? { id: m.h[0].slice(0, 64), part: m.h[1] === 'h' ? 'h' : 'b' } : null;
+        if ([ox, oy, oz].every(Number.isFinite) && dirs.length) sim.humanFire(c.pid, { s: m.s | 0, ox, oy, oz, dirs, rewind: rw, wall: !!m.wb && !!c.admin, hit });
         break;
       }
       case 'reload': sim.humanReload(c.pid); break;
@@ -151,10 +152,11 @@ export class ServerMatch {
       case 'dropAmmo': sim.humanDropAmmo(c.pid, String(m.a)); break;
       case 'cheat':
         // Cheats nur für angemeldete Admins (Server prüft das Token)
-        c.cheats = { ia: !!m.ia };
+        c.cheats = { ia: !!m.ia, gm: !!m.gm };
         if (!c.admin) break;
-        sim.humanCheat(c.pid, { infAmmo: !!m.ia });
+        sim.humanCheat(c.pid, { infAmmo: !!m.ia, god: !!m.gm });
         if (m.op) sim.humanOpLoot(c.pid);
+        if (m.heal) sim.humanHeal(c.pid);
         break;
       case 'int':
         if (Number.isInteger(m.c)) sim.humanInteract(c.pid, { c: m.c });

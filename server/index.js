@@ -1,4 +1,4 @@
-// SHOWDOWN BAY – Server: liefert das Spiel aus (Port 4242) und betreibt Lobby, Freunde,
+// SNOWDOWN – Server: liefert das Spiel aus (Port 4242) und betreibt Lobby, Freunde,
 // Party, Matchmaking und server-autoritative Matches über WebSocket.
 import http from 'http';
 import os from 'os';
@@ -49,7 +49,7 @@ server.on('error', (e) => {
 
 server.listen(port, '0.0.0.0', () => {
   console.log('');
-  console.log('  ███ SHOWDOWN BAY ███');
+  console.log('  ███ SNOWDOWN ███');
   console.log('');
   console.log(`  Spiel läuft:   http://localhost:${port}`);
   for (const ip of lanAddresses()) console.log(`  Im WLAN/LAN:   http://${ip}:${port}`);
