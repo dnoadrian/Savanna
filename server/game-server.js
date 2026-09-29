@@ -51,7 +51,8 @@ export class GameServer {
     this.startedAt = Date.now();
     // Angaben für die Lobby-Anzeige „Server“ (Name, Standort, Spieler online)
     this.info = {
-      name: process.env.SHOWDOWN_SERVER_NAME || process.env.RENDER_SERVICE_NAME || null,
+      // alter Render-Dienstname „showdown-bay-eu“ wird als „snowdown-eu“ angezeigt
+      name: process.env.SHOWDOWN_SERVER_NAME || (process.env.RENDER_SERVICE_NAME || '').replace(/showdown[-_ ]?bay/i, 'snowdown') || null,
       region: process.env.SHOWDOWN_REGION || (process.env.RENDER ? 'Render' : null),
       cloud: !!process.env.RENDER || !!process.env.SHOWDOWN_REGION,
     };

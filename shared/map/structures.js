@@ -133,19 +133,43 @@ export function dock(B, out, len = 14, w = 3, ly = 0.55, boat = true) {
   floorLoot(out, B, 0, ly, len - 1.5);
 }
 
+// Blockbohlen außen an einer Wand entlang X (bei z) – Tür- und Fensteröffnungen bleiben frei,
+// damit man sieht, wo man hindurchgehen kann. ops: [{ x, w, y0, y1 }]
+function logStrips(B, z, x0, x1, h, ops, color) {
+  for (let y = 0.35; y < h; y += 0.45) {
+    const cuts = ops.filter((q) => y + 0.1 > q.y0 && y < q.y1).map((q) => [q.x - q.w / 2 - 0.04, q.x + q.w / 2 + 0.04]).sort((a, b) => a[0] - b[0]);
+    let cur = x0;
+    for (const [a, b] of cuts) {
+      if (a > cur + 0.05) B.box((cur + a) / 2, y, z, a - cur, 0.1, 0.06, color, { col: false });
+      cur = Math.max(cur, b);
+    }
+    if (x1 > cur + 0.05) B.box((cur + x1) / 2, y, z, x1 - cur, 0.1, 0.06, color, { col: false });
+  }
+}
+
+// Türrahmen (Pfosten + Sturz) in einer Wand entlang X bei z und ein offenes Türblatt, das nach
+// innen (−Z) an der Laibung steht – so ist klar: hier ist offen
+function openDoor(B, x, z, w, h, thick, color, leaf) {
+  for (const sg of [-1, 1]) B.box(x + sg * (w / 2 + 0.06), 0.2, z, 0.12, h - 0.2, thick + 0.14, color, { col: false });
+  B.box(x, h, z, w + 0.36, 0.14, thick + 0.14, color, { col: false });
+  const lw = w - 0.12;
+  B.box(x - w / 2 + 0.06, 0.22, z - thick / 2 - lw / 2 - 0.02, 0.06, h - 0.3, lw, leaf, { col: false });
+  B.box(x - w / 2 + 0.1, 1.05, z - thick / 2 - lw + 0.12, 0.05, 0.05, 0.08, 0x2a2a2a, { col: false });
+}
+
 // Blockhütte
 export function cabin(B, out, o = {}) {
   const w = o.w ?? 6.5, d = o.d ?? 5.5, hw = w / 2, hd = d / 2, h = 2.8;
   const wc = o.wall ?? C.WOOD_DARK;
   B.box(0, 0, 0, w, 0.2, d, C.PLANK, { m: MAT.WOOD });
-  B.wall(-hw, hd, hw, hd, h, 0.3, wc, [door(w * 0.33, 1.9, 2.3), win(w * 0.78, 1.0)]);
-  B.wall(hw, -hd, -hw, -hd, h, 0.3, wc, [win(w / 2, 1.1)]);
+  const dr = door(w * 0.33, 1.9, 2.3), wf = win(w * 0.78, 1.0), wb = win(w / 2, 1.1);
+  B.wall(-hw, hd, hw, hd, h, 0.3, wc, [dr, wf]);
+  B.wall(hw, -hd, -hw, -hd, h, 0.3, wc, [wb]);
   B.wall(-hw, -hd, -hw, hd, h, 0.3, wc, [win(d / 2, 1.0)]);
   B.wall(hw, hd, hw, -hd, h, 0.3, wc, []);
-  for (let y = 0.35; y < h; y += 0.45) {
-    B.box(0, y, hd + 0.16, w + 0.3, 0.1, 0.06, C.WOOD, { col: false });
-    B.box(0, y, -hd - 0.16, w + 0.3, 0.1, 0.06, C.WOOD, { col: false });
-  }
+  logStrips(B, hd + 0.16, -hw - 0.15, hw + 0.15, h, [{ ...dr, x: -hw + dr.at }, { ...wf, x: -hw + wf.at }], C.WOOD);
+  logStrips(B, -hd - 0.16, -hw - 0.15, hw + 0.15, h, [{ ...wb, x: hw - wb.at }], C.WOOD);
+  openDoor(B, -hw + dr.at, hd, dr.w, dr.y1, 0.3, C.WOOD_DARK, C.WOOD);
   B.box(0, h, 0, w + 0.2, 0.15, d + 0.2, C.WOOD_DARK, { m: MAT.WOOD });
   B.prism(0, h + 0.15, 0, d + 1.2, 2.0, w + 1.2, o.roof ?? C.ROOF_GREEN, { col: true, ry: Math.PI / 2 });
   B.box(hw - 1.0, h, -0.6, 0.8, 3.0, 0.8, C.STONE, { m: MAT.STONE });

@@ -1,6 +1,6 @@
 # Hält einen 24/7-Spielserver im Gratis-Tarif (z. B. Render) wach: ruft alle 10 Minuten
 # /api/health auf. Die Adresse kommt aus package.json → "showdown": { "server": "https://…" }
-# oder aus der Repository-Variable SHOWDOWN_SERVER_URL (Settings → Secrets and variables →
+# (zuerst) oder aus der Repository-Variable SHOWDOWN_SERVER_URL (Settings → Secrets and variables →
 # Actions → Variables). Ohne Adresse passiert nichts.
 # Hinweis: GitHub pausiert zeitgesteuerte Workflows nach 60 Tagen ohne Commits im Repository.
 name: Server wach halten
@@ -26,7 +26,8 @@ jobs:
         env:
           SERVER_VAR: ${{ vars.SHOWDOWN_SERVER_URL }}
         run: |
-          URL="${SERVER_VAR:-$(node -e "try{const p=require('./package.json');process.stdout.write((p.showdown&&p.showdown.server)||'')}catch{}")}"
+          PKG="$(node -e "try{const p=require('./package.json');process.stdout.write((p.showdown&&p.showdown.server)||'')}catch{}")"
+          URL="${PKG:-$SERVER_VAR}"
           if [ -z "$URL" ]; then echo "Kein Server eingetragen – nichts zu tun."; exit 0; fi
           URL="${URL%/}/api/health"
           echo "Pinge $URL"

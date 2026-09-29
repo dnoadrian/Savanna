@@ -2,9 +2,11 @@
 # README → "Deploy to Render" oder im Render-Dashboard "New → Blueprint" mit diesem Repository.
 # Region Frankfurt: kurzer Ping für Spieler in Europa (Oregon/USA wären ca. 170–200 ms).
 # Die Region eines Dienstes lässt sich nachträglich nicht ändern – deshalb eigener Name.
+# Name „snowdown“ → Adresse https://snowdown.onrender.com (die Adresse hängt am Namen; der
+# alte Dienst „showdown-bay-eu“ kann danach im Render-Dashboard gelöscht werden).
 services:
   - type: web
-    name: showdown-bay-eu
+    name: snowdown
     runtime: node
     region: frankfurt
     plan: free
